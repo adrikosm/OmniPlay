@@ -2,21 +2,30 @@ import Diagnostics
 import SwiftUI
 
 struct DiagnosticsView: View {
+    @State private var bundleURL: URL?
+    @State private var exportError: String?
+
     var body: some View {
         NavigationStack {
             List {
-                Section("Log categories (design authority §18)") {
-                    ForEach(LogCategory.allCases, id: \.self) { category in
-                        Text(category.rawValue)
-                            .font(.system(.body, design: .monospaced))
+                Section("Host session") {
+                    Text(HostSession.shared.directory.path(percentEncoded: false))
+                        .font(.system(.footnote, design: .monospaced))
+                        .textSelection(.enabled)
+                    Button("Prepare log bundle") {
+                        do { bundleURL = try HostSession.shared.exportBundle() } catch { exportError = error.localizedDescription }
+                    }
+                    if let bundleURL {
+                        ShareLink(item: bundleURL) { Label("Share log bundle", systemImage: "square.and.arrow.up") }
+                    }
+                    if let exportError {
+                        Text(exportError).foregroundStyle(.red)
                     }
                 }
-                Section {
-                    Text(
-                        "Per-session export bundles, KSCrash reports and memory traces are Phase 0/4 deliverables. "
-                            + "No telemetry, no network."
-                    )
-                    .foregroundStyle(.secondary)
+                Section("Log categories") {
+                    ForEach(LogCategory.allCases, id: \.self) { category in
+                        Text(category.rawValue).font(.system(.body, design: .monospaced))
+                    }
                 }
             }
             .navigationTitle("Diagnostics")

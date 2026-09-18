@@ -1,0 +1,4 @@
+[configuration]
+entry_symbol = "native_init"
+[libraries]
+windows.x86_64 = "res://bin/native.dll"

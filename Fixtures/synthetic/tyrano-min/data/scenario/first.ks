@@ -1,0 +1,3 @@
+*start
+[cm]
+hello[l]

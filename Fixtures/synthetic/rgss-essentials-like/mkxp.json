@@ -1,0 +1,7 @@
+{
+  "rgssVersion": 3,
+  "preloadScript": [
+    "Scripts/"
+  ],
+  "customScript": ""
+}

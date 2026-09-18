@@ -1,22 +1,63 @@
 import Foundation
 
-/// What the library knows about one imported title. Persisted as `Games/<UUID>/game.json`.
+/// One logged detection check. Lives here so `GameDescriptor` can carry evidence without depending on GameDetection.
+public struct EvidenceRecord: Codable, Sendable, Hashable {
+    public let check: String
+    public let outcome: String
+    public let weight: Double
+
+    public init(check: String, outcome: String, weight: Double) {
+        self.check = check
+        self.outcome = outcome
+        self.weight = weight
+    }
+}
+
+/// What the library knows about one imported title. Persisted as `Games/<id>/game.json`.
+/// Detection (DETECT-001) fills the engine fields; import fills identity and paths.
 public struct GameDescriptor: Codable, Sendable, Hashable, Identifiable {
-    public let id: UUID
+    public let id: GameID
     public var title: String
+    /// Game root relative to `Original/` after wrapper stripping (`""` when the root is the tree root).
+    public var rootRelativePath: String
     public var engine: EngineFamily
-    public var engineVersion: String?
-    /// Stable hash of the imported payload; saves record it as provenance (§15.1).
+    public var generation: EngineGeneration?
+    public var version: EngineVersion?
+    public var runtimeCandidates: [RuntimeIdentifier]
+    public var entryPoint: String?
+    public var containerType: String?
+    public var saveFamily: String?
+    public var exportPlatform: String?
+    public var mediaRequirements: [String]
+    public var blockers: [String]
+    public var warnings: [String]
+    public var capabilities: [String]
+    public var confidence: Double
+    public var evidence: [EvidenceRecord]
+    /// Stable hash of the imported payload; saves record it as provenance.
     public var identityHash: String
     public var importedAt: Date
     public var grade: PlayabilityGrade
     public var profile: CompatibilityProfile
 
     public init(
-        id: UUID = UUID(),
+        id: GameID = GameID(),
         title: String,
+        rootRelativePath: String = "",
         engine: EngineFamily,
-        engineVersion: String? = nil,
+        generation: EngineGeneration? = nil,
+        version: EngineVersion? = nil,
+        runtimeCandidates: [RuntimeIdentifier] = [],
+        entryPoint: String? = nil,
+        containerType: String? = nil,
+        saveFamily: String? = nil,
+        exportPlatform: String? = nil,
+        mediaRequirements: [String] = [],
+        blockers: [String] = [],
+        warnings: [String] = [],
+        capabilities: [String] = [],
+        confidence: Double = 0,
+        evidence: [EvidenceRecord] = [],
         identityHash: String,
         importedAt: Date = .now,
         grade: PlayabilityGrade = .loadable,
@@ -24,8 +65,21 @@ public struct GameDescriptor: Codable, Sendable, Hashable, Identifiable {
     ) {
         self.id = id
         self.title = title
+        self.rootRelativePath = rootRelativePath
         self.engine = engine
-        self.engineVersion = engineVersion
+        self.generation = generation
+        self.version = version
+        self.runtimeCandidates = runtimeCandidates
+        self.entryPoint = entryPoint
+        self.containerType = containerType
+        self.saveFamily = saveFamily
+        self.exportPlatform = exportPlatform
+        self.mediaRequirements = mediaRequirements
+        self.blockers = blockers
+        self.warnings = warnings
+        self.capabilities = capabilities
+        self.confidence = confidence
+        self.evidence = evidence
         self.identityHash = identityHash
         self.importedAt = importedAt
         self.grade = grade
@@ -33,12 +87,9 @@ public struct GameDescriptor: Codable, Sendable, Hashable, Identifiable {
     }
 }
 
-/// Per-game overrides (web load mode, UA, shims, media mode, Ruby override, …) — design authority Phase 5.
-/// Kept as an open key/value bag until the profile schema is settled by real corpus evidence.
+/// Per-game overrides (web load mode, UA, shims, media mode, Ruby override, …). An open key/value
+/// bag until the profile schema is settled by real corpus evidence.
 public struct CompatibilityProfile: Codable, Sendable, Hashable {
     public var overrides: [String: String]
-
-    public init(overrides: [String: String] = [:]) {
-        self.overrides = overrides
-    }
+    public init(overrides: [String: String] = [:]) { self.overrides = overrides }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import GameCore
 
 /// The coordinator's ledger of which one-shot engine copies are spent this process (§14.2).
 /// UI contract: the library shows a "restart needed" badge *before* the user taps a game whose
@@ -58,10 +59,10 @@ public actor SessionSlotLedger {
         case .slotSpent, .restartRequired:
             states[slot] = .spent
         case .clean:
-            switch slot.capacity {
+            switch slot.sessionsPerProcess {
             case .unlimited:
                 states[slot] = .fresh
-            case .one, .unlimitedUnverified:
+            case .one, .oneWithSoftRestart: // soft restart is treated as one-shot until proven on device
                 if states[slot] != .spent {
                     states[slot] = .boundTo(game)
                 }

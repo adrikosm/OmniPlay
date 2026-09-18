@@ -48,22 +48,19 @@ public enum RuntimeSurface: Sendable, Equatable {
 }
 
 public struct RuntimeConfiguration: Sendable {
-    public var directories: GameDirectories
+    public var paths: AppPaths
+    public var game: GameID
     public var rtpDirectory: URL?
     public var profile: CompatibilityProfile
     public var sessionID: SessionID
 
-    public init(directories: GameDirectories, rtpDirectory: URL? = nil, profile: CompatibilityProfile, sessionID: SessionID = .init()) {
-        self.directories = directories
+    public init(paths: AppPaths, game: GameID, rtpDirectory: URL? = nil, profile: CompatibilityProfile, sessionID: SessionID = .init()) {
+        self.paths = paths
+        self.game = game
         self.rtpDirectory = rtpDirectory
         self.profile = profile
         self.sessionID = sessionID
     }
-}
-
-public enum MemoryPressureLevel: Sendable, Equatable {
-    case warning
-    case critical
 }
 
 /// Typed state bridge requests (§27). Engine-specific payloads are opaque here.

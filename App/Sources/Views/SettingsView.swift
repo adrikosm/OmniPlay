@@ -1,46 +1,46 @@
+import Diagnostics
 import GameCore
-import RuntimeCore
 import SwiftUI
 
 struct SettingsView: View {
-    private var storageRoot: String {
-        (try? StorageLayout.applicationDefault().root.path(percentEncoded: false)) ?? "unavailable"
-    }
+    @State private var footprint: UInt64 = 0
+    @State private var freeSpace: Int64?
+
+    private var session: HostSession { HostSession.shared }
 
     var body: some View {
         NavigationStack {
             List {
-                Section("Storage (design authority §15.2)") {
-                    Text(storageRoot)
+                Section("Storage") {
+                    Text(session.paths.root.path(percentEncoded: false))
                         .font(.system(.footnote, design: .monospaced))
                         .textSelection(.enabled)
+                    LabeledContent("Free space", value: freeSpace.map { $0.formatted(.byteCount(style: .file)) } ?? "unknown")
                 }
-                Section("Session slots (design authority §14.2)") {
+                Section("Memory") {
+                    LabeledContent("Footprint", value: Int64(footprint).formatted(.byteCount(style: .memory)))
+                    Button("Sample now") { refresh(label: "manual") }
+                }
+                Section("Session slots") {
                     ForEach(SessionSlot.allCases, id: \.self) { slot in
-                        LabeledContent(slot.rawValue, value: slot.capacity.summary)
+                        LabeledContent(slot.rawValue, value: slot.sessionsPerProcess.rawValue)
                     }
                 }
                 Section("About") {
-                    LabeledContent("Version", value: Bundle.main.shortVersion)
-                    LabeledContent("Build", value: Bundle.main.buildNumber)
+                    LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")
+                    LabeledContent("Session", value: session.sessionID.description)
+                        .font(.footnote)
                 }
             }
             .navigationTitle("Settings")
+            .onAppear { refresh(label: "settings") }
         }
     }
-}
 
-private extension Bundle {
-    var shortVersion: String { infoDictionary?["CFBundleShortVersionString"] as? String ?? "—" }
-    var buildNumber: String { infoDictionary?["CFBundleVersion"] as? String ?? "—" }
-}
-
-private extension SlotCapacity {
-    var summary: String {
-        switch self {
-        case .unlimited: "unlimited"
-        case .one: "1 per launch"
-        case .unlimitedUnverified: "1 per launch (until verified)"
-        }
+    private func refresh(label: String) {
+        footprint = MemoryProbe.footprint
+        session.recordMemory(label: label)
+        freeSpace = try? session.paths.root.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+            .volumeAvailableCapacityForImportantUsage
     }
 }

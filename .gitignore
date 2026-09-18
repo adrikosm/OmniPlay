@@ -49,6 +49,7 @@ Fixtures/large/**
 !Fixtures/large/.gitkeep
 Corpus/
 *.jgp
+!Fixtures/synthetic/*.jgp
 
 # ---- Documentation: README.md is the only markdown that ships ----
 *.md

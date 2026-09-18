@@ -1,17 +1,6 @@
 import GameCore
 
-/// One logged check (design authority §17: "every check logged").
-public struct DetectionEvidence: Codable, Sendable, Hashable {
-    public let check: String
-    public let outcome: String
-    public let weight: Double
-
-    public init(check: String, outcome: String, weight: Double) {
-        self.check = check
-        self.outcome = outcome
-        self.weight = weight
-    }
-}
+public typealias DetectionEvidence = EvidenceRecord
 
 /// Confidence gates: ≥0.90 auto, 0.60–0.89 warn, <0.60 manual picker. Bias toward refusal on ambiguity.
 public enum ConfidenceGate: Sendable, Equatable {

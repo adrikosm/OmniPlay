@@ -1,4 +1,5 @@
 import Foundation
+import GameCore
 import RuntimeCore
 import Testing
 
@@ -48,14 +49,13 @@ struct SessionSlotLedgerTests {
         #expect(await ledger.spentSlots == [.renpy853])
     }
 
-    @Test("Unverified-unlimited slots are treated as one-shot until proven")
-    func unverifiedIsConservative() async throws {
-        #expect(SessionSlot.easyrpg.capacity == .unlimitedUnverified)
-        #expect(!SessionSlot.easyrpg.capacity.isProvenUnlimited)
+    @Test("Soft-restart slots are treated as one-shot until proven")
+    func softRestartIsConservative() async throws {
+        #expect(SessionSlot.renpy853.sessionsPerProcess == .oneWithSoftRestart)
         let ledger = SessionSlotLedger()
-        try await ledger.recordStart(of: .easyrpg, game: gameA)
-        await ledger.recordStop(of: .easyrpg, game: gameA, verdict: .clean)
-        #expect(await ledger.launchVerdict(for: .easyrpg, game: gameB) == .restartRequired(.boundToOtherGame(gameA)))
+        try await ledger.recordStart(of: .renpy853, game: gameA)
+        await ledger.recordStop(of: .renpy853, game: gameA, verdict: .clean)
+        #expect(await ledger.launchVerdict(for: .renpy853, game: gameB) == .restartRequired(.boundToOtherGame(gameA)))
     }
 
     @Test("Every §14.2 slot is declared")
