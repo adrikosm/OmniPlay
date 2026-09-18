@@ -52,7 +52,7 @@ public enum StreamingHasher {
         of url: URL,
         chunk: Int = ChunkedCopier.defaultChunk,
         progress: (@Sendable (Int64) -> Void)? = nil
-    ) async throws -> SHA256Digest {
+    ) throws -> SHA256Digest {
         let input = try FileHandle(forReadingFrom: url)
         defer { try? input.close() }
         var hasher = SHA256()

@@ -15,7 +15,7 @@ struct IOTests {
         let lastProgress = Mutex<Int64>(0)
         let growth = try await MemoryAssert.footprintGrowth {
             try await ChunkedCopier.copy(from: src, to: dst) { p in lastProgress.withLock { $0 = p } }
-            let digest = try await StreamingHasher.sha256(of: dst)
+            let digest = try StreamingHasher.sha256(of: dst)
             #expect(digest.hex.count == 64)
         }
         #expect(lastProgress.withLock { $0 } == Int64(size))
@@ -27,7 +27,7 @@ struct IOTests {
     func hashKnown() async throws {
         let root = try TemporaryGameRoot(name: "hash")
         let src = try root.file("a.txt", Data("abc".utf8))
-        #expect(try await StreamingHasher.sha256(of: src).hex == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        #expect(try StreamingHasher.sha256(of: src).hex == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
         let dst = root.url.appending(path: "sub/b.txt")
         try await ChunkedCopier.copy(from: src, to: dst)
         #expect(try Data(contentsOf: dst) == Data("abc".utf8))

@@ -8,6 +8,7 @@ let package = Package(
     dependencies: [
         .package(path: "../GameCore"),
         .package(path: "../Diagnostics"),
+        .package(url: "https://github.com/groue/GRDB.swift.git", exact: "7.11.1"),
     ],
     targets: [
         .target(
@@ -15,9 +16,10 @@ let package = Package(
             dependencies: [
                 .product(name: "GameCore", package: "GameCore"),
                 .product(name: "Diagnostics", package: "Diagnostics"),
+                .product(name: "GRDB", package: "GRDB.swift"),
             ]
         ),
-        .testTarget(name: "GameStoreTests", dependencies: ["GameStore"]),
+        .testTarget(name: "GameStoreTests", dependencies: ["GameStore", .product(name: "TestSupport", package: "GameCore")]),
     ],
     swiftLanguageModes: [.v6]
 )

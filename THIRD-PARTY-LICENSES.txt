@@ -1,6 +1,9 @@
 OmniPlay third-party components
 ================================
 
-No third-party component is built into OmniPlay yet. Each native engine, library or Swift package
-is listed here when it is added, with its version, licence and the path of the full licence text
-under LICENSES/. Patches applied to GPL/LGPL components are published in this repository.
+Each component is listed with version, licence and the path of the full licence text under LICENSES/.
+Patches applied to GPL/LGPL components are published in this repository.
+
+GRDB.swift 7.11.1 — MIT — LICENSES/GRDB.swift.txt
+    SQLite toolkit used for the library database (GameStore) and the per-game path index (OverlayVFS).
+    https://github.com/groue/GRDB.swift
