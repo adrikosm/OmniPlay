@@ -1,0 +1,18 @@
+/// Safety limits for the transactional importer (design authority §13.3). Archive headers lie;
+/// every limit is enforced against bytes actually written.
+public struct ImportLimits: Sendable, Equatable {
+    public var maxUncompressedBytes: UInt64 = 16 << 30
+    /// Abort if any single entry exceeds this ratio. Tunable per format (RPA/RGSSAD compress well).
+    public var maxEntryCompressionRatio: Double = 200
+    public var maxOverallCompressionRatio: Double = 100
+    public var maxEntries: Int = 500_000
+    public var maxPathBytes: Int = 1024
+    public var maxPathComponents: Int = 64
+    /// SFX → CAB → zip is real; anything deeper is not.
+    public var maxNestedArchives: Int = 2
+    public var freeSpaceSafetyFactor: Double = 1.5
+
+    public init() {}
+
+    public static let `default` = ImportLimits()
+}

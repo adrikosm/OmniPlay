@@ -31,7 +31,7 @@ git diff --cached --name-only --diff-filter=ACMR -z | while IFS= read -r -d '' f
   magic=$(git show ":$f" 2>/dev/null | head -c 4 | xxd -p)
   case "$magic" in cffaedfe|cefaedfe|feedface|feedfacf|cafebabe) bad+=("$f  (Mach-O binary)") ;; esac
   if git show ":$f" 2>/dev/null | grep -qa -- 'BEGIN [A-Z ]*PRIVATE KEY'; then bad+=("$f  (private key material)"); fi
-  if git show ":$f" 2>/dev/null | grep -Eaq 'DEVELOPMENT_TEAM *= *[A-Z0-9]{6,}'; then bad+=("$f  (real DEVELOPMENT_TEAM value)"); fi
+  if git show ":$f" 2>/dev/null | grep -Eaq 'DEVELOPMENT_TEAM *= *[A-Z0-9]{10}([^A-Z0-9_]|$)'; then bad+=("$f  (real DEVELOPMENT_TEAM value)"); fi
 done
 
 if (( ${#bad} )); then

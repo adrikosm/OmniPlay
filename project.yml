@@ -1,0 +1,174 @@
+# xcodegen spec. OmniPlay.xcodeproj is generated (Scripts/generate-project.sh) and gitignored.
+name: OmniPlay
+options:
+  bundleIdPrefix: com.omniplay
+  xcodeVersion: "27.0"
+  deploymentTarget:
+    iOS: "27.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    IPHONEOS_DEPLOYMENT_TARGET: "27.0"
+    ARCHS: arm64
+    ONLY_ACTIVE_ARCH: YES
+    TARGETED_DEVICE_FAMILY: "1"
+    CLANG_CXX_LANGUAGE_STANDARD: c++17
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    DEAD_CODE_STRIPPING: YES
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+  configs:
+    Debug:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+    Release:
+      SWIFT_COMPILATION_MODE: wholemodule
+
+# Local packages. None may import SwiftUI; only InputKit and RuntimeCore may import UIKit
+# (Scripts/check-no-ui-imports.sh runs before every build).
+packages:
+  GameCore:        { path: Packages/GameCore }
+  Diagnostics:     { path: Packages/Diagnostics }
+  GameStore:       { path: Packages/GameStore }
+  OverlayVFS:      { path: Packages/OverlayVFS }
+  GameImport:      { path: Packages/GameImport }
+  GameDetection:   { path: Packages/GameDetection }
+  RuntimeCore:     { path: Packages/RuntimeCore }
+  SaveKit:         { path: Packages/SaveKit }
+  InputKit:        { path: Packages/InputKit }
+  MediaCompat:     { path: Packages/MediaCompat }
+  LocalGameServer: { path: Packages/LocalGameServer }
+  GameTools:       { path: Packages/GameTools }
+
+targets:
+  OmniPlay:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+        excludes: ["Info.plist", "OmniPlay.entitlements"]
+    configFiles:
+      Debug: Signing.xcconfig
+      Release: Signing.xcconfig
+    dependencies:
+      - package: GameCore
+      - package: Diagnostics
+      - package: GameStore
+      - package: OverlayVFS
+      - package: GameImport
+      - package: GameDetection
+      - package: RuntimeCore
+      - package: SaveKit
+      - package: InputKit
+      - package: MediaCompat
+      - package: LocalGameServer
+      - package: GameTools
+    preBuildScripts:
+      - name: Check no UI imports in packages
+        script: "\"$SRCROOT/Scripts/check-no-ui-imports.sh\""
+        basedOnDependencyAnalysis: false
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: OmniPlay
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSApplicationCategoryType: public.app-category.games
+        LSSupportsGameMode: true
+        GCSupportsControllerUserInteraction: true
+        ITSAppUsesNonExemptEncryption: false
+        # Scene lifecycle (mandatory with the iOS 27 SDK); SwiftUI App owns the scenes.
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # Games, RTPs and soundfonts arrive through Files / Finder; loopback only for the local server.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Game distribution
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.zip-archive
+              - org.7-zip.7-zip-archive
+              - com.rarlab.rar-archive
+              - com.microsoft.windows-executable
+              - org.godotengine.pck
+              - com.adobe.shockwave-flash
+              - app.omniplay.jgp
+              - org.love2d.love
+              - public.folder
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: org.7-zip.7-zip-archive
+            UTTypeConformsTo: [public.data, public.archive]
+            UTTypeDescription: 7-Zip archive
+            UTTypeTagSpecification: { public.filename-extension: [7z] }
+          - UTTypeIdentifier: com.rarlab.rar-archive
+            UTTypeConformsTo: [public.data, public.archive]
+            UTTypeDescription: RAR archive
+            UTTypeTagSpecification: { public.filename-extension: [rar] }
+          - UTTypeIdentifier: com.microsoft.windows-executable
+            UTTypeConformsTo: [public.data, public.executable]
+            UTTypeDescription: Windows executable
+            UTTypeTagSpecification: { public.filename-extension: [exe] }
+          - UTTypeIdentifier: org.godotengine.pck
+            UTTypeConformsTo: [public.data]
+            UTTypeDescription: Godot package
+            UTTypeTagSpecification: { public.filename-extension: [pck] }
+          - UTTypeIdentifier: com.adobe.shockwave-flash
+            UTTypeConformsTo: [public.data]
+            UTTypeDescription: Flash movie
+            UTTypeTagSpecification: { public.filename-extension: [swf] }
+          - UTTypeIdentifier: app.omniplay.jgp
+            UTTypeConformsTo: [public.data, public.archive]
+            UTTypeDescription: JoiPlay game package
+            UTTypeTagSpecification: { public.filename-extension: [jgp] }
+          - UTTypeIdentifier: org.love2d.love
+            UTTypeConformsTo: [public.data, public.archive]
+            UTTypeDescription: LÖVE game
+            UTTypeTagSpecification: { public.filename-extension: [love] }
+    entitlements:
+      path: App/OmniPlay.entitlements
+      properties:
+        com.apple.developer.kernel.increased-memory-limit: true
+        com.apple.developer.kernel.extended-virtual-addressing: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.omniplay.app
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+
+  OmniPlayTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests/OmniPlayTests]
+    dependencies:
+      - target: OmniPlay
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.omniplay.app.tests
+
+schemes:
+  OmniPlay:
+    build:
+      targets:
+        OmniPlay: all
+        OmniPlayTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: true
+      targets: [OmniPlayTests]
+    archive:
+      config: Release

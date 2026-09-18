@@ -1,0 +1,28 @@
+included:
+  - App
+  - Packages
+  - Runtimes
+  - Tests
+excluded:
+  - .build
+  - "**/.build"
+  - Engines
+  - docs
+  - Fixtures
+opt_in_rules:
+  - empty_count
+  - explicit_init
+  - first_where
+  - sorted_first_last
+  - unneeded_parentheses_in_closure_argument
+disabled_rules:
+  - todo
+  - trailing_comma        # Swift 6 style: trailing commas in multi-line literals are intentional
+line_length:
+  warning: 140
+  error: 200
+identifier_name:
+  min_length: 1           # a/b/x/y controller buttons, x/y coordinates, short test locals
+  max_length: 50
+type_name:
+  allowed_symbols: ["_"]

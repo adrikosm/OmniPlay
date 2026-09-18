@@ -1,0 +1,21 @@
+// swift-tools-version: 6.0
+import PackageDescription
+
+let package = Package(
+    name: "Diagnostics",
+    platforms: [.iOS("27.0"), .macOS("15.0")],
+    products: [.library(name: "Diagnostics", targets: ["Diagnostics"])],
+    dependencies: [
+        .package(path: "../GameCore"),
+    ],
+    targets: [
+        .target(
+            name: "Diagnostics",
+            dependencies: [
+                .product(name: "GameCore", package: "GameCore"),
+            ]
+        ),
+        .testTarget(name: "DiagnosticsTests", dependencies: ["Diagnostics"]),
+    ],
+    swiftLanguageModes: [.v6]
+)
