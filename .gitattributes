@@ -9,3 +9,5 @@
 *.exe binary
 *.tar binary
 *.apk binary
+# Synthetic fixtures are byte-exact test inputs pinned by MANIFEST.sha256: never normalise them.
+Fixtures/synthetic/** -text
