@@ -1,0 +1,11 @@
+* text=auto eol=lf
+*.png binary
+*.zip binary
+*.sf2 binary
+*.rgssad binary
+*.rgss2a binary
+*.rgss3a binary
+*.pck binary
+*.exe binary
+*.tar binary
+*.apk binary
