@@ -23,7 +23,7 @@ public enum OriginalGuard {
         public var ok: Bool { mismatched.isEmpty }
     }
 
-    public static func isSealed(manifest: URL) -> Bool { FileManager.default.fileExists(atPath: manifest.path()) }
+    public static func isSealed(manifest: URL) -> Bool { FileManager.default.fileExists(atPath: manifest.path(percentEncoded: false)) }
 
     /// `hashing == nil` picks immediate below `deferredThreshold`, deferred above. Runs on the caller's task; cancellable.
     @discardableResult
@@ -32,7 +32,7 @@ public enum OriginalGuard {
         let fm = FileManager.default
         try fm.createDirectory(at: manifest.deletingLastPathComponent(), withIntermediateDirectories: true)
         let temp = manifest.appendingPathExtension("part")
-        _ = fm.createFile(atPath: temp.path(), contents: nil)
+        _ = fm.createFile(atPath: temp.path(percentEncoded: false), contents: nil)
         let out = try FileHandle(forWritingTo: temp)
         var files = 0
         var bytes: Int64 = 0
@@ -52,7 +52,7 @@ public enum OriginalGuard {
             }
             try fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: originalRoot.path(percentEncoded: false))
             try out.close()
-            if fm.fileExists(atPath: manifest.path()) {
+            if fm.fileExists(atPath: manifest.path(percentEncoded: false)) {
                 _ = try fm.replaceItemAt(manifest, withItemAt: temp)
             } else {
                 try fm.moveItem(
@@ -73,7 +73,7 @@ public enum OriginalGuard {
     /// Fills in the `-` hashes of a deferred manifest, streaming line by line into a temp file, then swaps it in.
     public static func completeDeferredHashing(originalRoot: URL, manifest: URL) async throws {
         let temp = manifest.appendingPathExtension("rehash")
-        _ = FileManager.default.createFile(atPath: temp.path(), contents: nil)
+        _ = FileManager.default.createFile(atPath: temp.path(percentEncoded: false), contents: nil)
         let out = try FileHandle(forWritingTo: temp)
         do {
             for try await line in manifest.lines {

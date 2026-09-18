@@ -68,7 +68,7 @@ public actor MemoryRecorder {
         do {
             if handle == nil {
                 try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-                if !FileManager.default.fileExists(atPath: fileURL.path()) {
+                if !FileManager.default.fileExists(atPath: fileURL.path(percentEncoded: false)) {
                     try Data().write(to: fileURL)
                 }
                 handle = try FileHandle(forWritingTo: fileURL)

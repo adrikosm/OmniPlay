@@ -1,14 +1,24 @@
 import Foundation
 import GameCore
 
-/// Locates the repository's fixture folders from any package test, by walking up from this file.
+/// Locates the repository's fixture folders from any package test: walks up from this file, then from the
+/// working directory (SwiftPM remaps `#filePath` for dependency packages), then honours `OMNIPLAY_REPO_ROOT`.
 public enum Fixtures {
     public static let repositoryRoot: URL = {
-        var url = URL(filePath: #filePath)
-        while url.pathComponents.count > 1, !FileManager.default.fileExists(atPath: url.appending(path: "project.yml").path()) {
-            url = url.deletingLastPathComponent()
+        var starts = [URL(filePath: #filePath), URL(filePath: FileManager.default.currentDirectoryPath)]
+        if let env = ProcessInfo.processInfo.environment["OMNIPLAY_REPO_ROOT"] {
+            starts.insert(URL(filePath: env), at: 0)
         }
-        return url
+        for start in starts {
+            var url = start
+            while url.pathComponents.count > 1 {
+                if FileManager.default.fileExists(atPath: url.appending(path: "project.yml").path(percentEncoded: false)) {
+                    return url
+                }
+                url = url.deletingLastPathComponent()
+            }
+        }
+        return starts[0]
     }()
 
     public static func url(_ name: String) -> URL { repositoryRoot.appending(path: "Fixtures/synthetic/\(name)") }
@@ -16,7 +26,7 @@ public enum Fixtures {
     /// A real sample project placed locally under `Fixtures/private/`, or nil when absent (tests then skip).
     public static func privateURL(_ name: String) -> URL? {
         let url = repositoryRoot.appending(path: "Fixtures/private/\(name)")
-        return FileManager.default.fileExists(atPath: url.path()) ? url : nil
+        return FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) ? url : nil
     }
 
     public static func hasPrivate(_ name: String) -> Bool { privateURL(name) != nil }

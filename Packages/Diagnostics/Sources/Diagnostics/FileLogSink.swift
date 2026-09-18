@@ -75,7 +75,7 @@ public actor FileLogSink {
     private func open() throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = currentFile
-        if !FileManager.default.fileExists(atPath: url.path()) {
+        if !FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
             try Data().write(to: url)
         }
         let h = try FileHandle(forWritingTo: url)
@@ -91,7 +91,7 @@ public actor FileLogSink {
             let from = i == 1 ? currentFile : directory.appending(path: "host.\(i - 1).log")
             let to = directory.appending(path: "host.\(i).log")
             try? fm.removeItem(at: to)
-            if fm.fileExists(atPath: from.path()) {
+            if fm.fileExists(atPath: from.path(percentEncoded: false)) {
                 try fm.moveItem(at: from, to: to)
             }
         }

@@ -17,7 +17,7 @@ let package = Package(
                 .product(name: "Diagnostics", package: "Diagnostics"),
             ]
         ),
-        .testTarget(name: "GameImportTests", dependencies: ["GameImport"]),
+        .testTarget(name: "GameImportTests", dependencies: ["GameImport", .product(name: "TestSupport", package: "GameCore")]),
     ],
     swiftLanguageModes: [.v6]
 )

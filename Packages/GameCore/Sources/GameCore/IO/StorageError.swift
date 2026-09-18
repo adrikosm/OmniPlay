@@ -24,7 +24,7 @@ public enum VolumeSpace {
     /// Bytes the system will let an important operation use (the number Files.app shows).
     public static func available(at url: URL) throws -> Int64 {
         var probe = url
-        while !FileManager.default.fileExists(atPath: probe.path()), probe.pathComponents.count > 1 {
+        while !FileManager.default.fileExists(atPath: probe.path(percentEncoded: false)), probe.pathComponents.count > 1 {
             probe = probe.deletingLastPathComponent()
         }
         let values = try probe.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])

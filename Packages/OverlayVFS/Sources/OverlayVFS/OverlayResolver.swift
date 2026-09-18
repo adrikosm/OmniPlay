@@ -121,7 +121,7 @@ public struct OverlayResolver: Sendable {
 
     /// Index every layer that exists on disk.
     public func indexAll() throws {
-        for layer in layers where FileManager.default.fileExists(atPath: layer.root.path()) {
+        for layer in layers where FileManager.default.fileExists(atPath: layer.root.path(percentEncoded: false)) {
             try index.rebuild(layer: layer.name, root: layer.root)
         }
     }

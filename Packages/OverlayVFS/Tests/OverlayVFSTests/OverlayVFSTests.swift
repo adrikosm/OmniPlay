@@ -144,7 +144,7 @@ struct OverlayResolverTests {
         try Data([9]).write(to: url)
         #expect(resolver.resolve("movies/intro.MP4")?.layer.tier == .generated)
         let save = try resolver.writableURL("Save01.rxdata", in: .saves)
-        #expect(save.path().contains("/Saves/"))
+        #expect(save.path(percentEncoded: false).contains("/Saves/"))
         _ = root
     }
 

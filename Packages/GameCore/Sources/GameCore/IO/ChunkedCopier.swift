@@ -17,7 +17,7 @@ public enum ChunkedCopier {
         try fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
         let input = try FileHandle(forReadingFrom: source)
         defer { try? input.close() }
-        _ = fm.createFile(atPath: temp.path(), contents: nil)
+        _ = fm.createFile(atPath: temp.path(percentEncoded: false), contents: nil)
         let output = try FileHandle(forWritingTo: temp)
         var copied: Int64 = 0
         do {
@@ -33,7 +33,7 @@ public enum ChunkedCopier {
             }) {}
             try output.synchronize()
             try output.close()
-            if fm.fileExists(atPath: destination.path()) {
+            if fm.fileExists(atPath: destination.path(percentEncoded: false)) {
                 _ = try fm.replaceItemAt(destination, withItemAt: temp)
             } else {
                 try fm.moveItem(at: temp, to: destination)

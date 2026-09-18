@@ -44,7 +44,7 @@ struct DiagnosticsTests {
             await sink.append(line)
         } // 40 KiB, ~10 rotations
         await sink.close()
-        let files = try FileManager.default.contentsOfDirectory(atPath: dir.path()).sorted()
+        let files = try FileManager.default.contentsOfDirectory(atPath: dir.path(percentEncoded: false)).sorted()
         #expect(files == ["host.1.log", "host.2.log", "host.log"])
         for f in files {
             let size = try dir.appending(path: f).resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
@@ -95,6 +95,6 @@ struct DiagnosticsTests {
         try "x".write(to: dir.appending(path: "host.log"), atomically: true, encoding: .utf8)
         let out = try DiagnosticsBundle.export(sessionDirectory: dir)
         defer { try? FileManager.default.removeItem(at: out) }
-        #expect(FileManager.default.fileExists(atPath: out.appending(path: "host.log").path()))
+        #expect(FileManager.default.fileExists(atPath: out.appending(path: "host.log").path(percentEncoded: false)))
     }
 }

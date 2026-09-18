@@ -43,7 +43,10 @@ struct IOTests {
         try await Task.sleep(for: .milliseconds(5))
         task.cancel()
         await #expect(throws: CancellationError.self) { try await task.value }
-        let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: root.url.appending(path: "out").path())) ?? []
+        let leftovers = (
+            try? FileManager.default.contentsOfDirectory(atPath: root.url.appending(path: "out").path(percentEncoded: false))
+        ) ??
+            []
         #expect(leftovers.isEmpty)
     }
 
