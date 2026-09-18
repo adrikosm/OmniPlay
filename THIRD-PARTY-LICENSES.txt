@@ -1,0 +1,6 @@
+OmniPlay third-party components
+================================
+
+No third-party component is built into OmniPlay yet. Each native engine, library or Swift package
+is listed here when it is added, with its version, licence and the path of the full licence text
+under LICENSES/. Patches applied to GPL/LGPL components are published in this repository.
