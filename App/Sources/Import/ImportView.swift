@@ -6,6 +6,7 @@ struct ImportView: View {
     @Environment(AppModel.self) private var model
     @State private var showPicker = false
     @State private var pickerError: String?
+    @State private var showWiFi = false
 
     var body: some View {
         NavigationStack {
@@ -45,9 +46,15 @@ struct ImportView: View {
             )
             .foregroundStyle(Theme.textSecondary)
             .frame(maxWidth: 420, alignment: .leading)
-            Button { showPicker = true } label: { Label("Choose from Files", systemImage: "folder") }
-                .buttonStyle(LanternButtonStyle())
-                .disabled(model.imports == nil)
+            HStack(spacing: Theme.s3) {
+                Button { showPicker = true } label: { Label("Choose from Files", systemImage: "folder") }
+                    .buttonStyle(LanternButtonStyle())
+                    .disabled(model.imports == nil)
+                Button { showWiFi = true } label: { Label("Wi-Fi upload", systemImage: "wifi") }
+                    .foregroundStyle(Theme.textPrimary).frame(minHeight: 50).padding(.horizontal, Theme.s4).glassCard(radius: 25)
+                    .disabled(model.imports == nil)
+            }
+            .sheet(isPresented: $showWiFi) { WiFiUploadView().environment(model) }
             if let pickerError {
                 Text(pickerError).font(.footnote).foregroundStyle(Theme.danger)
             }

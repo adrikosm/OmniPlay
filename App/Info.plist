@@ -58,8 +58,14 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_omniplay._tcp</string>
+	</array>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Unlocks the hidden shelf of your library.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Wi-Fi upload serves a page on your local network so a computer can send a game folder to this device.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

@@ -262,3 +262,40 @@ extension LoopbackServerTests {
         return (http, data)
     }
 }
+
+@Suite("Wi-Fi upload server", .serialized)
+struct UploadServerTests {
+    @Test("Files stream to staging under their relative paths; bad tokens and traversal are refused; done hands the folder over")
+    func upload() async throws {
+        let root = try TemporaryGameRoot(name: "wifi")
+        defer { root.remove() }
+        let server = UploadServer(stagingRoot: root.url)
+        let port = try await server.start()
+        defer { Task { await server.stop() } }
+        let token = server.token
+        let base = "http://127.0.0.1:\(port)/\(token)"
+        let (page, pageResponse) = try await URLSession.shared.data(from: #require(URL(string: base)))
+        #expect((pageResponse as? HTTPURLResponse)?.statusCode == 200 && String(bytes: page, encoding: .utf8)?
+            .contains("webkitdirectory") == true)
+        let body = Data((0 ..< (3 << 20)).map { UInt8(truncatingIfNeeded: $0 &* 7) })
+        var req = URLRequest(url: URL(string: base + "/file?path=Game%2Fwww%2Fdata%2FMap001.json")!)
+        req.httpMethod = "POST"
+        let (_, r1) = try await URLSession.shared.upload(for: req, from: body)
+        #expect((r1 as? HTTPURLResponse)?.statusCode == 200)
+        var events = server.events.makeAsyncIterator()
+        #expect(await events.next() == .fileReceived(relativePath: "Game/www/data/Map001.json", bytes: Int64(body.count)))
+        var bad = URLRequest(url: URL(string: base + "/file?path=..%2Fescape.txt")!)
+        bad.httpMethod = "POST"
+        #expect(try await ((URLSession.shared.upload(for: bad, from: Data("x".utf8))).1 as? HTTPURLResponse)?.statusCode == 400)
+        var wrong = try URLRequest(url: #require(URL(string: "http://127.0.0.1:\(port)/nottoken/file?path=a.txt")))
+        wrong.httpMethod = "POST"
+        #expect(try await ((URLSession.shared.upload(for: wrong, from: Data("x".utf8))).1 as? HTTPURLResponse)?.statusCode == 404)
+        var done = URLRequest(url: URL(string: base + "/done")!)
+        done.httpMethod = "POST"
+        #expect(try await ((URLSession.shared.upload(for: done, from: Data())).1 as? HTTPURLResponse)?.statusCode == 200)
+        guard case let .sessionCompleted(dir, files, bytes) = await events.next() else { Issue.record("no completion"); return }
+        #expect(files == 1 && bytes == Int64(body.count))
+        #expect(try Data(contentsOf: dir.appending(path: "Game/www/data/Map001.json")) == body)
+        #expect(UploadServer.safeRelativePath("a/./b") == nil && UploadServer.safeRelativePath("a//b/c.txt") == "a/b/c.txt")
+    }
+}

@@ -86,6 +86,9 @@ targets:
         GCSupportsControllerUserInteraction: true
         ITSAppUsesNonExemptEncryption: false
         NSFaceIDUsageDescription: Unlocks the hidden shelf of your library.
+        NSLocalNetworkUsageDescription: Wi-Fi upload serves a page on your local network so a computer can send a game folder to this device.
+        NSBonjourServices:
+          - _omniplay._tcp
         # Scene lifecycle (mandatory with the iOS 27 SDK); SwiftUI App owns the scenes.
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
