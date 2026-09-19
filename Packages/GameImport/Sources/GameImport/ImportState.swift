@@ -91,6 +91,7 @@ public actor ImportTransaction {
     public nonisolated let source: ImportSource
     public nonisolated let stagingURL: URL
     public private(set) var state: ImportState = .queued
+    private var signpost = SignpostPhase(Signposts.importer)
     private var continuations: [UUID: AsyncStream<ImportState>.Continuation] = [:]
     private var history: [ImportState] = [.queued]
     private var work: Task<Void, Never>?
@@ -120,6 +121,11 @@ public actor ImportTransaction {
         guard !state.isTerminal else { return }
         state = next
         history.append(next)
+        if next.isTerminal {
+            signpost.end()
+        } else {
+            signpost.enter("import phase", next.label)
+        }
         OPLog.log(.importer, .info, "txn \(id) → \(next.label)")
         for c in continuations.values {
             c.yield(next)

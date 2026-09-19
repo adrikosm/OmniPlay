@@ -83,6 +83,7 @@ public actor RuntimeCoordinator {
 
     /// One id per process launch; ledger rows from other boots are stale and ignored.
     public let bootID: String
+    private var signpost = SignpostPhase(Signposts.runtime)
     private var restoredSpent = false
 
     public init(store: GameStore?, bootID: String = UUID().uuidString) {
@@ -121,6 +122,10 @@ public actor RuntimeCoordinator {
 
     private func set(_ new: State) {
         state = new
+        switch new {
+        case .idle, .stopped, .failed: signpost.end()
+        default: signpost.enter("coordinator step", String(describing: new).prefix(24).description)
+        }
         OPLog.log(.runtime, .info, "coordinator → \(new)")
         for c in stateContinuations.values {
             c.yield(new)

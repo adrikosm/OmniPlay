@@ -193,3 +193,72 @@ extension LoopbackServerTests {
         await server.stop()
     }
 }
+
+extension LoopbackServerTests {
+    @Test("A 4 GiB asset streams through ranged and full-window requests while the host footprint stays flat")
+    func largeAssetStreaming() async throws {
+        let root = try TemporaryGameRoot(name: "huge")
+        let big = root.url.appending(path: "movies/big.mp4")
+        try FileManager.default.createDirectory(at: big.deletingLastPathComponent(), withIntermediateDirectories: true)
+        _ = FileManager.default.createFile(atPath: big.path(percentEncoded: false), contents: nil)
+        let size: UInt64 = 4 << 30
+        let handle = try FileHandle(forWritingTo: big)
+        try handle.truncate(atOffset: size)
+        try handle.seek(toOffset: size / 2)
+        try handle.write(contentsOf: Data([0xAB, 0xCD, 0xEF, 0x01]))
+        try handle.close()
+        let index = try PathIndex.open(at: FileManager.default.temporaryDirectory.appending(path: "lgs-\(UUID().uuidString).sqlite"))
+        try index.build(layer: "original", root: root.url)
+        let resolver = OverlayResolver(layers: [OverlayLayer(tier: .original, root: root.url, name: "original", priority: 1)], index: index)
+        let server = HTTPServer(router: GameFileRouter(resolver: resolver, policy: HeaderPolicy()))
+        let port = try await server.start()
+        defer { Task { await server.stop() }; try? FileManager.default.removeItem(at: index.url) }
+
+        let before = ProcessFootprint.current ?? 0
+        var peak: UInt64 = before
+        func sample() { peak = max(peak, ProcessFootprint.current ?? 0) }
+        let (head, _) = try await getRaw(port, "/movies/big.mp4", method: "HEAD")
+        #expect(head.statusCode == 200 && head.value(forHTTPHeaderField: "Content-Length") == String(size))
+        for fraction in [0.1, 0.5, 0.9] {
+            let start = UInt64(Double(size) * fraction) & ~UInt64(0xFFF)
+            let (r, body) = try await getRaw(port, "/movies/big.mp4", headers: ["Range": "bytes=\(start)-\(start + (1 << 20) - 1)"])
+            #expect(r.statusCode == 206 && body.count == 1 << 20, "range at \(fraction)")
+            if fraction == 0.5 {
+                #expect(body.prefix(4) == Data([0xAB, 0xCD, 0xEF, 0x01]))
+            }
+            sample()
+        }
+        // 64 MiB streamed in one response: the body is discarded chunk by chunk, never held whole.
+        var req = try URLRequest(url: #require(URL(string: "http://127.0.0.1:\(port)/movies/big.mp4")))
+        req.setValue("bytes=0-\((64 << 20) - 1)", forHTTPHeaderField: "Range")
+        let (stream, response) = try await URLSession.shared.bytes(for: req)
+        #expect((response as? HTTPURLResponse)?.statusCode == 206)
+        var received = 0
+        for try await _ in stream {
+            received += 1
+            if received % (8 << 20) == 0 {
+                sample()
+            }
+        }
+        #expect(received == 64 << 20)
+        sample()
+        let growth = Int64(peak) - Int64(before)
+        #expect(growth < 32 << 20, "host footprint grew by \(growth / (1 << 20)) MiB")
+    }
+
+    private func getRaw(
+        _ port: UInt16,
+        _ path: String,
+        headers: [String: String] = [:],
+        method: String = "GET"
+    ) async throws -> (HTTPURLResponse, Data) {
+        var req = URLRequest(url: URL(string: "http://127.0.0.1:\(port)\(path)")!)
+        req.httpMethod = method
+        for (k, v) in headers {
+            req.setValue(v, forHTTPHeaderField: k)
+        }
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        return (http, data)
+    }
+}
