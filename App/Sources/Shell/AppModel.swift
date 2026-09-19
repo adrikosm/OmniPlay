@@ -2,6 +2,7 @@ import Diagnostics
 import GameCore
 import GameImport
 import GameStore
+import InputKit
 import OverlayVFS
 import RuntimeCore
 import SaveKit
@@ -29,6 +30,9 @@ final class AppModel {
     var selectedTab: AppTab = .library
     /// The game a session is running for, kept so the save index can be rebuilt when it ends.
     private(set) var playing: GameDescriptor?
+    /// The running session's log file, for the pause menu's log viewer.
+    private(set) var sessionLog: URL?
+    private(set) var isPaused = false
 
     init(paths: AppPaths = HostSession.shared.paths) {
         self.paths = paths
@@ -133,8 +137,17 @@ final class AppModel {
             _ = try? await SaveVault.snapshot(location: saves, identityHash: descriptor.identityHash, reason: .beforeLaunch)
             SaveVault.prune(location: saves, keep: 10)
         }
-        let session = try await coordinator.launch(request, host: host)
+        OPLog.beginSession(configuration.sessionID, directory: configuration.logDirectory)
+        sessionLog = configuration.logDirectory.appending(path: "host.log")
+        let session: ActiveSession
+        do {
+            session = try await coordinator.launch(request, host: host)
+        } catch {
+            await OPLog.endSession(configuration.sessionID)
+            throw error
+        }
         playing = descriptor
+        isPaused = false
         var updated = record
         updated.lastPlayedAt = .now
         try? store.games.update(updated)
@@ -142,11 +155,31 @@ final class AppModel {
     }
 
     func stopPlaying(reason: RuntimeStopReason = .userExit) async {
+        let session = await coordinator?.activeSession
         _ = await coordinator?.stop(reason: reason)
         if let playing {
             indexSaves(for: playing)
         }
+        if let session {
+            await OPLog.endSession(SessionID(rawValue: session.id))
+        }
         playing = nil
+        isPaused = false
+    }
+
+    func pause() async {
+        await coordinator?.pause()
+        isPaused = true
+    }
+
+    func resume() async {
+        await coordinator?.resume()
+        isPaused = false
+    }
+
+    func send(_ event: GameInputEvent) {
+        guard let coordinator else { return }
+        Task { await coordinator.send(event) }
     }
 
     /// Rebuilds `saves_meta` from the slot files so the library can show what a game has saved.
@@ -212,5 +245,6 @@ final class AppModel {
 
         static var openFirstGame: Bool { ProcessInfo.processInfo.arguments.contains("--open-first-game") || playFirstGame }
         static var playFirstGame: Bool { ProcessInfo.processInfo.arguments.contains("--play-first-game") }
+        static var openPauseMenu: Bool { ProcessInfo.processInfo.arguments.contains("--open-pause-menu") }
     }
 #endif

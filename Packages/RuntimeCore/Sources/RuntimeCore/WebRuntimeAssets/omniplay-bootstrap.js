@@ -1,7 +1,7 @@
 // OmniPlay bootstrap (isolated world). Typed API only; nothing here evaluates strings from the page.
 // Page-world scripts reach this world through DOM events carrying JSON strings; those are parsed, never evaluated.
 (() => {
-  const VERSION = 2;
+  const VERSION = 3;
   const post = (name, body) => window.webkit?.messageHandlers?.[name]?.postMessage(body);
   const api = {
     version: VERSION,

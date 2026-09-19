@@ -31,6 +31,8 @@
         private var webView: WKWebView?
         private var handler: MessageBridge?
         private var saves: SaveBridge?
+        private var pendingInput: [GameInputEvent] = []
+        private var inputFlushScheduled = false
         private var watchdog = WebProcessWatchdog(now: .now)
         private var watchdogTask: Task<Void, Never>?
         private weak var host: (any RuntimeHost)?
@@ -137,7 +139,7 @@
 
         public func pause() async {
             _ = watchdog.handle(.paused, now: .now)
-            webView?.evaluateJavaScript("document.dispatchEvent(new Event('visibilitychange'))", in: nil, in: .page) { _ in }
+            dispatch("omniplay:pause")
         }
 
         public func resume() async {
@@ -145,10 +147,41 @@
             if let server {
                 _ = try? await server.start(port: port)
             }
+            dispatch("omniplay:resume")
         }
 
+        /// Fires a plain DOM event in the page world; the page scripts do the engine-specific work.
+        private func dispatch(_ name: String) {
+            webView?.callAsyncJavaScript(
+                "document.dispatchEvent(new Event(name))",
+                arguments: ["name": name],
+                in: nil,
+                in: .page
+            ) { _ in }
+        }
+
+        /// Batched per frame: one script call carries every event queued since the last flush.
         public func send(_ input: GameInputEvent) {
-            // INPUT-002 wires the DOM dispatch; touches reach the web view natively.
+            pendingInput.append(input)
+            guard !inputFlushScheduled else { return }
+            inputFlushScheduled = true
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(16))
+                self?.flushInput()
+            }
+        }
+
+        private func flushInput() {
+            inputFlushScheduled = false
+            guard !pendingInput.isEmpty, let webView else { pendingInput.removeAll(); return }
+            let batch = WebInputEncoder.json(pendingInput)
+            pendingInput.removeAll(keepingCapacity: true)
+            webView.callAsyncJavaScript(
+                "document.dispatchEvent(new CustomEvent('omniplay:input', { detail: batch }))",
+                arguments: ["batch": batch],
+                in: nil,
+                in: .page
+            ) { _ in }
         }
 
         public func inspect(_: StateInspectionRequest) async throws -> StateInspectionResult { throw Failure.notPrepared }

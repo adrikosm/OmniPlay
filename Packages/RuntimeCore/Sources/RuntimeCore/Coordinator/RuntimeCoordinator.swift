@@ -2,6 +2,7 @@ import Diagnostics
 import Foundation
 import GameCore
 import GameStore
+import InputKit
 
 /// What the app hands the coordinator: the record, the descriptor and the resolution already made for this game.
 public struct LaunchRequest: Sendable {
@@ -207,8 +208,17 @@ public actor RuntimeCoordinator {
         set(.failed(detail))
     }
 
+    public func send(_ event: GameInputEvent) async { await runtime?.send(event) }
     public func forward(memoryPressure level: MemoryPressureLevel) async { await runtime?.handleMemoryPressure(level) }
     public func forward(thermal state: ProcessInfo.ThermalState) async { await runtime?.handleThermalState(state) }
+
+    /// The session in `.running` or `.paused`, if any.
+    public var activeSession: ActiveSession? {
+        switch state {
+        case let .running(s), let .paused(s): s
+        default: nil
+        }
+    }
 
     /// True while an adapter object is retained (tests assert release after stop).
     public var holdsRuntime: Bool { runtime != nil }

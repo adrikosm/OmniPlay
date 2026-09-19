@@ -36,5 +36,18 @@ struct SaveBridgeTests {
         let bootstrap = try WebRuntimeBundle.source("omniplay-bootstrap", profile: WebProfile())
         #expect(bootstrap.contains("omniplay:storage") && bootstrap.contains("omniplay:booted"))
         #expect(WebRuntimeBundle.pageScripts.first == "omniplay-storage")
+        for name in WebRuntimeBundle.pageScripts + WebRuntimeBundle.isolatedScripts {
+            #expect(try !(WebRuntimeBundle.source(name, profile: WebProfile())).isEmpty, Comment(rawValue: name))
+        }
+    }
+
+    @Test("Input batches encode DOM key names, legacy keyCodes and gamepad fields")
+    func inputEncoding() throws {
+        let json = WebInputEncoder.json([.keyDown(.keyZ), .controllerAxis(.leftY, value: 0.5), .pointerDown(.secondary, x: 10, y: 20)])
+        let items = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [[String: Any]]
+        #expect(items?.count == 3)
+        #expect(items?[0]["code"] as? String == "KeyZ" && items?[0]["key"] as? String == "z" && items?[0]["keyCode"] as? Int == 90)
+        #expect(items?[1]["axis"] as? String == "leftY" && items?[1]["value"] as? Double == 0.5)
+        #expect(items?[2]["button"] as? String == "secondary" && items?[2]["phase"] as? String == "down")
     }
 }
