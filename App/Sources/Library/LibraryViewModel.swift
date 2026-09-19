@@ -12,6 +12,7 @@ final class LibraryViewModel {
     var games: [GameRecord] = []
     var query = "" { didSet { Task { await runSearch() } } }
     var sort: LibrarySort = .recentlyImported { didSet { restart() } }
+    var filter: LibraryFilter = .all { didSet { restart() } }
     var error: String?
     private let store: GameStore
     private let paths: AppPaths
@@ -25,7 +26,7 @@ final class LibraryViewModel {
 
     private func restart() {
         observation?.cancel()
-        let stream = store.observeLibrary(sort: sort)
+        let stream = store.observeLibrary(sort: sort, filter: filter)
         observation = Task { [weak self] in
             do {
                 for try await list in stream {
@@ -51,6 +52,18 @@ final class LibraryViewModel {
         if self.query == query, let result {
             games = result
         }
+    }
+
+    func setFavorite(_ game: GameRecord, _ on: Bool) {
+        var updated = game
+        updated.favorite = on
+        try? store.games.update(updated)
+    }
+
+    func setHidden(_ game: GameRecord, _ on: Bool) {
+        var updated = game
+        updated.hidden = on
+        try? store.games.update(updated)
     }
 
     /// Removes the library entry and the game tree. Saves are moved to the user-visible export folder first.

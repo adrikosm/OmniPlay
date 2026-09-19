@@ -85,6 +85,7 @@ targets:
         LSSupportsGameMode: true
         GCSupportsControllerUserInteraction: true
         ITSAppUsesNonExemptEncryption: false
+        NSFaceIDUsageDescription: Unlocks the hidden shelf of your library.
         # Scene lifecycle (mandatory with the iOS 27 SDK); SwiftUI App owns the scenes.
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false

@@ -17,6 +17,7 @@ struct GameDetailView: View {
     @State private var showPhotos = false
     @State private var showFiles = false
     @State private var photoItem: PhotosPickerItem?
+    @State private var lowMemory = false
 
     var body: some View {
         ScrollView {
@@ -35,6 +36,7 @@ struct GameDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             artworkPath = game.artworkPath
+            lowMemory = model.isLowMemory(game.id)
             await load()
         }
         .photosPicker(isPresented: $showPhotos, selection: $photoItem, matching: .images)
@@ -145,6 +147,20 @@ struct GameDetailView: View {
                 .buttonStyle(LanternButtonStyle())
                 .disabled(!canPlay)
             Text(playReason).font(.footnote).foregroundStyle(Theme.textSecondary)
+            if game.engine == .rpgMakerMZ || game.engine == .rpgMakerMV || game.engine == .html5 {
+                Toggle(isOn: Binding(get: { lowMemory }, set: { on in
+                    lowMemory = on
+                    model.setLowMemory(on, for: game.id)
+                })) {
+                    Label("Reduce memory use", systemImage: "memorychip")
+                    Text("Smaller image cache and 1x rendering for very large titles.").font(.caption).foregroundStyle(Theme.textSecondary)
+                }
+                .tint(Theme.lantern)
+                .foregroundStyle(Theme.textPrimary)
+                .padding(Theme.s4)
+                .glassCard(radius: 14)
+                .padding(.top, Theme.s2)
+            }
             NavigationLink { SaveBackupsView(game: game) } label: {
                 Label("Saves and backups", systemImage: "clock.arrow.circlepath").frame(maxWidth: .infinity, alignment: .leading)
             }

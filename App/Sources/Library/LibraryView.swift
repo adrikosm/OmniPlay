@@ -1,5 +1,6 @@
 import GameCore
 import GameStore
+import LocalAuthentication
 import SwiftUI
 
 struct LibraryView: View {
@@ -27,6 +28,7 @@ private struct LibraryContent: View {
     @State var viewModel: LibraryViewModel
     @Binding var path: [GameRecord]
     @State private var pendingDelete: GameRecord?
+    @State private var shelfError: String?
 
     private let columns = [GridItem(.adaptive(minimum: 108, maximum: 160), spacing: Theme.s3)]
 
@@ -42,6 +44,16 @@ private struct LibraryContent: View {
                         NavigationLink(value: game) { GameTile(game: game) }
                             .buttonStyle(TileButtonStyle())
                             .contextMenu {
+                                Button(
+                                    game.favorite ? "Remove from favourites" : "Add to favourites",
+                                    systemImage: game.favorite ? "heart.slash" : "heart"
+                                ) {
+                                    viewModel.setFavorite(game, !game.favorite)
+                                }
+                                Button(game.hidden ? "Show in library" : "Hide", systemImage: game.hidden ? "eye" : "eye.slash") {
+                                    viewModel.setHidden(game, !game.hidden)
+                                }
+                                Divider()
                                 Button("Delete game", systemImage: "trash", role: .destructive) { pendingDelete = game }
                             }
                     }
@@ -49,7 +61,7 @@ private struct LibraryContent: View {
                 .padding(.horizontal, Theme.s4)
                 .padding(.bottom, Theme.s8)
             }
-            if let error = viewModel.error {
+            if let error = viewModel.error ?? shelfError {
                 Text(error).font(.footnote).foregroundStyle(Theme.danger).padding()
             }
         }
@@ -69,8 +81,17 @@ private struct LibraryContent: View {
                             Text("Recently played").tag(LibrarySort.recentlyPlayed)
                             Text("Title").tag(LibrarySort.title)
                         }
+                        Divider()
+                        Picker("Show", selection: Binding(get: { viewModel.filter }, set: { choose(filter: $0) })) {
+                            Label("All games", systemImage: "square.grid.2x2").tag(LibraryFilter.all)
+                            Label("Favourites", systemImage: "heart").tag(LibraryFilter.favorites)
+                            Label("Hidden shelf", systemImage: "eye.slash").tag(LibraryFilter.hidden)
+                        }
                     } label: {
-                        Label("Sort", systemImage: "arrow.up.arrow.down")
+                        Label(
+                            "Sort and filter",
+                            systemImage: filterSymbol
+                        )
                     }
                 }
             }
@@ -97,6 +118,37 @@ private struct LibraryContent: View {
     }
 }
 
+private extension LibraryContent {
+    var filterSymbol: String {
+        switch viewModel.filter {
+        case .favorites: "heart.fill"
+        case .hidden: "eye.slash.fill"
+        default: "arrow.up.arrow.down"
+        }
+    }
+
+    /// The hidden shelf opens only after the device owner authenticates; the other filters switch at once.
+    func choose(filter: LibraryFilter) {
+        guard filter == .hidden else { viewModel.filter = filter; return }
+        let context = LAContext()
+        var error: NSError?
+        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else {
+            // No passcode set: nothing to protect with, so the shelf simply opens.
+            viewModel.filter = .hidden
+            return
+        }
+        context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: "Show the hidden shelf") { ok, failure in
+            Task { @MainActor in
+                if ok {
+                    viewModel.filter = .hidden
+                } else if let failure {
+                    shelfError = failure.localizedDescription
+                }
+            }
+        }
+    }
+}
+
 /// Cover tile: 3:4 art, serif title, engine and state chips. The whole tile is the target.
 struct GameTile: View {
     let game: GameRecord
@@ -110,6 +162,12 @@ struct GameTile: View {
                 .overlay(alignment: .topTrailing) {
                     if game.compatibilityState != .loadable {
                         Chip(text: game.compatibilityState.label, tint: game.compatibilityState.tint).padding(Theme.s2)
+                    }
+                }
+                .overlay(alignment: .topLeading) {
+                    if game.favorite {
+                        Image(systemName: "heart.fill").font(.caption).foregroundStyle(Theme.lantern).padding(Theme.s2)
+                            .accessibilityLabel("Favourite")
                     }
                 }
             Text(game.title)

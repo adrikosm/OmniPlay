@@ -139,7 +139,7 @@ final class AppModel {
             descriptor.profile.overrides["imageCacheCapMB"] = "256"
         }
         // Hints a previous session left (the loopback port keeps the web storage origin stable).
-        for row in (try? store.overrides.all(game: record.id)) ?? [] where row.key.hasPrefix("hint.") {
+        for row in (try? store.overrides.all(game: record.id)) ?? [] where row.key.hasPrefix("hint.") && !row.valueJson.isEmpty {
             descriptor.profile.overrides[String(row.key.dropFirst(5))] = row.valueJson
         }
         let configuration = RuntimeConfiguration.forGame(descriptor, paths: paths, profile: descriptor.profile, sidecars: [])
@@ -205,6 +205,18 @@ final class AppModel {
     func remember(hint key: String, value: String, for id: GameID) {
         try? store?.overrides.set(game: id, key: "hint.\(key)", valueJson: value)
     }
+
+    func hint(_ key: String, for id: GameID) -> String? {
+        (try? store?.overrides.get(game: id, key: "hint.\(key)")).flatMap(\.self).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// The low-memory profile: a small image cache and 1x canvases. Off restores the engine's defaults.
+    func setLowMemory(_ on: Bool, for id: GameID) {
+        remember(hint: "imageCacheCapMB", value: on ? "128" : "", for: id)
+        remember(hint: "devicePixelRatio", value: on ? "1" : "", for: id)
+    }
+
+    func isLowMemory(_ id: GameID) -> Bool { hint("devicePixelRatio", for: id) == "1" }
 
     func send(_ event: GameInputEvent) {
         guard let coordinator else { return }
