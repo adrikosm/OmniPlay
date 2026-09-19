@@ -55,13 +55,14 @@ enum HTTPParserProbe {
 
 @Suite("Loopback server", .serialized)
 struct LoopbackServerTests {
-    private func serve(_ root: URL, policy: HeaderPolicy = HeaderPolicy()) async throws -> (HTTPServer, UInt16, PathIndex) {
+    struct Served { let server: HTTPServer, port: UInt16, index: PathIndex }
+    private func serve(_ root: URL, policy: HeaderPolicy = HeaderPolicy()) async throws -> Served {
         let index = try PathIndex.open(at: FileManager.default.temporaryDirectory.appending(path: "lgs-\(UUID().uuidString).sqlite"))
         try index.build(layer: "original", root: root)
         let resolver = OverlayResolver(layers: [OverlayLayer(tier: .original, root: root, name: "original", priority: 1)], index: index)
         let server = HTTPServer(router: GameFileRouter(resolver: resolver, policy: policy))
         let port = try await server.start()
-        return (server, port, index)
+        return Served(server: server, port: port, index: index)
     }
 
     private func get(
@@ -76,16 +77,18 @@ struct LoopbackServerTests {
             req.setValue(v, forHTTPHeaderField: k)
         }
         let (data, response) = try await URLSession.shared.data(for: req)
-        return (response as! HTTPURLResponse, data)
+        guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        return (http, data)
     }
 
     @Test("Serves fixture files case-insensitively with MIME, HEAD, 404, 403 and rejects traversal")
     func basics() async throws {
-        let (server, port, index) = try await serve(Fixtures.url("mv-basic"))
+        let served = try await serve(Fixtures.url("mv-basic"))
+        let (server, port, index) = (served.server, served.port, served.index)
         defer { Task { await server.stop() }; try? FileManager.default.removeItem(at: index.url) }
         let (r, body) = try await get(port, "/WWW/JS/RPG_CORE.JS")
         #expect(r.statusCode == 200 && r.value(forHTTPHeaderField: "Content-Type")?.hasPrefix("text/javascript") == true)
-        #expect(String(decoding: body, as: UTF8.self).contains("1.6.2"))
+        #expect(String(bytes: body, encoding: .utf8)?.contains("1.6.2") == true)
         #expect(r.value(forHTTPHeaderField: "X-Content-Type-Options") == "nosniff")
         let (head, headBody) = try await get(port, "/www/index.html", method: "HEAD")
         #expect(head.statusCode == 200 && headBody.isEmpty && head.value(forHTTPHeaderField: "Content-Length") != "0")
@@ -105,7 +108,8 @@ struct LoopbackServerTests {
             bytes[i] = UInt8(truncatingIfNeeded: i / 4096)
         }
         try root.file("big.bin", bytes)
-        let (server, port, index) = try await serve(root.url)
+        let served = try await serve(root.url)
+        let (server, port, index) = (served.server, served.port, served.index)
         defer { Task { await server.stop() }; try? FileManager.default.removeItem(at: index.url) }
         let (r, part) = try await get(port, "/big.bin", headers: ["Range": "bytes=4096-8191"])
         #expect(r.statusCode == 206 && part.count == 4096 && part.first == 1)
@@ -119,27 +123,22 @@ struct LoopbackServerTests {
 
     @Test("COOP/COEP headers follow the policy; pre-compressed sibling gets Content-Encoding")
     func headers() async throws {
-        let (server, port, index) = try await serve(
-            Fixtures.url("unity-web-min"),
-            policy: HeaderPolicy(coopCoep: true, cacheControl: "no-store")
-        )
-        defer { Task { await server.stop() }; try? FileManager.default.removeItem(at: index.url) }
-        let (r, _) = try await get(port, "/index.html")
+        let served = try await serve(Fixtures.url("unity-web-min"), policy: HeaderPolicy(coopCoep: true, cacheControl: "no-store"))
+        defer { Task { await served.server.stop() }; try? FileManager.default.removeItem(at: served.index.url) }
+        let (r, _) = try await get(served.port, "/index.html")
         #expect(r.value(forHTTPHeaderField: "Cross-Origin-Opener-Policy") == "same-origin")
         #expect(r.value(forHTTPHeaderField: "Cross-Origin-Embedder-Policy") == "require-corp")
         #expect(r.value(forHTTPHeaderField: "Cache-Control") == "no-store")
-        var req = try URLRequest(url: #require(URL(string: "http://127.0.0.1:\(port)/Build/x.framework.js.br")))
-        req.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-        let (_, raw) = try await URLSession.shared.data(for: req)
-        _ = raw
-        let (br, _) = try await get(port, "/Build/x.framework.js.br", method: "HEAD")
-        #expect(br.value(forHTTPHeaderField: "Content-Encoding") == "br" && br.value(forHTTPHeaderField: "Content-Type")?
-            .hasPrefix("text/javascript") == true)
+        // HEAD only: the fixture's .br bytes are not real Brotli, and URLSession would try to decode a GET body.
+        let (br, _) = try await get(served.port, "/Build/x.framework.js.br", method: "HEAD")
+        #expect(br.value(forHTTPHeaderField: "Content-Encoding") == "br")
+        #expect(br.value(forHTTPHeaderField: "Content-Type")?.hasPrefix("text/javascript") == true)
     }
 
     @Test("Connections beyond the limit get 503; unsupported methods 405; server restarts after stop")
     func limits() async throws {
-        let (server, port, index) = try await serve(Fixtures.url("mv-basic"))
+        let served = try await serve(Fixtures.url("mv-basic"))
+        let (server, port, index) = (served.server, served.port, served.index)
         defer { try? FileManager.default.removeItem(at: index.url) }
         // Hold 16 idle connections open, then the 17th must be refused.
         var held: [NWConnection] = []
@@ -161,7 +160,7 @@ struct LoopbackServerTests {
                 }
             }
         }
-        #expect(reply.map { String(decoding: $0, as: UTF8.self).hasPrefix("HTTP/1.1 503") } == true)
+        #expect(reply.flatMap { String(bytes: $0, encoding: .utf8) }?.hasPrefix("HTTP/1.1 503") == true)
         held.forEach { $0.cancel() }
         extra.cancel()
         try await Task.sleep(for: .milliseconds(300))
