@@ -51,3 +51,24 @@ struct SaveBridgeTests {
         #expect(items?[2]["button"] as? String == "secondary" && items?[2]["phase"] as? String == "down")
     }
 }
+
+@Suite("MediaPlan")
+struct MediaPlanTests {
+    private func req(_ src: String, _ action: MediaRequirement.Action) -> MediaRequirement {
+        MediaRequirement(sourceRel: src, container: "webm", videoCodec: "vp9", audioCodec: "opus", requiredForRuntime: .web, action: action)
+    }
+
+    @Test("Extension-changing siblings need no alias; same-extension siblings do; transcodes are pending")
+    func plan() {
+        let plan = MediaPlan(requirements: [
+            req("movies/intro.webm", .useSibling("movies/intro.mp4")),
+            req("movies/mp4/end.mp4", .useSibling("movies/alt/end.mp4")),
+            req("movies/boss.webm", .transcode(target: "mp4/h264/aac")),
+            req("audio/bgm/a.ogg", .shim("audioFileExtOgg")),
+        ])
+        #expect(plan.aliases == ["movies/mp4/end.mp4": "movies/alt/end.mp4"])
+        #expect(plan.pendingTranscodes.map(\.sourceRel) == ["movies/boss.webm"])
+        #expect(plan.notice == "One video needs converting and may not play yet.")
+        #expect(MediaPlan(requirements: []).notice == nil)
+    }
+}

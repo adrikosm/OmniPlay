@@ -50,16 +50,28 @@ public enum OverlayError: Error, Equatable, Sendable {
 public struct OverlayResolver: Sendable {
     public let layers: [OverlayLayer]
     public let index: PathIndex
+    /// Per-session logical → logical redirects (normalized keys), consulted before any tier. One hop only.
+    public let aliases: [String: String]
 
-    public init(layers: [OverlayLayer], index: PathIndex) {
+    public init(layers: [OverlayLayer], index: PathIndex, aliases: [String: String] = [:]) {
         self.layers = layers.sorted { $0.priority > $1.priority }
         self.index = index
+        var normalized: [String: String] = [:]
+        for (from, to) in aliases {
+            if let f = PathPolicy.validateLogical(from), let t = PathPolicy.validateLogical(to), f != t {
+                normalized[f] = t
+            }
+        }
+        self.aliases = normalized
     }
 
     public func resolve(_ logicalPath: String) -> Resolution? {
-        guard let key = PathPolicy.validateLogical(logicalPath) else {
+        guard var key = PathPolicy.validateLogical(logicalPath) else {
             OPLog.log(.filesystem, .debug, "rejected logical path \(logicalPath)")
             return nil
+        }
+        if let target = aliases[key] {
+            key = target
         }
         for layer in layers {
             if let e = try? index.lookup(layer: layer.name, key: key) {

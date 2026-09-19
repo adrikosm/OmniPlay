@@ -33,6 +33,8 @@ final class AppModel {
     /// The running session's log file, for the pause menu's log viewer.
     private(set) var sessionLog: URL?
     private(set) var isPaused = false
+    /// One line for the player about media that cannot play yet, set when a session starts.
+    private(set) var launchNotice: String?
 
     init(paths: AppPaths = HostSession.shared.paths) {
         self.paths = paths
@@ -132,6 +134,9 @@ final class AppModel {
         descriptor.profile = resolution.profile
         let configuration = RuntimeConfiguration.forGame(descriptor, paths: paths, profile: resolution.profile, sidecars: [])
         let request = LaunchRequest(record: record, descriptor: descriptor, resolution: resolution, configuration: configuration)
+        let plan = MediaPlan(requirements: descriptor.mediaRequirements)
+        launchNotice = plan.notice
+        recordPendingTranscodes(plan.pendingTranscodes, game: record.id, runtime: resolution.selectedRuntime)
         let saves = SaveLocation.forGame(record.id, paths: paths)
         if SaveVault.hasContent(saves) {
             _ = try? await SaveVault.snapshot(location: saves, identityHash: descriptor.identityHash, reason: .beforeLaunch)
@@ -180,6 +185,27 @@ final class AppModel {
     func send(_ event: GameInputEvent) {
         guard let coordinator else { return }
         Task { await coordinator.send(event) }
+    }
+
+    /// Transcodes the media pipeline (Epic 16) will run; recorded once per file so the queue survives relaunches.
+    private func recordPendingTranscodes(_ requirements: [MediaRequirement], game: GameID, runtime: RuntimeIdentifier?) {
+        guard let store, !requirements.isEmpty else { return }
+        let known = Set(((try? store.fetchAll(MediaJobRecord.self, game: game)) ?? []).map(\.inputRel))
+        for r in requirements where !known.contains(r.sourceRel) {
+            guard case let .transcode(target) = r.action else { continue }
+            let stem = r.sourceRel.split(separator: ".").dropLast().joined(separator: ".")
+            let container = target.split(separator: "/").first.map(String.init) ?? "mp4"
+            _ = try? store.insert(MediaJobRecord(
+                gameId: game,
+                inputRel: r.sourceRel,
+                outputRel: "\(stem).\(container)",
+                sourceCodec: r.videoCodec ?? r.container,
+                targetCodec: target,
+                targetRuntime: runtime.map { "\($0)" } ?? "web",
+                reason: "runtime cannot decode \(r.videoCodec ?? r.container) in \(r.container)",
+                state: "pending"
+            ))
+        }
     }
 
     /// Rebuilds `saves_meta` from the slot files so the library can show what a game has saved.

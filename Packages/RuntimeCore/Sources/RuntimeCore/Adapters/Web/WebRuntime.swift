@@ -55,7 +55,11 @@
             )
             saves = SaveBridge(location: location, engine: configuration.descriptor.engine, session: configuration.sessionID)
             let index = try PathIndex.open(at: configuration.indexURL)
-            let resolver = OverlayResolver(layers: configuration.layers, index: index)
+            let plan = MediaPlan(requirements: configuration.descriptor.mediaRequirements)
+            let resolver = OverlayResolver(layers: configuration.layers, index: index, aliases: plan.aliases)
+            if !plan.aliases.isEmpty {
+                OPLog.log(.media, .info, "\(plan.aliases.count) media aliases installed", session: configuration.sessionID)
+            }
             let entry = configuration.entryPoint ?? "index.html"
             let router = GameFileRouter(resolver: resolver, policy: profile.headerPolicy, defaultDocument: entry)
             let server = HTTPServer(router: router)

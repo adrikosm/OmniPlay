@@ -90,6 +90,13 @@ struct PlayerScreen: View {
         self.capture = capture
         do {
             _ = try await model.play(game, snapshot: snapshot, host: host)
+            if let line = model.launchNotice {
+                withAnimation(Theme.quick) { notice = line }
+                Task {
+                    try? await Task.sleep(for: .seconds(6))
+                    withAnimation(Theme.quick) { notice = nil }
+                }
+            }
             #if DEBUG
                 if DebugLaunch.openPauseMenu {
                     try? await Task.sleep(for: .seconds(2))

@@ -116,6 +116,14 @@ struct OverlayResolverTests {
         #expect(resolver.resolve("movies/INTRO.mp4")?.layer.tier == .generated)
         #expect(resolver.resolve("Graphics/RTPOnly.png")?.layer.tier == .rtp)
         #expect(resolver.resolve("Graphics/Nope.png") == nil)
+        let aliased = OverlayResolver(
+            layers: resolver.layers,
+            index: index,
+            aliases: ["Movies/alt/intro.mp4": "Movies/intro.mp4", "../evil": "Graphics/Title.png", "Graphics/Loop.png": "Graphics/Loop.png"]
+        )
+        #expect(aliased.aliases.count == 1)
+        #expect(aliased.resolve("movies/ALT/intro.mp4")?.layer.tier == .generated)
+        #expect(aliased.resolve("Graphics/Loop.png") == nil)
         var listed: [String: ContentTier] = [:]
         for await entry in resolver.list(directory: "Graphics") {
             listed[entry.realRelativePath] = entry.layer.tier
