@@ -14,6 +14,8 @@ public actor HTTPServer {
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: HTTPConnection] = [:]
     private var idCounter = 0
+    /// False once the listener failed or was cancelled (sockets are torn down while the app is suspended).
+    public var isListening: Bool { listener != nil }
 
     public init(router: any Router) { self.router = router }
 
@@ -39,6 +41,30 @@ public actor HTTPServer {
         }
     }
 
+    /// After the app returns to the foreground: rebinds the remembered port when the listener died, else no-op.
+    /// Returns the port now serving, which changes only if the old one is taken.
+    @discardableResult
+    public func restartIfNeeded() async throws -> UInt16 {
+        if isListening {
+            return port
+        }
+        for c in connections.values {
+            c.cancel()
+        }
+        connections.removeAll()
+        let restarted = try await start(port: port == 0 ? nil : port)
+        if restarted != port {
+            OPLog.log(.web, .default, "loopback port changed on restart: \(port) → \(restarted)")
+        }
+        return restarted
+    }
+
+    private func listenerWentDown(_ listener: NWListener) {
+        guard self.listener === listener else { return }
+        self.listener = nil
+        OPLog.log(.web, .default, "loopback listener went down")
+    }
+
     private func bind(_ port: UInt16) async throws {
         let params = NWParameters.tcp
         params.allowLocalEndpointReuse = true
@@ -51,16 +77,22 @@ public actor HTTPServer {
         }
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             let resumed = Mutex(false)
-            listener.stateUpdateHandler = { state in
+            listener.stateUpdateHandler = { [weak self, weak listener] state in
                 switch state {
                 case .ready: if !resumed.withLock({ let r = $0; $0 = true; return r }) {
                         cont.resume()
                     }
-                case let .failed(error): if !resumed.withLock({ let r = $0; $0 = true; return r }) {
+                case let .failed(error):
+                    if !resumed.withLock({ let r = $0; $0 = true; return r }) {
                         cont.resume(throwing: error)
+                    } else if let self, let listener {
+                        Task { await self.listenerWentDown(listener) }
                     }
-                case .cancelled: if !resumed.withLock({ let r = $0; $0 = true; return r }) {
+                case .cancelled:
+                    if !resumed.withLock({ let r = $0; $0 = true; return r }) {
                         cont.resume(throwing: CancellationError())
+                    } else if let self, let listener {
+                        Task { await self.listenerWentDown(listener) }
                     }
                 default: break
                 }

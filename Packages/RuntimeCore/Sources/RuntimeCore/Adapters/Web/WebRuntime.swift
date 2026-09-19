@@ -32,6 +32,9 @@
         private var handler: MessageBridge?
         private var saves: SaveBridge?
         private var pendingInput: [GameInputEvent] = []
+        private var lifecycleObservers: [any NSObjectProtocol] = []
+        private var consoleSink: FileLogSink?
+        private var terminations = 0
         private var inputFlushScheduled = false
         private var watchdog = WebProcessWatchdog(now: .now)
         private var watchdogTask: Task<Void, Never>?
@@ -79,6 +82,7 @@
         public func start(in host: any RuntimeHost) async throws {
             guard let configuration, server != nil else { throw Failure.notPrepared }
             self.host = host
+            host.runtimeDidEmit(.profileHint(key: "loopbackPort", value: String(port)))
             let config = WKWebViewConfiguration()
             config.websiteDataStore = WKWebsiteDataStore(forIdentifier: configuration.game.rawValue)
             config.allowsInlineMediaPlayback = true
@@ -131,6 +135,8 @@
             guard let url = URL(string: "http://127.0.0.1:\(port)/\(entry)") else { throw Failure.navigation("bad entry \(entry)") }
             OPLog.log(.web, .info, "loading \(url) bundle v\(WebRuntimeBundle.version)", session: configuration.sessionID)
             webView.load(URLRequest(url: url))
+            consoleSink = FileLogSink(directory: configuration.logDirectory, stem: "web-console", maxFileBytes: 4 << 20)
+            observeLifecycle()
             watchdog = WebProcessWatchdog(now: .now)
             watchdogTask = Task { [weak self] in
                 while !Task.isCancelled {
@@ -144,6 +150,59 @@
         public func pause() async {
             _ = watchdog.handle(.paused, now: .now)
             dispatch("omniplay:pause")
+        }
+
+        /// Suspension tears sockets down, so saves are flushed first and the listener is rebound on return.
+        private func observeLifecycle() {
+            let center = NotificationCenter.default
+            lifecycleObservers = [
+                center.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.hostWillResignActive() }
+                },
+                center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.hostDidBecomeActive() }
+                },
+            ]
+        }
+
+        private func hostWillResignActive() {
+            let task = UIApplication.shared.beginBackgroundTask(withName: "omniplay.autosave") {}
+            Task { @MainActor [weak self] in
+                await self?.autosave()
+                self?.dispatch("omniplay:pause")
+                _ = self?.watchdog.handle(.paused, now: .now)
+                UIApplication.shared.endBackgroundTask(task)
+            }
+        }
+
+        private func hostDidBecomeActive() {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let server {
+                    do {
+                        let restarted = try await server.restartIfNeeded()
+                        if restarted != port {
+                            port = restarted
+                            OPLog.log(
+                                .web,
+                                .default,
+                                "loopback port changed after background; reloading page",
+                                session: configuration?.sessionID
+                            )
+                            if let entry = configuration?.entryPoint ?? "index.html" as String?,
+                               let url = URL(string: "http://127.0.0.1:\(port)/\(entry)") {
+                                webView?.load(URLRequest(url: url))
+                            }
+                        }
+                    } catch {
+                        OPLog.log(.web, .error, "loopback restart failed: \(error)", session: configuration?.sessionID)
+                        onFailure?("The game's local server could not restart after returning from the background.")
+                        return
+                    }
+                }
+                _ = watchdog.handle(.resumed, now: .now)
+                dispatch("omniplay:resume")
+            }
         }
 
         public func resume() async {
@@ -199,22 +258,6 @@
             )
         }
 
-        /// Asks RPG Maker MV/MZ to write the engine's own autosave slot while the page is still alive.
-        /// MZ has a real autosave slot (0); MV has none, so slot 99 stands in. Anything else is skipped.
-        static let autosaveScript = """
-        (async () => {
-          try {
-            if (typeof DataManager === "undefined" || typeof SceneManager === "undefined") return "no-engine";
-            if (typeof $gameMap === "undefined" || !$gameMap) return "no-engine";
-            if (!(SceneManager._scene instanceof Scene_Map)) return "not-on-map";
-            const slot = typeof StorageManager.saveZip === "function" ? 0 : 99;
-            if (typeof $gameSystem?.onBeforeSave === "function") $gameSystem.onBeforeSave();
-            await Promise.resolve(DataManager.saveGame(slot));
-            return "saved:" + slot;
-          } catch (e) { return "error:" + e; }
-        })()
-        """
-
         private func autosave() async {
             guard let webView, profile.autosaveOnExit else { return }
             let box = OutcomeBox()
@@ -238,8 +281,6 @@
             OPLog.log(.save, .info, "autosave on exit: \(result)", session: configuration?.sessionID)
         }
 
-        @MainActor private final class OutcomeBox { var done = false }
-
         public func handleMemoryPressure(_ level: MemoryPressureLevel) {
             guard level == .critical else { return }
             webView?.evaluateJavaScript("window.OmniPlay && OmniPlay.trimCaches()", in: nil, in: .world(name: "OmniPlay")) { _ in }
@@ -254,6 +295,12 @@
         public func stop(reason: RuntimeStopReason) async -> TeardownVerdict {
             watchdogTask?.cancel()
             watchdogTask = nil
+            lifecycleObservers.forEach(NotificationCenter.default.removeObserver)
+            lifecycleObservers = []
+            if let consoleSink {
+                await consoleSink.close()
+            }
+            consoleSink = nil
             if reason == .userExit || reason == .memoryPressure || reason == .switchingGame {
                 await autosave()
             }
@@ -289,13 +336,36 @@
                 host?.runtimeDidEmit(.gradeReached(.intro))
             case let .console(level, message):
                 host?.runtimeDidEmit(.log(.javascript, "[\(level)] \(message)"))
+                if let consoleSink {
+                    let stamp = Date.now
+                        .formatted(.iso8601.year().month().day().timeZone(separator: .omitted).time(includingFractionalSeconds: true))
+                    Task { await consoleSink.append("\(stamp)\t\(level)\t\(message)") }
+                }
             case let .navigationFailed(detail):
                 onFailure?("The game page failed to load: \(detail)")
             case .processTerminated:
+                terminations += 1
+                writeTermination()
                 act(watchdog.handle(.terminated, now: .now))
             case let .save(op, kind, key, value):
                 saves?.handle(op: op, kind: kind, key: key, value: value)
                 host?.runtimeDidEmit(.log(.save, "\(op) \(kind) \(key) \(value?.count ?? 0) bytes"))
+            }
+        }
+
+        /// `termination.json`: why the page vanished, for the diagnostics bundle.
+        private func writeTermination() {
+            guard let configuration else { return }
+            let record: [String: Any] = [
+                "at": Date.now.formatted(.iso8601),
+                "count": terminations,
+                "hostFootprintBytes": ProcessFootprint.current.map(Int.init) ?? -1,
+                "thermalState": ProcessInfo.processInfo.thermalState.rawValue,
+                "lowPowerMode": ProcessInfo.processInfo.isLowPowerModeEnabled,
+                "reason": "WebContent process terminated",
+            ]
+            if let data = try? JSONSerialization.data(withJSONObject: record, options: [.prettyPrinted, .sortedKeys]) {
+                try? data.write(to: configuration.logDirectory.appending(path: "termination.json"), options: .atomic)
             }
         }
 
@@ -310,60 +380,6 @@
                 onFailure?(reason)
             }
         }
-
-        static func userAgent(_ kind: WebUserAgent) -> String {
-            let webkit = "AppleWebKit/605.1.15 (KHTML, like Gecko)"
-            switch kind {
-            case .iphone:
-                return "Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) \(webkit) Version/27.0 Mobile/15E148 Safari/604.1 OmniPlay/1"
-            case .ipad: return "Mozilla/5.0 (iPad; CPU OS 27_0 like Mac OS X) \(webkit) Version/27.0 Mobile/15E148 Safari/604.1 OmniPlay/1"
-            case .desktop: return "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_0) \(webkit) Version/27.0 Safari/605.1.15 OmniPlay/1"
-            }
-        }
     }
 
-    /// Receives typed messages from the isolated world and navigation callbacks; never evaluates page strings.
-    @MainActor
-    final class MessageBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
-        static let handlers = ["omniplay.console", "omniplay.save", "omniplay.heartbeat", "omniplay.state", "omniplay.fs"]
-
-        enum Event {
-            case heartbeat, booted, console(level: String, message: String), navigationFailed(String), processTerminated
-            case save(op: String, kind: String, key: String, value: String?)
-        }
-
-        private let session: SessionID
-        private let onEvent: @MainActor (Event) -> Void
-
-        init(session: SessionID, onEvent: @escaping @MainActor (Event) -> Void) {
-            self.session = session
-            self.onEvent = onEvent
-        }
-
-        func userContentController(_: WKUserContentController, didReceive message: WKScriptMessage) {
-            let body = message.body as? [String: Any] ?? [:]
-            switch message.name {
-            case "omniplay.heartbeat": onEvent(body["booted"] as? Bool == true ? .booted : .heartbeat)
-            case "omniplay.console":
-                let level = (body["level"] as? String ?? "log").prefix(8)
-                let text = (body["message"] as? String ?? "").prefix(4096)
-                OPLog.log(.javascript, level == "error" ? .error : .debug, "\(text)", session: session)
-                onEvent(.console(level: String(level), message: String(text)))
-            case "omniplay.save":
-                onEvent(.save(
-                    op: body["op"] as? String ?? "",
-                    kind: body["kind"] as? String ?? "ls",
-                    key: (body["key"] as? String ?? "").prefix(256).description,
-                    value: body["value"] as? String
-                ))
-            default: break
-            }
-        }
-
-        func webView(_: WKWebView, didFailProvisionalNavigation _: WKNavigation!, withError error: any Error) {
-            onEvent(.navigationFailed(error.localizedDescription))
-        }
-
-        func webViewWebContentProcessDidTerminate(_: WKWebView) { onEvent(.processTerminated) }
-    }
 #endif

@@ -26,7 +26,7 @@ struct SettingsView: View {
                     if let bundleURL {
                         ShareLink(item: bundleURL) { Label("Share diagnostics bundle", systemImage: "square.and.arrow.up") }
                     } else {
-                        Button { bundleURL = try? HostSession.shared.exportBundle() } label: {
+                        Button { Task { bundleURL = try? await HostSession.shared.exportBundle() } } label: {
                             Label("Export diagnostics", systemImage: "waveform.path.ecg")
                         }
                     }

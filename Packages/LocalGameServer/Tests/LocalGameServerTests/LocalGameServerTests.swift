@@ -173,3 +173,23 @@ struct LoopbackServerTests {
         await server.stop()
     }
 }
+
+private struct EmptyRouter: Router {
+    func route(_: HTTPRequest) async -> HTTPResponse { .text(404, "nothing here") }
+}
+
+extension LoopbackServerTests {
+    @Test("restartIfNeeded is a no-op while listening and rebinds the same port after the listener went away")
+    func restart() async throws {
+        let server = HTTPServer(router: EmptyRouter())
+        let port = try await server.start()
+        #expect(await server.isListening)
+        #expect(try await server.restartIfNeeded() == port)
+        await server.stop()
+        #expect(await !server.isListening)
+        let again = try await server.restartIfNeeded()
+        #expect(again == port)
+        #expect(await server.isListening)
+        await server.stop()
+    }
+}

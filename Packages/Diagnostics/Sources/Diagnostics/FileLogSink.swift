@@ -11,6 +11,8 @@ public actor FileLogSink {
     static let bufferLimit = 64 << 10
 
     public let directory: URL
+    /// `host` → `host.log`, `host.1.log`, `host.2.log`.
+    public let stem: String
     let maxFileBytes: Int
     private var handle: FileHandle?
     private var buffer = Data()
@@ -18,12 +20,13 @@ public actor FileLogSink {
     private var disabled = false
     private var flushTask: Task<Void, Never>?
 
-    public init(directory: URL, maxFileBytes: Int = FileLogSink.defaultMaxFileBytes) {
+    public init(directory: URL, stem: String = "host", maxFileBytes: Int = FileLogSink.defaultMaxFileBytes) {
         self.directory = directory
+        self.stem = stem
         self.maxFileBytes = maxFileBytes
     }
 
-    public nonisolated var currentFile: URL { directory.appending(path: "host.log") }
+    public nonisolated var currentFile: URL { directory.appending(path: "\(stem).log") }
 
     public func append(_ line: String) {
         guard !disabled else { return }
@@ -88,8 +91,8 @@ public actor FileLogSink {
         handle = nil
         let fm = FileManager.default
         for i in stride(from: Self.maxFiles - 1, through: 1, by: -1) {
-            let from = i == 1 ? currentFile : directory.appending(path: "host.\(i - 1).log")
-            let to = directory.appending(path: "host.\(i).log")
+            let from = i == 1 ? currentFile : directory.appending(path: "\(stem).\(i - 1).log")
+            let to = directory.appending(path: "\(stem).\(i).log")
             try? fm.removeItem(at: to)
             if fm.fileExists(atPath: from.path(percentEncoded: false)) {
                 try fm.moveItem(at: from, to: to)

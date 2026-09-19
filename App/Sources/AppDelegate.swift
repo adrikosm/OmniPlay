@@ -55,10 +55,5 @@ final class HostSession {
         Task { await recorder.record(MemoryProbe.sample(label: label), force: true) }
     }
 
-    func exportBundle() throws -> URL {
-        if let sink = OPLog.sink(for: sessionID) {
-            Task { await sink.flush() }
-        }
-        return try DiagnosticsBundle.export(sessionDirectory: directory)
-    }
+    func exportBundle() async throws -> URL { try await SessionBundle.export(sessionDirectory: directory) }
 }

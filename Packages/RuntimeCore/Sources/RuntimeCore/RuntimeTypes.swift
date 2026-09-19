@@ -86,4 +86,6 @@ public enum RuntimeEvent: Sendable {
     case log(LogCategory, String)
     case gradeReached(PlayabilityGrade)
     case watchdogStalled(seconds: Double)
+    /// A value the shell should persist into the game's compatibility overrides for the next launch (e.g. the loopback port).
+    case profileHint(key: String, value: String)
 }

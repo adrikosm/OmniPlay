@@ -133,7 +133,11 @@ final class AppModel {
         let resolution = await freshResolution(for: record, snapshot: snapshot)
         var descriptor = snapshot.report.descriptor.withID(record.id)
         descriptor.profile = resolution.profile
-        let configuration = RuntimeConfiguration.forGame(descriptor, paths: paths, profile: resolution.profile, sidecars: [])
+        // Hints a previous session left (the loopback port keeps the web storage origin stable).
+        for row in (try? store.overrides.all(game: record.id)) ?? [] where row.key.hasPrefix("hint.") {
+            descriptor.profile.overrides[String(row.key.dropFirst(5))] = row.valueJson
+        }
+        let configuration = RuntimeConfiguration.forGame(descriptor, paths: paths, profile: descriptor.profile, sidecars: [])
         let request = LaunchRequest(record: record, descriptor: descriptor, resolution: resolution, configuration: configuration)
         let plan = MediaPlan(requirements: descriptor.mediaRequirements)
         launchNotice = plan.notice
@@ -188,6 +192,11 @@ final class AppModel {
     func resume() async {
         await coordinator?.resume()
         isPaused = false
+    }
+
+    /// Persists a runtime hint under `hint.<key>` so the next launch of this game sees it in its profile.
+    func remember(hint key: String, value: String, for id: GameID) {
+        try? store?.overrides.set(game: id, key: "hint.\(key)", valueJson: value)
     }
 
     func send(_ event: GameInputEvent) {

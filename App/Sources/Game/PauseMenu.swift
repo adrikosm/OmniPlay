@@ -78,6 +78,8 @@ struct PauseMenu: View {
 struct LogTailView: View {
     let url: URL?
     @State private var lines: [String] = []
+    @State private var bundleURL: URL?
+    @State private var exportError: String?
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -101,6 +103,26 @@ struct LogTailView: View {
         }
         .navigationTitle("Session log")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if let bundleURL {
+                    ShareLink(item: bundleURL) { Label("Share bundle", systemImage: "square.and.arrow.up") }
+                } else if let dir = url?.deletingLastPathComponent() {
+                    Button("Export session bundle", systemImage: "archivebox") {
+                        Task {
+                            do { bundleURL = try await SessionBundle.export(sessionDirectory: dir) } catch {
+                                exportError = error.localizedDescription
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if let exportError {
+                Text(exportError).font(.footnote).foregroundStyle(Theme.danger).padding(Theme.s3).glassCard(radius: 12).padding()
+            }
+        }
         .inkScreen()
         .overlay {
             if lines.isEmpty {

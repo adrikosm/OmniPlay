@@ -69,7 +69,8 @@ struct RecoveryView: View {
                     ShareLink(item: bundleURL) { Label("Share diagnostics", systemImage: "square.and.arrow.up") }
                         .buttonStyle(.bordered)
                 } else {
-                    Button("Export diagnostics") { bundleURL = try? HostSession.shared.exportBundle() }.buttonStyle(.bordered)
+                    Button("Export diagnostics") { Task { bundleURL = try? await HostSession.shared.exportBundle() } }
+                        .buttonStyle(.bordered)
                 }
                 Button("Reset library database") { confirmReset = true }.buttonStyle(LanternButtonStyle())
             }

@@ -77,7 +77,11 @@ struct PlayerScreen: View {
 
     private func start() async {
         host.onPauseRequested = { Task { await pause() } }
-        host.onEvent = { _ in }
+        host.onEvent = { event in
+            if case let .profileHint(key, value) = event {
+                model.remember(hint: key, value: value, for: game.id)
+            }
+        }
         let bus = InputBus()
         bus.onEvent = { model.send($0) }
         let capture = ControllerCapture(bus: bus)
