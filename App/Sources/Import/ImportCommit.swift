@@ -6,6 +6,7 @@ import GameImport
 import GameStore
 import OverlayVFS
 import RuntimeCore
+import SaveKit
 
 /// The commit half of the import: install into `Games/<id>`, seal, index, persist the report; or replace an existing game.
 extension ImportPipeline {
@@ -26,6 +27,7 @@ extension ImportPipeline {
             try install(plan, into: id)
             try register(plan, id: id)
             attachCover(plan, id: id)
+            restoreRescuedSaves(plan, id: id)
             OPLog.log(.importer, .info, "registered \(id) \(plan.title) as \(plan.report.descriptor.engine.rawValue)", session: session)
             return id
         } catch {
@@ -154,6 +156,17 @@ extension ImportPipeline {
             bytes: plan.bytes,
             outcome: replacing ? "replaced" : "ok"
         ))
+    }
+
+    /// Saves kept from a deleted copy of the same title come back automatically; the game is new, so nothing is overwritten.
+    func restoreRescuedSaves(_ plan: CommitPlan, id: GameID) {
+        guard let rescue = RescuedSaves.find(titleHash: plan.fingerprint, paths: paths).first else { return }
+        do {
+            try RescuedSaves.restore(from: rescue.directory, into: SaveLocation.forGame(id, paths: paths))
+            OPLog.log(.importer, .info, "restored rescued saves for \(plan.title)", session: session)
+        } catch {
+            OPLog.log(.importer, .error, "rescued saves not restored: \(error)", session: session)
+        }
     }
 
     /// Best-effort: a missing cover is a placeholder, never a failed import.

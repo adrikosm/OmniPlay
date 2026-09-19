@@ -4,7 +4,9 @@ import GameCore
 import OSLog
 import SaveKit
 
-/// Routes web-storage writes to `Saves/slots` and seeds the page from those files on launch.
+/// Routes web-storage writes to files and seeds the page from them on launch. Numbered save slots go to
+/// `Saves/slots`; everything else (RPG Maker config and global data, a plain HTML5 game's whole localStorage) is a
+/// persistent store under `Saves/persistent/webLocalStorage` or `webIndexedDB`, backed up and reset separately.
 /// `ls` entries are UTF-8 strings under `ls.<base64url(key)>.<ext>`; `mz` entries are RPG Maker MZ deflate blobs,
 /// carried as base64 and stored raw under `<key>.rmmzsave`.
 public struct SaveBridge: Sendable {
@@ -29,14 +31,34 @@ public struct SaveBridge: Sendable {
         ]
     }
 
-    func store(_ kind: Kind) -> SaveFileStore { SaveFileStore(location: location, fileExtension: kind.fileExtension) }
+    /// The two directories a kind can live in: slots first, then its persistent store.
+    func stores(_ kind: Kind) -> [SaveFileStore] {
+        let persistent = location.persistent.appending(
+            path: kind.name == "ls" ? "webLocalStorage" : "webIndexedDB",
+            directoryHint: .isDirectory
+        )
+        return [
+            SaveFileStore(location: location, fileExtension: kind.fileExtension),
+            SaveFileStore(location: location, fileExtension: kind.fileExtension, directory: persistent),
+        ]
+    }
+
+    /// MV `RPG File<n>` and MZ `rmmzsave.<game>.file<n>` are slots; nothing else is.
+    static func isSlot(kind: String, key: String) -> Bool {
+        kind == "ls" ? key.wholeMatch(of: /RPG File\d+/) != nil : key.wholeMatch(of: /rmmzsave\..*\.file\d+/) != nil
+    }
+
+    func store(_ kind: Kind, key: String) -> SaveFileStore {
+        let both = stores(kind)
+        return Self.isSlot(kind: kind.name, key: key) ? both[0] : both[1]
+    }
 
     func stem(_ kind: Kind, key: String) -> String { kind.name == "ls" ? SaveKey.encodeWebStorage(key) : key }
 
     /// One message from the page. Rejected keys and oversized values are logged, never written.
     public func handle(op: String, kind kindName: String, key: String, value: String?) {
         guard let kind = kinds.first(where: { $0.name == kindName }) else { return log(.error, "unknown save kind \(kindName)") }
-        let store = store(kind)
+        let store = store(kind, key: key)
         do {
             switch op {
             case "write":
@@ -62,9 +84,12 @@ public struct SaveBridge: Sendable {
         var budget = Self.maxSeedBytes
         var out: [String: [String: String]] = [:]
         for kind in kinds {
-            let store = store(kind)
             var map: [String: String] = [:]
-            for (stem, bytes) in store.keys() {
+            for store in stores(kind) {
+                try? FileManager.default.createDirectory(at: store.directory, withIntermediateDirectories: true)
+                AtomicFileWriter.sweepStale(in: store.directory)
+            }
+            for (store, stem, bytes) in stores(kind).flatMap({ s in s.keys().map { (s, $0.key, $0.bytes) } }) {
                 guard bytes <= budget,
                       let data = try? store.read(key: stem) else { log(.default, "seed skipped \(stem): over budget"); continue }
                 budget -= Int(bytes)
@@ -77,7 +102,6 @@ public struct SaveBridge: Sendable {
             }
             out[kind.name] = map
         }
-        AtomicFileWriter.sweepStale(in: location.slots)
         return (try? JSONEncoder().encode(out)).flatMap { String(bytes: $0, encoding: .utf8) } ?? "{}"
     }
 

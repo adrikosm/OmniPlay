@@ -4,6 +4,7 @@ import GameCore
 import GameStore
 import Observation
 import OverlayVFS
+import SaveKit
 
 /// Drives the Library screen from the store's observation stream; search goes through FTS.
 @Observable @MainActor
@@ -58,15 +59,13 @@ final class LibraryViewModel {
         let paths = paths
         let outcome = await Task.detached { () -> String? in
             do {
-                let saves = paths.tier(.saves, for: game.id)
-                if FileManager.default.fileExists(atPath: saves.path(percentEncoded: false)) {
-                    let rescued = paths.exportsRoot.appending(
-                        path: "Rescued Saves/\(game.title) \(game.id.description.prefix(8))",
-                        directoryHint: .isDirectory
-                    )
-                    try FileManager.default.createDirectory(at: rescued.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    try FileManager.default.moveItem(at: saves, to: rescued)
-                }
+                let titleHash = AppModel.snapshot(for: game.id, paths: paths)?.report.descriptor.identityHash ?? game.id.description
+                try RescuedSaves.rescue(
+                    location: SaveLocation.forGame(game.id, paths: paths),
+                    titleHash: titleHash,
+                    title: game.title,
+                    paths: paths
+                )
                 try? OriginalGuard.unseal(originalRoot: paths.tier(.original, for: game.id))
                 try? FileManager.default.removeItem(at: paths.game(game.id))
                 try? FileManager.default.removeItem(at: paths.tier(.runtimeCache, for: game.id))

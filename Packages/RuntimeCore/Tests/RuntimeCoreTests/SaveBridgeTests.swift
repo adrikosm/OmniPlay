@@ -18,14 +18,22 @@ struct SaveBridgeTests {
         bridge.handle(op: "write", kind: "mz", key: "../escape", value: "AA==")
         bridge.handle(op: "write", kind: "ls", key: "RPG File2", value: "gone")
         bridge.handle(op: "remove", kind: "ls", key: "RPG File2", value: nil)
+        bridge.handle(op: "write", kind: "ls", key: "RPG Config", value: "cfg")
+        bridge.handle(op: "write", kind: "mz", key: "rmmzsave.1.global", value: "AA==")
+        let persistent = location.persistent
+        #expect(FileManager.default
+            .fileExists(atPath: persistent.appending(path: "webLocalStorage/ls.UlBHIENvbmZpZw.rpgsave").path(percentEncoded: false)))
+        #expect(FileManager.default
+            .fileExists(atPath: persistent.appending(path: "webIndexedDB/rmmzsave.1.global.rmmzsave").path(percentEncoded: false)))
         #expect(FileManager.default
             .fileExists(atPath: location.slots.appending(path: "ls.UlBHIEZpbGUx.rpgsave").path(percentEncoded: false)))
         #expect(try Data(contentsOf: location.slots.appending(path: "rmmzsave.1.file1.rmmzsave")) == Data([0x78, 0x9C, 0x00]))
         #expect((try? FileManager.default.contentsOfDirectory(atPath: location.slots.path(percentEncoded: false)))?.count == 2)
 
         let seed = try JSONDecoder().decode([String: [String: String]].self, from: Data(bridge.seed().utf8))
-        #expect(seed["ls"] == ["RPG File1": "N4Ig"])
-        #expect(seed["mz"] == ["rmmzsave.1.file1": "eJwA"])
+        #expect(seed["ls"] == ["RPG File1": "N4Ig", "RPG Config": "cfg"])
+        #expect(seed["mz"] == ["rmmzsave.1.file1": "eJwA", "rmmzsave.1.global": "AA=="])
+        #expect(SaveBridge.isSlot(kind: "ls", key: "RPG File12") && !SaveBridge.isSlot(kind: "ls", key: "runs"))
     }
 
     @Test("Storage script and bundle carry the seed placeholder and forward through DOM events")

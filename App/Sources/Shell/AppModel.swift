@@ -140,7 +140,7 @@ final class AppModel {
         let saves = SaveLocation.forGame(record.id, paths: paths)
         if SaveVault.hasContent(saves) {
             _ = try? await SaveVault.snapshot(location: saves, identityHash: descriptor.identityHash, reason: .beforeLaunch)
-            SaveVault.prune(location: saves, keep: 10)
+            SaveVault.prune(location: saves, keep: SaveVault.retention(from: descriptor.profile.overrides))
         }
         OPLog.beginSession(configuration.sessionID, directory: configuration.logDirectory)
         sessionLog = configuration.logDirectory.appending(path: "host.log")

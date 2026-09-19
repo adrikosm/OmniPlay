@@ -98,3 +98,17 @@ struct GameCoreTests {
         #expect(try JSONDecoder().decode(GameDescriptor.self, from: JSONEncoder().encode(d)) == d)
     }
 }
+
+extension GameCoreTests {
+    @Test("Stored paths are root-relative and resolve back; foreign absolute paths pass through")
+    func storedPaths() {
+        let root = URL(filePath: "/tmp/omni root/S", directoryHint: .isDirectory)
+        let paths = AppPaths(root: root, cachesRoot: root, exportsRoot: root)
+        let id = GameID()
+        let cover = paths.game(id).appending(path: "Artwork/cover.jpg")
+        let stored = paths.stored(cover)
+        #expect(stored == "Games/\(id.description)/Artwork/cover.jpg")
+        #expect(paths.url(forStored: stored).path(percentEncoded: false) == cover.path(percentEncoded: false))
+        #expect(paths.url(forStored: "/elsewhere/x.jpg").path(percentEncoded: false) == "/elsewhere/x.jpg")
+    }
+}

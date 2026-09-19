@@ -22,8 +22,8 @@ struct CoverExtractorTests {
         try PathIndex.open(at: paths.game(id).appending(path: "index.sqlite")).rebuild(layer: "original", root: original)
 
         let path = try #require(CoverExtractor.extract(game: id, engine: .rpgMakerMV, rootRelativePath: "", paths: paths))
-        #expect(path.hasSuffix("Artwork/cover.jpg"))
-        let source = try #require(CGImageSourceCreateWithURL(URL(filePath: path) as CFURL, nil))
+        #expect(path == "Games/\(id.description)/Artwork/cover.jpg")
+        let source = try #require(CGImageSourceCreateWithURL(paths.url(forStored: path) as CFURL, nil))
         let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
         let width = props?[kCGImagePropertyPixelWidth] as? Int ?? 0
         let height = props?[kCGImagePropertyPixelHeight] as? Int ?? 0

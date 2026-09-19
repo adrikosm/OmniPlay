@@ -92,7 +92,7 @@ private struct LibraryContent: View {
                     pendingDelete = nil
                 }
             } message: {
-                Text("The game files are removed. Saves move to Files › OmniPlay › Rescued Saves.")
+                Text("The game files are removed. Saves are kept and come back if you import the same game again.")
             }
     }
 }

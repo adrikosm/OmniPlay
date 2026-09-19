@@ -40,7 +40,7 @@ enum CoverExtractor {
         }
     }
 
-    /// Returns the written cover path, or nil when no candidate decodes.
+    /// Returns the written cover path (relative to the app root), or nil when no candidate decodes.
     static func extract(game id: GameID, engine: EngineFamily, rootRelativePath: String, paths: AppPaths) -> String? {
         let gameRoot = paths.game(id)
         guard let index = try? PathIndex.open(at: gameRoot.appending(path: "index.sqlite")) else { return nil }
@@ -79,6 +79,6 @@ enum CoverExtractor {
         if !FileManager.default.fileExists(atPath: out.path(percentEncoded: false)) {
             try? FileManager.default.moveItem(at: temp, to: out)
         }
-        return out.path(percentEncoded: false)
+        return paths.stored(out)
     }
 }

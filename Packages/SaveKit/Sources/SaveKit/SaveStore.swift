@@ -90,13 +90,15 @@ public enum SaveKey {
     }
 }
 
-/// Typed slot files under `Saves/slots/<key>.<ext>`.
+/// Typed save files under one directory (`Saves/slots` by default, or a persistent store folder).
 public struct SaveFileStore: Sendable {
     public let location: SaveLocation
+    public let directory: URL
     public let fileExtension: String
 
-    public init(location: SaveLocation, fileExtension: String) {
+    public init(location: SaveLocation, fileExtension: String, directory: URL? = nil) {
         self.location = location
+        self.directory = directory ?? location.slots
         self.fileExtension = fileExtension
     }
 
@@ -105,7 +107,7 @@ public struct SaveFileStore: Sendable {
 
     public func url(for key: String) throws -> URL {
         guard let safe = SaveKey.validate(key) else { throw Failure.invalidKey(key) }
-        return location.slots.appending(path: "\(safe).\(fileExtension)")
+        return directory.appending(path: "\(safe).\(fileExtension)")
     }
 
     public func write(_ data: Data, key: String) throws {
@@ -126,7 +128,7 @@ public struct SaveFileStore: Sendable {
 
     /// Every stored key with its file size, sorted.
     public func keys() -> [(key: String, bytes: Int64)] {
-        let items = (try? FileManager.default.contentsOfDirectory(at: location.slots, includingPropertiesForKeys: [.fileSizeKey])) ?? []
+        let items = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.fileSizeKey])) ?? []
         return items.filter { $0.pathExtension == fileExtension && !$0.lastPathComponent.hasPrefix(".") }
             .map { ($0.deletingPathExtension().lastPathComponent, Int64((try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)) }
             .sorted { $0.0 < $1.0 }
@@ -206,7 +208,8 @@ public enum SaveVault {
     /// Keeps the newest `keep` automatic snapshots; manual ones and pre-mod/pre-cheat backups stay.
     @discardableResult
     public static func prune(location: SaveLocation, keep: Int) -> Int {
-        let automatic = snapshots(location: location).filter { [.beforeLaunch, .crash].contains($0.manifest.provenance.origin) }
+        let automatic = snapshots(location: location)
+            .filter { [.beforeLaunch, .beforeEdit, .crash].contains($0.manifest.provenance.origin) }
         var removed = 0
         for old in automatic.dropFirst(keep) where (try? FileManager.default.removeItem(at: old.directory)) != nil {
             removed += 1

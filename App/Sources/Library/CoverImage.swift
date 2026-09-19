@@ -12,14 +12,15 @@ struct CoverImage: View {
     var body: some View {
         ZStack {
             if let image {
-                Image(decorative: image, scale: 1).resizable().scaledToFill()
+                // Bounded by the tile: the fill-scaled image must never grow the layout.
+                Color.clear.overlay(Image(decorative: image, scale: 1).resizable().scaledToFill()).clipped()
             } else {
                 CoverPlaceholder(engine: engine)
             }
         }
         .task(id: path) {
             guard let path else { image = nil; return }
-            let url = URL(filePath: path)
+            let url = HostSession.shared.paths.url(forStored: path)
             let max = Int(maxPixels)
             image = await Task.detached { Self.thumbnail(url, maxPixels: max) }.value
         }

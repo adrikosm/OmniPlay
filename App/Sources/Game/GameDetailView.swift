@@ -124,7 +124,7 @@ struct GameDetailView: View {
     private func setCover(_ path: String?) async {
         guard let store = model.store, var record = try? store.games.fetch(id: game.id) else { return }
         if path == nil, let old = record.artworkPath {
-            try? FileManager.default.removeItem(at: URL(filePath: old))
+            try? FileManager.default.removeItem(at: model.paths.url(forStored: old))
         }
         record.artworkPath = path
         try? store.games.update(record)
@@ -145,6 +145,14 @@ struct GameDetailView: View {
                 .buttonStyle(LanternButtonStyle())
                 .disabled(!canPlay)
             Text(playReason).font(.footnote).foregroundStyle(Theme.textSecondary)
+            NavigationLink { SaveBackupsView(game: game) } label: {
+                Label("Saves and backups", systemImage: "clock.arrow.circlepath").frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .foregroundStyle(Theme.textPrimary)
+            .frame(minHeight: 44)
+            .padding(.horizontal, Theme.s4)
+            .glassCard(radius: 14)
+            .padding(.top, Theme.s2)
             if let resolution = snapshot?.resolution, !resolution.fallbacks.isEmpty || resolution.selectedRuntime == nil,
                snapshot?.report.outcome.isPlayableClass == true || snapshot?.report.outcome == .unknownEngine || snapshot?.report
                .outcome == .unknownVersion {

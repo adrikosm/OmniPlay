@@ -4,7 +4,7 @@ import Foundation
 /// `Marshal.load` / `pickle.loads` on a foreign save is the realistic attack surface. Saves are never signed against the user.
 public struct SaveProvenance: Codable, Sendable, Hashable {
     public enum Origin: String, Codable,
-        Sendable { case native, imported, preModBackup, preCheatBackup, manualSnapshot, beforeLaunch, crash }
+        Sendable { case native, imported, preModBackup, preCheatBackup, manualSnapshot, beforeLaunch, beforeEdit, crash }
 
     /// `GameDescriptor.identityHash` of the title that produced the save.
     public let gameIdentityHash: String

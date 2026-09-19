@@ -88,3 +88,77 @@ struct SaveKitTests {
         #expect(try Data(contentsOf: loc.provenance) == first)
     }
 }
+
+@Suite("SaveKit restore and rescue")
+struct SaveRestoreTests {
+    private struct Env { let location: SaveLocation; let paths: AppPaths; let root: TemporaryGameRoot }
+    private func make() throws -> Env {
+        let root = try TemporaryGameRoot(name: "restore")
+        let paths = AppPaths(
+            root: root.url.appending(path: "S"),
+            cachesRoot: root.url.appending(path: "C"),
+            exportsRoot: root.url.appending(path: "E")
+        )
+        return Env(location: SaveLocation.forGame(GameID(), paths: paths), paths: paths, root: root)
+    }
+
+    private func names(_ dir: URL) -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: dir.path(percentEncoded: false))) ?? []).filter { !$0.hasPrefix(".") }
+            .sorted()
+    }
+
+    @Test("Slot patterns read and build indices, including zero-padded ones")
+    func slotPattern() throws {
+        let p = try #require(SlotPattern("Save%02d.rvdata2"))
+        #expect(p.index(of: "Save07.rvdata2") == 7 && p.index(of: "Save7.rvdata2") == 7 && p.index(of: "Other.rvdata2") == nil)
+        #expect(p.name(index: 12) == "Save12.rvdata2" && p.name(index: 3) == "Save03.rvdata2")
+        #expect(SlotPattern("no-format.save") == nil)
+        #expect(SaveVault.retention(from: [:]) == 3 && SaveVault.retention(from: ["snapshotRetention": "40"]) == 10)
+    }
+
+    @Test("Replace restores exactly the snapshot; stack adds under free indices; both take a beforeEdit snapshot first")
+    func restoreModes() async throws {
+        let env = try make()
+        let (loc, root) = (env.location, env.root)
+        defer { root.remove() }
+        let store = SaveFileStore(location: loc, fileExtension: "rpgsave")
+        try store.write(Data("one".utf8), key: "file1")
+        try store.write(Data("two".utf8), key: "file2")
+        try FileManager.default.createDirectory(at: loc.persistent, withIntermediateDirectories: true)
+        try Data("cfg-old".utf8).write(to: loc.persistent.appending(path: "config.json"))
+        let snap = try await SaveVault.snapshot(location: loc, identityHash: "h", reason: .manualSnapshot)
+        let dir = try #require(SaveVault.snapshots(location: loc).first { $0.manifest == snap }?.directory)
+
+        try store.write(Data("three".utf8), key: "file3")
+        try Data("cfg-new".utf8).write(to: loc.persistent.appending(path: "config.json"))
+        try await SaveVault.restore(snapshot: dir, into: loc, identityHash: "h", mode: .stackIntoFreeSlots(slotPattern: "file%d.rpgsave"))
+        #expect(names(loc.slots) == ["file1.rpgsave", "file2.rpgsave", "file3.rpgsave", "file4.rpgsave", "file5.rpgsave"])
+        #expect(try Data(contentsOf: loc.persistent.appending(path: "config.json")) == Data("cfg-new".utf8))
+
+        try await SaveVault.restore(snapshot: dir, into: loc, identityHash: "h", mode: .replace)
+        #expect(names(loc.slots) == ["file1.rpgsave", "file2.rpgsave"])
+        #expect(try Data(contentsOf: loc.persistent.appending(path: "config.json")) == Data("cfg-old".utf8))
+        #expect(SaveVault.snapshots(location: loc).filter { $0.manifest.provenance.origin == .beforeEdit }.count == 2)
+        #expect(names(loc.root).filter { $0.hasPrefix(".") }.isEmpty)
+        await #expect(throws: RestoreError.noManifest) {
+            try await SaveVault.restore(snapshot: loc.root.appending(path: "nope"), into: loc, identityHash: "h", mode: .replace)
+        }
+    }
+
+    @Test("Deleted games leave rescued saves that come back for the same title")
+    func rescue() throws {
+        let env = try make()
+        let (loc, paths, root) = (env.location, env.paths, env.root)
+        defer { root.remove() }
+        #expect(try RescuedSaves.rescue(location: loc, titleHash: "abc", title: "Empty", paths: paths) == nil)
+        try SaveFileStore(location: loc, fileExtension: "rpgsave").write(Data("x".utf8), key: "file1")
+        let rescued = try #require(try RescuedSaves.rescue(location: loc, titleHash: "abc", title: "Game", paths: paths))
+        #expect(!FileManager.default.fileExists(atPath: loc.root.path(percentEncoded: false)))
+        #expect(RescuedSaves.find(titleHash: "abc", paths: paths).map(\.directory.lastPathComponent) == [rescued.lastPathComponent])
+        #expect(RescuedSaves.find(titleHash: "other", paths: paths).isEmpty)
+        let fresh = SaveLocation.forGame(GameID(), paths: paths)
+        try RescuedSaves.restore(from: rescued, into: fresh)
+        #expect(names(fresh.slots) == ["file1.rpgsave"])
+        #expect(RescuedSaves.find(titleHash: "abc", paths: paths).isEmpty)
+    }
+}

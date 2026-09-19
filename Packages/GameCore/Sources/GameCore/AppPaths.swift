@@ -42,6 +42,20 @@ public struct AppPaths: Sendable, Equatable {
 
     public func database() -> URL { root.appending(path: "Database/omniplay.sqlite") }
     public func games() -> URL { sub("Games") }
+    /// Paths persisted in the database are relative to `root`, because the app container moves between installs.
+    public func stored(_ url: URL) -> String {
+        let rootPath = root.path(percentEncoded: false)
+        let full = url.path(percentEncoded: false)
+        return full.hasPrefix(rootPath) ? String(full.dropFirst(rootPath.count))
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/")) : full
+    }
+
+    public func url(forStored path: String) -> URL {
+        path.hasPrefix("/") ? URL(filePath: path) : root.appending(path: path)
+    }
+
+    /// Saves kept after a game is deleted, keyed by title fingerprint; restored on re-import.
+    public func rescuedSaves() -> URL { sub("RescuedSaves") }
     public func game(_ id: GameID) -> URL { games().appending(path: id.description, directoryHint: .isDirectory) }
     public func runtimesData() -> URL { sub("Runtimes") }
     public func rtp(_ family: RTPFamily) -> URL { sub("RTP").appending(path: family.rawValue, directoryHint: .isDirectory) }
