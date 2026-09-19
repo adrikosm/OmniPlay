@@ -25,9 +25,20 @@ public struct RuntimeResolution: Codable, Sendable, Hashable {
     public var outcome: DetectionOutcome
     public var manualOverride: Bool
 
-    public init(selectedRuntime: RuntimeIdentifier?, selectedRuntimeVersion: String?, confidence: Double, reason: String, flags: RuntimeCapabilityFlags,
-                requiredPreparation: [PreparationStep], warnings: [GameWarning], fallbacks: [RuntimeCandidate], slot: SessionSlot?,
-                profile: CompatibilityProfile, outcome: DetectionOutcome, manualOverride: Bool) {
+    public init(
+        selectedRuntime: RuntimeIdentifier?,
+        selectedRuntimeVersion: String?,
+        confidence: Double,
+        reason: String,
+        flags: RuntimeCapabilityFlags,
+        requiredPreparation: [PreparationStep],
+        warnings: [GameWarning],
+        fallbacks: [RuntimeCandidate],
+        slot: SessionSlot?,
+        profile: CompatibilityProfile,
+        outcome: DetectionOutcome,
+        manualOverride: Bool
+    ) {
         self.selectedRuntime = selectedRuntime
         self.selectedRuntimeVersion = selectedRuntimeVersion
         self.confidence = confidence

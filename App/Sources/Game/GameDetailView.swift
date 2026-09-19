@@ -11,6 +11,7 @@ struct GameDetailView: View {
     let game: GameRecord
     @State private var snapshot: DetectionSnapshot?
     @State private var showPicker = false
+    @State private var showPlayer = false
 
     var body: some View {
         ScrollView {
@@ -31,6 +32,11 @@ struct GameDetailView: View {
         .sheet(isPresented: $showPicker) {
             if let snapshot {
                 RuntimePicker(game: game, report: snapshot.report) { await choose($0) }
+            }
+        }
+        .fullScreenCover(isPresented: $showPlayer) {
+            if let snapshot {
+                PlayerScreen(game: game, snapshot: snapshot).environment(model)
             }
         }
     }
@@ -60,9 +66,9 @@ struct GameDetailView: View {
 
     private var actions: some View {
         VStack(alignment: .leading, spacing: Theme.s2) {
-            Button {} label: { Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity) }
+            Button { showPlayer = true } label: { Label(playTitle, systemImage: "play.fill").frame(maxWidth: .infinity) }
                 .buttonStyle(LanternButtonStyle())
-                .disabled(true)
+                .disabled(!canPlay)
             Text(playReason).font(.footnote).foregroundStyle(Theme.textSecondary)
             if let resolution = snapshot?.resolution, !resolution.fallbacks.isEmpty || resolution.selectedRuntime == nil,
                snapshot?.report.outcome.isPlayableClass == true || snapshot?.report.outcome == .unknownEngine || snapshot?.report
@@ -72,6 +78,9 @@ struct GameDetailView: View {
             }
         }
     }
+
+    private var canPlay: Bool { snapshot?.resolution.selectedRuntime != nil && snapshot?.report.outcome.isPlayableClass == true }
+    private var playTitle: String { game.lastPlayedAt == nil ? "Play" : "Continue" }
 
     private var playReason: String {
         guard let snapshot else { return "Loading what OmniPlay found." }
@@ -84,7 +93,7 @@ struct GameDetailView: View {
         case .unknownVersion: return "The engine version is unclear. You can pick a runtime to try."
         default:
             if let selected = r.selectedRuntime {
-                return "Runs on \(DetectionExplainer.name(selected)). Play arrives with that runtime."
+                return "Runs on \(DetectionExplainer.name(selected))."
             }
             return r.reason
         }
@@ -142,7 +151,14 @@ struct GameDetailView: View {
 
     private func load() async {
         let id = game.id, paths = model.paths
-        snapshot = await Task.detached { AppModel.snapshot(for: id, paths: paths) }.value
+        guard var loaded = await Task.detached { AppModel.snapshot(for: id, paths: paths) }.value else { return }
+        loaded.resolution = await model.freshResolution(for: game, snapshot: loaded)
+        snapshot = loaded
+        #if DEBUG
+            if DebugLaunch.playFirstGame, canPlay {
+                showPlayer = true
+            }
+        #endif
     }
 
     private func choose(_ runtime: RuntimeIdentifier?) async {

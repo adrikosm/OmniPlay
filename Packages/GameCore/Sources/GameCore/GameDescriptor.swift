@@ -87,6 +87,35 @@ public struct GameDescriptor: Codable, Sendable, Hashable, Identifiable {
     }
 }
 
+public extension GameDescriptor {
+    /// The same descriptor under another identity (a detection-time descriptor adopting the committed game id).
+    func withID(_ id: GameID) -> GameDescriptor {
+        GameDescriptor(
+            id: id,
+            title: title,
+            rootRelativePath: rootRelativePath,
+            engine: engine,
+            generation: generation,
+            version: version,
+            runtimeCandidates: runtimeCandidates,
+            entryPoint: entryPoint,
+            containerType: containerType,
+            saveFamily: saveFamily,
+            exportPlatform: exportPlatform,
+            mediaRequirements: mediaRequirements,
+            blockers: blockers,
+            warnings: warnings,
+            capabilities: capabilities,
+            confidence: confidence,
+            evidence: evidence,
+            identityHash: identityHash,
+            importedAt: importedAt,
+            grade: grade,
+            profile: profile
+        )
+    }
+}
+
 /// Per-game overrides (web load mode, UA, shims, media mode, Ruby override, …). An open key/value
 /// bag until the profile schema is settled by real corpus evidence.
 public struct CompatibilityProfile: Codable, Sendable, Hashable {

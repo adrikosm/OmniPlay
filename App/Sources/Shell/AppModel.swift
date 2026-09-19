@@ -24,6 +24,7 @@ final class AppModel {
     private(set) var importer: ImportCoordinator
     private(set) var imports: ImportsModel?
     let registry = RuntimeRegistry()
+    private(set) var coordinator: RuntimeCoordinator?
     var selectedTab: AppTab = .library
 
     init(paths: AppPaths = HostSession.shared.paths) {
@@ -54,6 +55,17 @@ final class AppModel {
         switch result {
         case let .success(store):
             self.store = store
+            let coordinator = RuntimeCoordinator(store: store)
+            await coordinator.register(.web) { _ in WebRuntime() }
+            await registry.register(.init(
+                id: .web,
+                families: [.rpgMakerMV, .rpgMakerMZ, .html5, .unityWeb, .godotWeb, .flash],
+                generations: [.mv, .mz],
+                version: "WebKit",
+                flags: [.saves, .persistentData, .screenshot],
+                availability: .bundled
+            ))
+            self.coordinator = coordinator
             imports = ImportsModel(
                 coordinator: importer,
                 pipeline: ImportPipeline(paths: paths, store: store, session: HostSession.shared.sessionID, registry: registry)
@@ -99,6 +111,31 @@ final class AppModel {
         return try? JSONDecoder().decode(DetectionSnapshot.self, from: data)
     }
 
+    /// Re-resolves a stored report against the runtimes this build actually has (a game imported before
+    /// a runtime landed keeps its report; only the choice is refreshed).
+    func freshResolution(for record: GameRecord, snapshot: DetectionSnapshot) async -> RuntimeResolution {
+        await RuntimeResolver(registry: registry).resolve(snapshot.report, override: record.manualRuntimeOverride)
+    }
+
+    /// Starts a session for `record` inside `host`. Throws with a message fit for the player.
+    func play(_ record: GameRecord, snapshot: DetectionSnapshot, host: any RuntimeHost) async throws -> ActiveSession {
+        guard let coordinator, let store else { throw CoordinatorError.busy }
+        let resolution = await freshResolution(for: record, snapshot: snapshot)
+        var descriptor = snapshot.report.descriptor.withID(record.id)
+        descriptor.profile = resolution.profile
+        let configuration = RuntimeConfiguration.forGame(descriptor, paths: paths, profile: resolution.profile, sidecars: [])
+        let request = LaunchRequest(record: record, descriptor: descriptor, resolution: resolution, configuration: configuration)
+        let session = try await coordinator.launch(request, host: host)
+        var updated = record
+        updated.lastPlayedAt = .now
+        try? store.games.update(updated)
+        return session
+    }
+
+    func stopPlaying(reason: RuntimeStopReason = .userExit) async {
+        _ = await coordinator?.stop(reason: reason)
+    }
+
     /// Stores a per-game runtime choice, re-resolves against it and persists the new selection.
     func chooseRuntime(_ runtime: RuntimeIdentifier?, for id: GameID) async -> RuntimeResolution? {
         guard let store, var snapshot = Self.snapshot(for: id, paths: paths) else { return nil }
@@ -136,6 +173,7 @@ final class AppModel {
             return args[i + 1]
         }
 
-        static var openFirstGame: Bool { ProcessInfo.processInfo.arguments.contains("--open-first-game") }
+        static var openFirstGame: Bool { ProcessInfo.processInfo.arguments.contains("--open-first-game") || playFirstGame }
+        static var playFirstGame: Bool { ProcessInfo.processInfo.arguments.contains("--play-first-game") }
     }
 #endif

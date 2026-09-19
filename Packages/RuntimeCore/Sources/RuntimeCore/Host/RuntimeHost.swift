@@ -93,7 +93,6 @@ public protocol RuntimeHost: AnyObject, Sendable {
         private lazy var exitButton: UIButton = {
             var config = UIButton.Configuration.glass()
             config.image = UIImage(systemName: "xmark")
-            config.accessibilityLabel = "Leave game"
             let b = UIButton(configuration: config, primaryAction: UIAction { [weak self] _ in self?.onExitRequested?() })
             b.translatesAutoresizingMaskIntoConstraints = false
             b.accessibilityLabel = "Leave game"
@@ -106,8 +105,4 @@ public protocol RuntimeHost: AnyObject, Sendable {
         }
     }
 
-    /// Lets touches fall through to the surface except where a control sits.
-    public extension RuntimeHostViewController {
-        override func touchesShouldCancel(in view: UIView) -> Bool { false }
-    }
 #endif

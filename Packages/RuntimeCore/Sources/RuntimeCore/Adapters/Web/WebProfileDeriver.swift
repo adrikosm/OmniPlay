@@ -75,8 +75,9 @@ public struct WebProfile: Sendable, Hashable {
     public var json: String {
         let shimList = shims.sorted().map { "\"\($0)\"" }.joined(separator: ",")
         return """
-        {"nwUndefined":\(nwUndefined),"shims":[\(shimList)],"isGameActivePatch":\(isGameActivePatch),"canPlayWebmFalse":\(canPlayWebmFalse),\
-        "audioFileExtOgg":\(audioFileExtOgg),"imageCacheCapMB":\(imageCacheCapMB.map(String.init) ?? "null")}
+        {"nwUndefined":\(nwUndefined),"shims":[\(shimList)],"isGameActivePatch":\(isGameActivePatch),\
+        "canPlayWebmFalse":\(canPlayWebmFalse),"audioFileExtOgg":\(audioFileExtOgg),\
+        "imageCacheCapMB":\(imageCacheCapMB.map(String.init) ?? "null")}
         """
     }
 }

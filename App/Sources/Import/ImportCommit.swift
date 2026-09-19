@@ -63,7 +63,11 @@ extension ImportPipeline {
         let original = paths.tier(.original, for: id)
         try FileManager.default.moveItem(at: plan.stagedRoot, to: original)
         try OriginalGuard.seal(originalRoot: original, manifest: gameRoot.appending(path: "original.manifest"))
-        try PathIndex.open(at: gameRoot.appending(path: "index.sqlite")).rebuild(layer: "original", root: original)
+        let located = plan.located.relativePath.isEmpty ? original : original.appending(
+            path: plan.located.relativePath,
+            directoryHint: .isDirectory
+        )
+        try PathIndex.open(at: gameRoot.appending(path: "index.sqlite")).rebuild(layer: "original", root: located)
         var d = plan.report.descriptor
         d = GameDescriptor(
             id: id,
@@ -92,7 +96,9 @@ extension ImportPipeline {
         try encoder.encode(d).write(to: gameRoot.appending(path: "game.json"), options: .atomic)
         let logs = paths.logs(game: id, session: UUID()).deletingLastPathComponent()
         try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
-        try encoder.encode(DetectionSnapshot(report: plan.report, resolution: plan.resolution)).write(
+        var report = plan.report
+        report.descriptor = d
+        try encoder.encode(DetectionSnapshot(report: report, resolution: plan.resolution)).write(
             to: logs.appending(path: "detection.json"),
             options: .atomic
         )

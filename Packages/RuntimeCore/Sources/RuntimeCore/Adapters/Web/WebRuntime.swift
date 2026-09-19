@@ -212,10 +212,12 @@
         }
 
         static func userAgent(_ kind: WebUserAgent) -> String {
+            let webkit = "AppleWebKit/605.1.15 (KHTML, like Gecko)"
             switch kind {
-            case .iphone: "Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1 OmniPlay/1"
-            case .ipad: "Mozilla/5.0 (iPad; CPU OS 27_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1 OmniPlay/1"
-            case .desktop: "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Safari/605.1.15 OmniPlay/1"
+            case .iphone:
+                return "Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) \(webkit) Version/27.0 Mobile/15E148 Safari/604.1 OmniPlay/1"
+            case .ipad: return "Mozilla/5.0 (iPad; CPU OS 27_0 like Mac OS X) \(webkit) Version/27.0 Mobile/15E148 Safari/604.1 OmniPlay/1"
+            case .desktop: return "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_0) \(webkit) Version/27.0 Safari/605.1.15 OmniPlay/1"
             }
         }
     }

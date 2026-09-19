@@ -169,12 +169,12 @@ public enum LayerSetBuilder {
             name: "generated",
             priority: generatedPriority
         ))
-        layers.append(OverlayLayer(
-            tier: .original,
-            root: paths.tier(.original, for: descriptor.id),
-            name: "original",
-            priority: originalPriority
-        ))
+        let originalRoot = paths.tier(.original, for: descriptor.id)
+        let gameRoot = descriptor.rootRelativePath.isEmpty ? originalRoot : originalRoot.appending(
+            path: descriptor.rootRelativePath,
+            directoryHint: .isDirectory
+        )
+        layers.append(OverlayLayer(tier: .original, root: gameRoot, name: "original", priority: originalPriority))
         if let rtp = rtpFamily(for: descriptor.engine) {
             layers.append(OverlayLayer(tier: .rtp, root: paths.rtp(rtp), name: "rtp", priority: rtpPriority))
         }

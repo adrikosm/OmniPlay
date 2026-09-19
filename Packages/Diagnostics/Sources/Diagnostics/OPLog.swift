@@ -32,7 +32,8 @@ public enum OPLog {
 
     public static func log(_ category: LogCategory, _ level: OSLogType = .default, _ message: String, session: SessionID? = nil) {
         logger(category).log(level: level, "\(message, privacy: .public)")
-        guard let session = session ?? defaultSession, let sink = sinks.withLock({ $0[session] }) else { return }
+        let resolved = sinks.withLock { sinks in session.flatMap { sinks[$0] } ?? defaultSession.flatMap { sinks[$0] } }
+        guard let sink = resolved else { return }
         let line = "\(Date.now.formatted(timestamp))\t\(level.label)\t\(category.rawValue)\t\(message)"
         Task { await sink.append(line) }
     }
