@@ -26,3 +26,8 @@ identifier_name:
   max_length: 50
 type_name:
   allowed_symbols: ["_"]
+cyclomatic_complexity:
+  ignores_case_statements: true   # exhaustive switches over state enums are the readable form
+function_parameter_count:
+  warning: 7
+  error: 9

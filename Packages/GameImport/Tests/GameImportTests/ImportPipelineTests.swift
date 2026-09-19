@@ -49,6 +49,7 @@ struct ImportTransactionTests {
         #expect(seen.last == .ready(game))
         #expect(seen.count == 11)
         #expect(await txn.visited == seen)
+        #expect(!FileManager.default.fileExists(atPath: await txn.stagingURL.path(percentEncoded: false)))
     }
 
     @Test("Cancellation during extraction rolls back the staging directory")

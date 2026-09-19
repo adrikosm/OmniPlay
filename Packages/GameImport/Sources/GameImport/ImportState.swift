@@ -83,9 +83,9 @@ public enum ImportSource: Sendable, Hashable {
 /// One import from source to registered game. Owns a staging directory that `rollback()` deletes entirely.
 /// States are published as an `AsyncStream`; cancel the transaction (not the Task) to get `.cancelled`.
 public actor ImportTransaction {
-    public let id: UUID
-    public let source: ImportSource
-    public let stagingURL: URL
+    public nonisolated let id: UUID
+    public nonisolated let source: ImportSource
+    public nonisolated let stagingURL: URL
     public private(set) var state: ImportState = .queued
     private var continuations: [UUID: AsyncStream<ImportState>.Continuation] = [:]
     private var history: [ImportState] = [.queued]
@@ -136,6 +136,7 @@ public actor ImportTransaction {
             do {
                 try FileManager.default.createDirectory(at: stagingURL, withIntermediateDirectories: true)
                 let game = try await body(self)
+                try? FileManager.default.removeItem(at: stagingURL) // commit moved what it needed; nothing stays in staging
                 await transition(to: .ready(game))
             } catch is CancellationError {
                 await rollback()

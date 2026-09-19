@@ -50,6 +50,11 @@ targets:
     sources:
       - path: App
         excludes: ["Info.plist", "OmniPlay.entitlements"]
+      - path: THIRD-PARTY-LICENSES.txt
+        buildPhase: resources
+      - path: LICENSES
+        buildPhase: resources
+        type: folder
     configFiles:
       Debug: Signing.xcconfig
       Release: Signing.xcconfig
