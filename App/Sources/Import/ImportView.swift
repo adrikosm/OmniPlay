@@ -40,8 +40,8 @@ struct ImportView: View {
         VStack(alignment: .leading, spacing: Theme.s3) {
             Text("Bring a game in").font(Theme.title(30)).foregroundStyle(Theme.textPrimary)
             Text(
-                "Pick a game folder from Files. OmniPlay copies it into its own space, checks every file, "
-                    + "and keeps the original untouched. Zip and other archives follow with the next update."
+                "Pick a game folder or archive from Files: zip, 7z and tar work today, RAR and installers follow. "
+                    + "OmniPlay copies it into its own space, checks every file, and keeps the original untouched."
             )
             .foregroundStyle(Theme.textSecondary)
             .frame(maxWidth: 420, alignment: .leading)
@@ -70,7 +70,11 @@ private struct ImportList: View {
                     }
                 }
                 ForEach(imports.items) { item in
-                    ImportRow(item: item) { model.selectedTab = .library }
+                    ImportRow(
+                        item: item,
+                        showLibrary: { model.selectedTab = .library },
+                        resolveDuplicate: { policy in Task { await imports.resolveDuplicate(item, policy: policy) } }
+                    )
                 }
             }
         }
@@ -80,6 +84,7 @@ private struct ImportList: View {
 private struct ImportRow: View {
     let item: ImportItem
     let showLibrary: () -> Void
+    let resolveDuplicate: (ImportPipeline.DuplicatePolicy) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.s2) {
@@ -100,6 +105,13 @@ private struct ImportRow: View {
                     Spacer()
                     Button("Show", action: showLibrary).font(.footnote)
                 }
+            case let .failed(.duplicate(existing, title)):
+                Text("You already have \"\(title)\". Replace it, or keep both?").font(.footnote).foregroundStyle(Theme.textSecondary)
+                HStack(spacing: Theme.s3) {
+                    Button("Replace") { resolveDuplicate(.replace(existing)) }
+                    Button("Keep both") { resolveDuplicate(.keepBoth) }
+                }
+                .font(.footnote.weight(.semibold))
             case let .failed(failure):
                 Text(Self.copy(for: failure)).font(.footnote).foregroundStyle(Theme.danger)
             case .cancelled:
@@ -155,6 +167,8 @@ private struct ImportRow: View {
         case let .extractionFailed(entry, underlying): "Extraction failed at \(entry): \(underlying)"
         case .passwordRequired: "This archive is password protected."
         case .noGameRoot: "No game was found inside."
+        case let .multipleRoots(c): "Several game folders found (\(c.joined(separator: ", "))). Import the one you want on its own."
+        case let .duplicate(_, title): "Already in your library as \"\(title)\"."
         case let .detectionRefused(reason): "This game cannot run on iPhone: \(reason)"
         case .cancelled: "Cancelled."
         case let .internalError(s): "Something went wrong: \(s)"

@@ -28,8 +28,9 @@ public struct LibArchiveExtractor: Sendable {
     public init(limits: SafetyLimits = .default) { self.limits = limits }
 
     /// Headers only: sums declared sizes for the disk precheck and reports encryption and name problems.
-    public func preflight(_ url: URL, hdrcharset: String? = nil) throws -> ArchivePreflight {
-        let a = try open(url, hdrcharset: hdrcharset, passphrase: nil)
+    /// `offset` reads the archive appended to a Windows executable in place.
+    public func preflight(_ url: URL, hdrcharset: String? = nil, offset: Int64 = 0) throws -> ArchivePreflight {
+        let a = try open(url, hdrcharset: hdrcharset, passphrase: nil, offset: offset)
         defer { archive_read_free(a) }
         var result = ArchivePreflight()
         var entry: OpaquePointer?
@@ -73,10 +74,11 @@ public struct LibArchiveExtractor: Sendable {
         to destination: URL,
         passphrase: String? = nil,
         hdrcharset: String? = nil,
+        offset: Int64 = 0,
         progress: (@Sendable (Int64, String) -> Void)? = nil
     ) throws -> RunningTotals {
-        let sourceBytes = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init)
-        let a = try open(url, hdrcharset: hdrcharset, passphrase: passphrase)
+        let sourceBytes = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map { Int64($0) - offset }
+        let a = try open(url, hdrcharset: hdrcharset, passphrase: passphrase, offset: offset)
         defer { archive_read_free(a) }
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
         let validator = EntryValidator(limits: limits)
@@ -173,7 +175,7 @@ public struct LibArchiveExtractor: Sendable {
     /// "C" locale and every non-ASCII name would fail, so the C type locale is set to UTF-8 once.
     private static let utf8Locale: Bool = setlocale(LC_CTYPE, "UTF-8") != nil
 
-    private func open(_ url: URL, hdrcharset: String?, passphrase: String?) throws -> OpaquePointer {
+    private func open(_ url: URL, hdrcharset: String?, passphrase: String?, offset: Int64 = 0) throws -> OpaquePointer {
         _ = Self.utf8Locale
         guard let a = archive_read_new() else { throw ExtractionError.open("archive_read_new failed") }
         archive_read_support_format_zip(a)
@@ -189,7 +191,24 @@ public struct LibArchiveExtractor: Sendable {
         if let passphrase {
             archive_read_add_passphrase(a, passphrase)
         }
-        guard archive_read_open_filename(a, url.path(percentEncoded: false), 64 << 10) == ARCHIVE_OK else {
+        let opened: Int32
+        if offset == 0 {
+            opened = archive_read_open_filename(a, url.path(percentEncoded: false), 64 << 10)
+        } else {
+            guard let client = ArchiveWindow(url: url, offset: offset)
+            else { archive_read_free(a); throw ExtractionError.open("cannot open \(url.lastPathComponent)") }
+            // The seek callback must be registered while the archive is still in its new state, before open2.
+            archive_read_set_seek_callback(a) { a, d, o, w in ArchiveWindow.seekCallback(a, d, o, w) }
+            opened = archive_read_open2(
+                a,
+                Unmanaged.passRetained(client).toOpaque(),
+                nil,
+                { a, d, o in ArchiveWindow.readCallback(a, d, o) },
+                { a, d, r in ArchiveWindow.skipCallback(a, d, r) },
+                { a, d in ArchiveWindow.closeCallback(a, d) }
+            )
+        }
+        guard opened == ARCHIVE_OK else {
             let message = errorString(a)
             archive_read_free(a)
             throw ExtractionError.open(message)
@@ -259,5 +278,79 @@ public struct LibArchiveExtractor: Sendable {
         case S_IFCHR, S_IFBLK, S_IFIFO, S_IFSOCK: .device
         default: .other
         }
+    }
+}
+
+/// A byte window `[offset, EOF)` of a file presented to libarchive through its client callbacks, so an archive
+/// appended to an executable is read in place. One 1 MiB buffer; libarchive owns nothing else.
+final class ArchiveWindow {
+    static let bufferSize = 1 << 20
+    let fd: Int32
+    let start: Int64
+    let end: Int64
+    var position: Int64
+    let buffer: UnsafeMutableRawPointer
+
+    init?(url: URL, offset: Int64) {
+        fd = Darwin.open(url.path(percentEncoded: false), O_RDONLY)
+        guard fd >= 0 else { return nil }
+        var st = stat()
+        fstat(fd, &st)
+        start = offset
+        end = Int64(st.st_size)
+        position = offset
+        buffer = UnsafeMutableRawPointer.allocate(byteCount: Self.bufferSize, alignment: 16)
+    }
+
+    deinit {
+        Darwin.close(fd)
+        buffer.deallocate()
+    }
+
+    static func from(_ data: UnsafeMutableRawPointer?) -> ArchiveWindow? {
+        data.map { Unmanaged<ArchiveWindow>.fromOpaque($0).takeUnretainedValue() }
+    }
+
+    static func readCallback(
+        _: OpaquePointer?,
+        _ data: UnsafeMutableRawPointer?,
+        _ out: UnsafeMutablePointer<UnsafeRawPointer?>?
+    ) -> la_ssize_t {
+        guard let w = from(data), let out else { return -1 }
+        let want = Int(min(Int64(bufferSize), w.end - w.position))
+        guard want > 0 else { out.pointee = UnsafeRawPointer(w.buffer); return 0 }
+        let n = pread(w.fd, w.buffer, want, off_t(w.position))
+        if n > 0 {
+            w.position += Int64(n)
+        }
+        out.pointee = UnsafeRawPointer(w.buffer)
+        return la_ssize_t(n)
+    }
+
+    static func skipCallback(_: OpaquePointer?, _ data: UnsafeMutableRawPointer?, _ request: la_int64_t) -> la_int64_t {
+        guard let w = from(data) else { return 0 }
+        let n = min(request, w.end - w.position)
+        w.position += n
+        return n
+    }
+
+    static func seekCallback(_: OpaquePointer?, _ data: UnsafeMutableRawPointer?, _ offset: la_int64_t, _ whence: Int32) -> la_int64_t {
+        guard let w = from(data) else { return -1 }
+        let base: Int64 = switch whence {
+        case SEEK_SET: w.start
+        case SEEK_CUR: w.position
+        default: w.end
+        }
+        let target = base + offset
+        guard target >= w.start, target <= w.end else { return -1 }
+        w.position = target
+        return target - w.start
+    }
+
+    static func closeCallback(_: OpaquePointer?, _ data: UnsafeMutableRawPointer?) -> Int32 {
+        if let data {
+            Unmanaged<ArchiveWindow>.fromOpaque(data).release()
+        }
+        return ARCHIVE_OK
     }
 }

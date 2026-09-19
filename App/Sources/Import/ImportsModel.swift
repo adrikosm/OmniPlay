@@ -40,12 +40,18 @@ final class ImportsModel {
         self.pipeline = pipeline
     }
 
-    func enqueue(_ url: URL) async {
+    func enqueue(_ url: URL, duplicates: ImportPipeline.DuplicatePolicy = .ask) async {
         let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
         let source: ImportSource = isDirectory ? .folder(url) : .file(url)
         let pipeline = pipeline
-        let txn = await coordinator.enqueue(source: source) { try await pipeline.run($0) }
+        let txn = await coordinator.enqueue(source: source) { try await pipeline.run($0, duplicates: duplicates) }
         items.insert(ImportItem(transaction: txn, name: url.lastPathComponent), at: 0)
+    }
+
+    /// Re-runs a duplicate import with the user's choice and drops the row that asked.
+    func resolveDuplicate(_ item: ImportItem, policy: ImportPipeline.DuplicatePolicy) async {
+        items.removeAll { $0.id == item.id }
+        await enqueue(item.transaction.source.url, duplicates: policy)
     }
 
     func clearFinished() { items.removeAll { $0.state.isTerminal } }

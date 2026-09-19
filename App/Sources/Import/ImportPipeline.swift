@@ -15,7 +15,10 @@ struct ImportPipeline: Sendable {
     let session: SessionID
     let limits = SafetyLimits.default
 
-    func run(_ txn: ImportTransaction) async throws -> GameID {
+    /// What to do when the same source was imported before.
+    enum DuplicatePolicy: Sendable { case ask, keepBoth, replace(GameID) }
+
+    func run(_ txn: ImportTransaction, duplicates: DuplicatePolicy = .ask) async throws -> GameID {
         let source = txn.source
         let staging = txn.stagingURL
         let accessed = source.url.startAccessingSecurityScopedResource()
@@ -26,6 +29,50 @@ struct ImportPipeline: Sendable {
         }
 
         let kind = try ContainerSniffer.identify(source.url)
+        await txn.transition(to: .inspecting)
+        let fingerprint = try SourceFingerprint.compute(source.url)
+        if case .ask = duplicates, let previous = try store.imports.find(sha256: fingerprint).compactMap(\.gameId).first,
+           let existing = try store.games.fetch(id: previous) {
+            throw ImportFailure.duplicate(existing: existing.id, title: existing.title)
+        }
+        let staged = try await materialize(kind: kind, source: source, staging: staging, txn: txn)
+        let (stagedRoot, totals, sourceBytes) = (staged.root, staged.totals, staged.sourceBytes)
+
+        await txn.transition(to: .normalizing)
+        let audited: RunningTotals
+        do { audited = try PostExtractionAudit.run(root: stagedRoot, totals: totals, sourceBytes: sourceBytes, limits: limits)
+        } catch let v as SafetyViolation {
+            throw ImportFailure.safetyViolation(v)
+        }
+        let located = try GameRootLocator.locate(stagingRoot: stagedRoot)
+        let gameRoot = located.relativePath.isEmpty ? stagedRoot : stagedRoot.appending(
+            path: located.relativePath,
+            directoryHint: .isDirectory
+        )
+
+        await txn.transition(to: .detecting)
+        let detection = try detect(root: gameRoot)
+
+        await txn.transition(to: .registering)
+        let plan = CommitPlan(
+            stagedRoot: stagedRoot,
+            located: located,
+            title: Self.title(from: source.url),
+            detection: detection,
+            bytes: audited.writtenBytes,
+            source: source,
+            fingerprint: fingerprint
+        )
+        if case let .replace(existing) = duplicates {
+            return try await replace(existing, with: plan)
+        }
+        return try await commit(plan)
+    }
+
+    /// Copies a folder or extracts an archive (unwrapping one nested level) into staging.
+    struct Materialized { let root: URL, totals: RunningTotals, sourceBytes: Int64? }
+
+    private func materialize(kind: ContainerKind, source: ImportSource, staging: URL, txn: ImportTransaction) async throws -> Materialized {
         var stagedRoot = staging.appending(path: "Original", directoryHint: .isDirectory)
         var totals: RunningTotals
         var sourceBytes: Int64?
@@ -37,7 +84,7 @@ struct ImportPipeline: Sendable {
             sourceBytes = fileSize(source.url)
             // A zip inside a zip (depth ≤ 2): unwrap it into a sibling folder and continue from there.
             var depth = 1
-            while let inner = singleArchive(in: stagedRoot) {
+            while let inner = GameRootLocator.nestedArchive(in: stagedRoot) {
                 depth += 1
                 if let v = EntryValidator(limits: limits).checkNesting(depth: depth) {
                     throw ImportFailure.safetyViolation(v)
@@ -48,42 +95,35 @@ struct ImportPipeline: Sendable {
                 try FileManager.default.removeItem(at: stagedRoot)
                 stagedRoot = next
             }
-        case .rar4, .rar5, .cab, .pe, .asar, .unknown:
+        case .pe:
+            // Unwrap, don't emulate: an NW.js or SFX executable carries the game as an appended archive.
+            guard let payload = try PEOverlayScanner.scan(source.url)
+            else { throw ImportFailure.unsupportedContainer(firstBytesHex: "malformed executable") }
+            switch payload.kind {
+            case let .appendedZip(offset), let .appendedSevenZip(offset):
+                totals = try await extractArchive(source.url, to: stagedRoot, txn: txn, offset: offset)
+                sourceBytes = fileSize(source.url).map { $0 - offset }
+            case .godotPCK: throw ImportFailure
+                .unsupportedContainer(firstBytesHex: "Godot executable: embedded PCK support arrives with the Godot epic")
+            case .enigmaVB: throw ImportFailure.unsupportedContainer(firstBytesHex: "Enigma Virtual Box executable is not supported yet")
+            case .appendedRar,
+                 .cab: throw ImportFailure.unsupportedContainer(firstBytesHex: "self-extracting RAR/CAB installers are not supported yet")
+            case .none: throw ImportFailure.unsupportedContainer(firstBytesHex: "a Windows program with no game data inside")
+            }
+        case .rar4, .rar5, .cab, .asar, .unknown:
             throw ImportFailure
                 .unsupportedContainer(firstBytesHex: kind == .unknown ? ContainerSniffer.firstBytesHex(source.url) : kind.rawValue)
         }
 
-        await txn.transition(to: .inspecting)
-        let audited: RunningTotals
-        do { audited = try PostExtractionAudit.run(root: stagedRoot, totals: totals, sourceBytes: nil, limits: limits)
-        } catch let v as SafetyViolation {
-            throw ImportFailure.safetyViolation(v)
-        }
-
-        await txn.transition(to: .detecting)
-        let detection = try detect(root: stagedRoot)
-
-        await txn.transition(to: .registering)
-        return try await commit(
-            stagedRoot: stagedRoot,
-            title: Self.title(from: source.url),
-            detection: detection,
-            bytes: audited.writtenBytes,
-            source: source,
-            txn: txn
-        )
+        return Materialized(root: stagedRoot, totals: totals, sourceBytes: sourceBytes)
     }
 
     // MARK: Archives
 
-    private func extractArchive(_ url: URL, to stagedRoot: URL, txn: ImportTransaction) async throws -> RunningTotals {
+    private func extractArchive(_ url: URL, to stagedRoot: URL, txn: ImportTransaction, offset: Int64 = 0) async throws -> RunningTotals {
         let extractor = LibArchiveExtractor(limits: limits)
-        var hdrcharset: String?
-        var pre = try extractor.preflight(url)
-        if pre.undecodableNames {
-            hdrcharset = "CP932" // Windows-Japanese archives are the common case without a UTF-8 flag
-            pre = try extractor.preflight(url, hdrcharset: hdrcharset)
-        }
+        let hdrcharset = offset == 0 ? try NameDecoder.charset(for: url, extractor: extractor) : nil
+        let pre = try extractor.preflight(url, hdrcharset: hdrcharset, offset: offset)
         if pre.encrypted {
             throw ImportFailure.passwordRequired
         }
@@ -93,7 +133,10 @@ struct ImportPipeline: Sendable {
         await txn.transition(to: .extracting(.init(completedBytes: 0, totalBytes: total)))
         let reporter = ProgressReporter(txn: txn, total: total)
         do {
-            return try extractor.extract(url, to: stagedRoot, hdrcharset: hdrcharset) { done, item in reporter.report(done, item) }
+            return try extractor.extract(url, to: stagedRoot, hdrcharset: hdrcharset, offset: offset) { done, item in reporter.report(
+                done,
+                item
+            ) }
         } catch let v as SafetyViolation {
             throw ImportFailure.safetyViolation(v)
         } catch let e as ExtractionError {
@@ -103,24 +146,6 @@ struct ImportPipeline: Sendable {
             case let .write(path, errno): throw ImportFailure.extractionFailed(entry: path, underlying: String(cString: strerror(errno)))
             }
         }
-    }
-
-    /// The one regular file in `root` when it is an archive and nothing else meaningful sits beside it.
-    private func singleArchive(in root: URL) -> URL? {
-        var files: [URL] = []
-        var stop = false
-        try? LazyDirectoryWalker.walk(root: root) { entry in
-            if entry.isDirectory {
-                return .continue
-            }
-            files.append(entry.url)
-            if files.count > 1 {
-                stop = true; return .stop
-            }
-            return .continue
-        }
-        guard !stop, let only = files.first, let kind = try? ContainerSniffer.identify(only) else { return nil }
-        return [.zip, .sevenZip, .tar, .gzip, .xz, .zstd].contains(kind) ? only : nil
     }
 
     private func fileSize(_ url: URL) -> Int64? { (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) }
@@ -223,70 +248,6 @@ struct ImportPipeline: Sendable {
             confidence: 0,
             evidence: [.init(check: "structure", outcome: "no signature matched", weight: 0)]
         )
-    }
-
-    // MARK: Commit
-
-    private func commit(
-        stagedRoot: URL,
-        title: String,
-        detection: DetectionResult,
-        bytes: Int64,
-        source: ImportSource,
-        txn: ImportTransaction
-    ) async throws -> GameID {
-        let id = GameID()
-        let gameRoot = paths.game(id)
-        let fm = FileManager.default
-        do {
-            try fm.createDirectory(at: gameRoot, withIntermediateDirectories: true)
-            for tier in [ContentTier.overrides, .generated, .saves, .artwork] {
-                try fm.createDirectory(at: paths.tier(tier, for: id), withIntermediateDirectories: true)
-            }
-            let original = paths.tier(.original, for: id)
-            try fm.moveItem(at: stagedRoot, to: original)
-            try OriginalGuard.seal(originalRoot: original, manifest: gameRoot.appending(path: "original.manifest"))
-            try PathIndex.open(at: gameRoot.appending(path: "index.sqlite")).build(layer: "original", root: original)
-
-            let descriptor = GameDescriptor(
-                id: id,
-                title: title,
-                engine: detection.engine,
-                confidence: detection.confidence,
-                evidence: detection.evidence,
-                identityHash: id.description,
-                grade: detection.engine.tier == .refused ? .refused : .loadable
-            )
-            try JSONEncoder().encode(descriptor).write(to: gameRoot.appending(path: "game.json"), options: .atomic)
-
-            var record = GameRecord(id: id, title: title, engine: detection.engine)
-            record.detectionConfidence = detection.confidence
-            record.compatibilityState = descriptor.grade
-            record.installBytes = bytes
-            record.version = detection.engineVersion
-            try store.games.insert(record)
-            _ = try store.detection.saveResult(.init(
-                gameId: id,
-                outcome: detection.engine.rawValue,
-                confidence: detection.confidence,
-                evidence: detection.evidence,
-                detectorVersions: ["rgss-archive-magic": "1"]
-            ))
-            _ = try store.imports.record(.init(
-                gameId: id,
-                sourceName: source.url.lastPathComponent,
-                container: "folder",
-                sourceSha256: "",
-                bytes: bytes,
-                outcome: "ok"
-            ))
-            OPLog.log(.importer, .info, "registered \(id) \(title) as \(detection.engine.rawValue)", session: session)
-            return id
-        } catch {
-            try? OriginalGuard.unseal(originalRoot: paths.tier(.original, for: id))
-            try? fm.removeItem(at: gameRoot)
-            throw error
-        }
     }
 
     static func title(from url: URL) -> String {

@@ -2,6 +2,7 @@ import Diagnostics
 import GameCore
 import GameImport
 import GameStore
+import OverlayVFS
 import SwiftUI
 
 enum AppTab: Hashable { case library, importGames, settings }
@@ -41,7 +42,8 @@ final class AppModel {
             do {
                 try paths.ensureLayout()
                 let store = try GameStore.open(paths: paths)
-                ImportCoordinator.sweepStaleStaging(paths: paths)
+                ImportCoordinator.sweepStaleStaging(paths: paths, olderThan: 0) // nothing can be in flight at launch
+                Self.sweepOrphans(paths: paths, store: store)
                 return .success(store)
             } catch {
                 return .failure(error)
@@ -73,6 +75,18 @@ final class AppModel {
         case let .failure(error):
             phase = .storeFailed(String(describing: error))
             OPLog.log(.ui, .fault, "store failed to open: \(error)", session: HostSession.shared.sessionID)
+        }
+    }
+
+    /// Removes `Games/<id>` directories without a library row: leftovers of a commit that failed mid-way.
+    nonisolated static func sweepOrphans(paths: AppPaths, store: GameStore) {
+        guard let dirs = try? FileManager.default.contentsOfDirectory(at: paths.games(), includingPropertiesForKeys: nil),
+              let known = try? store.games.fetchAll(limit: 100_000).map(\.id.description) else { return }
+        let knownSet = Set(known)
+        for dir in dirs where !knownSet.contains(dir.lastPathComponent) {
+            try? OriginalGuard.unseal(originalRoot: dir.appending(path: "Original"))
+            try? FileManager.default.removeItem(at: dir)
+            OPLog.log(.importer, .default, "removed orphan game directory \(dir.lastPathComponent)")
         }
     }
 
