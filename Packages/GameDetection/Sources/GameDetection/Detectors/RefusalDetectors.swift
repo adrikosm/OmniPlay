@@ -116,8 +116,9 @@ public struct RefusalDetectors: Detector {
                 version = String(m.0)
             }
         }
-        let backend = facts.markers.contains(.gameAssembly) || !ctx.glob("*/il2cpp_data/metadata/global-metadata.dat", limit: 1).isEmpty ? "IL2CPP"
-            : !ctx.glob("*_data/managed/assembly-csharp.dll", limit: 1).isEmpty ? "Mono" : "unknown backend"
+        let il2cpp = facts.markers.contains(.gameAssembly) || !ctx.glob("*/il2cpp_data/metadata/global-metadata.dat", limit: 1).isEmpty
+        let mono = !ctx.glob("*_data/managed/assembly-csharp.dll", limit: 1).isEmpty
+        let backend = il2cpp ? "IL2CPP" : mono ? "Mono" : "unknown backend"
         var platform = "Windows"
         var arch = ""
         if let exe = facts.exeNames.first, let url = ctx.url(exe), let pe = try? PEOverlayScanner.scan(url) {

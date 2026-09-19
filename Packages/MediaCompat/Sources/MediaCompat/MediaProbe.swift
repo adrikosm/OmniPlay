@@ -191,15 +191,24 @@ public enum MediaProbe {
 
         static func video(_ id: String) -> VideoCodec? {
             switch id {
-            case "V_VP8": .vp8; case "V_VP9": .vp9; case "V_AV1": .av1; case "V_MPEG4/ISO/AVC": .h264; case "V_MPEGH/ISO/HEVC": .hevc; case "V_THEORA": .theora; default: id
-                .hasPrefix("V_") ? .unknown : nil
+            case "V_VP8": .vp8
+            case "V_VP9": .vp9
+            case "V_AV1": .av1
+            case "V_MPEG4/ISO/AVC": .h264
+            case "V_MPEGH/ISO/HEVC": .hevc
+            case "V_THEORA": .theora
+            default: id.hasPrefix("V_") ? .unknown : nil
             }
         }
 
         static func audio(_ id: String) -> AudioCodec? {
             switch id {
-            case "A_VORBIS": .vorbis; case "A_OPUS": .opus; case "A_AAC": .aac; case "A_MPEG/L3": .mp3; case "A_FLAC": .flac; default: id
-                .hasPrefix("A_") ? .unknown : nil
+            case "A_VORBIS": .vorbis
+            case "A_OPUS": .opus
+            case "A_AAC": .aac
+            case "A_MPEG/L3": .mp3
+            case "A_FLAC": .flac
+            default: id.hasPrefix("A_") ? .unknown : nil
             }
         }
     }

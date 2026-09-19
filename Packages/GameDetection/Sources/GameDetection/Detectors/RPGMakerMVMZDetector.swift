@@ -11,11 +11,13 @@ public struct RPGMakerMVMZDetector: Detector {
     public func probe(_ ctx: ScanContext, facts: StructureFacts) throws -> DetectorReport {
         var r = DetectorReport()
         let prefix = facts.hasWWW && !ctx.exists("js/rpg_core.js") && !ctx.exists("js/rmmz_core.js") ? "www/" : ""
-        let cores: [(String, EngineFamily, EngineGeneration)] = [
-            ("js/rpg_core.js", .rpgMakerMV, .mv),
-            ("js/rmmz_core.js", .rpgMakerMZ, .mz),
+        struct Core { let path: String, family: EngineFamily, generation: EngineGeneration }
+        let cores = [
+            Core(path: "js/rpg_core.js", family: .rpgMakerMV, generation: .mv),
+            Core(path: "js/rmmz_core.js", family: .rpgMakerMZ, generation: .mz),
         ]
-        guard let (core, family, generation) = cores.first(where: { ctx.exists(prefix + $0.0) }) else { return r }
+        guard let hit = cores.first(where: { ctx.exists(prefix + $0.path) }) else { return r }
+        let (core, family, generation) = (hit.path, hit.family, hit.generation)
         let corePath = prefix + core
         r.claimFamily(family, 0.98)
         r.partial.generation = generation

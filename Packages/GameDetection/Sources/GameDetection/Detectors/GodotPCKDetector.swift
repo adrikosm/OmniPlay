@@ -19,11 +19,7 @@ public struct GodotPCKDetector: Detector {
         if let e = ctx.glob("*.pck", limit: 1).first, let url = ctx.url(e.realRel) {
             source = Source(url: url, offset: 0, name: e.realRel)
         } else if case let .godotPCK(offset, _)? = ctx.pePayload?.kind, let exe = facts.exeNames.first, let url = ctx.url(exe) {
-            source = (
-                url,
-                offset,
-                exe
-            )
+            source = Source(url: url, offset: offset, name: exe)
         }
         guard let source else { return r }
         let (url, offset, name) = (source.url, source.offset, source.name)
