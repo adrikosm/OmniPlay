@@ -3,6 +3,7 @@ import GameDetection
 import GameStore
 import SaveKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// A game's saves and snapshots: back up now, restore any snapshot (replace, or add into free slots).
 struct SaveBackupsView: View {
@@ -12,6 +13,11 @@ struct SaveBackupsView: View {
     @State private var snapshots: [(directory: URL, manifest: SaveSnapshot)] = []
     @State private var pendingRestore: (URL, RestoreMode)?
     @State private var message: String?
+    @State private var exportURL: URL?
+    @State private var showImporter = false
+    @State private var pendingImport: (URL, SaveTransfer.Collision)?
+    @State private var importWarnings: [String] = []
+    @State private var pickedImport: URL?
     @State private var busy = false
 
     private var location: SaveLocation { SaveLocation.forGame(game.id, paths: model.paths) }
@@ -47,6 +53,24 @@ struct SaveBackupsView: View {
                     .buttonStyle(LanternButtonStyle())
                     .disabled(busy || slots.isEmpty)
 
+                HStack(spacing: Theme.s2) {
+                    if let exportURL {
+                        ShareLink(item: exportURL) { Label("Share export", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity) }
+                    } else {
+                        Button { Task { await exportSaves() } } label: {
+                            Label("Export saves", systemImage: "arrow.up.doc").frame(maxWidth: .infinity)
+                        }
+                        .disabled(busy || slots.isEmpty)
+                    }
+                    Button { showImporter = true } label: { Label("Import saves", systemImage: "arrow.down.doc").frame(maxWidth: .infinity)
+                    }
+                    .disabled(busy)
+                }
+                .foregroundStyle(Theme.textPrimary)
+                .frame(minHeight: 44)
+                .padding(.horizontal, Theme.s3)
+                .glassCard(radius: 14)
+
                 VStack(alignment: .leading, spacing: Theme.s3) {
                     Text("Snapshots").font(Theme.title(22)).foregroundStyle(Theme.textPrimary)
                     Text("Taken before every launch and before every restore. Restoring never deletes a snapshot.")
@@ -72,6 +96,44 @@ struct SaveBackupsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .inkScreen()
         .task { await reload() }
+        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.zip, .folder, .data]) { result in
+            if case let .success(url) = result {
+                pickedImport = url
+            }
+        }
+        .confirmationDialog(
+            "Where should the saves go?",
+            isPresented: Binding(get: { pickedImport != nil }, set: {
+                if !$0 {
+                    pickedImport = nil
+                }
+            }),
+            titleVisibility: .visible
+        ) {
+            Button("Replace same-numbered slots") {
+                if let url = pickedImport {
+                    pendingImport = (url, .replace); Task { await runImport(confirmed: false) }
+                }
+            }
+            Button("Add into free slots") {
+                if let url = pickedImport {
+                    pendingImport = (url, .nextFreeSlot); Task { await runImport(confirmed: false) }
+                }
+            }
+        }
+        .confirmationDialog(
+            "Import anyway?",
+            isPresented: Binding(get: { !importWarnings.isEmpty }, set: {
+                if !$0 {
+                    importWarnings = []
+                }
+            }),
+            titleVisibility: .visible
+        ) {
+            Button("Import anyway", role: .destructive) { Task { await runImport(confirmed: true) } }
+        } message: {
+            Text(importWarnings.joined(separator: "\n"))
+        }
         .confirmationDialog(
             "Restore this snapshot?",
             isPresented: Binding(get: { pendingRestore != nil }, set: {
@@ -134,6 +196,59 @@ struct SaveBackupsView: View {
         }.value
         slots = slotList
         snapshots = snapList
+    }
+
+    private var transfer: SaveTransfer {
+        SaveTransfer(paths: model.paths, target: .init(
+            id: game.id, title: game.title, engine: game.engine,
+            family: SaveStrategy.forEngine(game.engine, generation: game.generation).family,
+            slotPattern: slotPattern, identityHash: identityHash
+        ))
+    }
+
+    private func exportSaves() async {
+        busy = true
+        defer { busy = false }
+        do {
+            exportURL = try await transfer.export()
+            message = "Exported to Files › OmniPlay › Saves-Export."
+        } catch {
+            message = "Export failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func runImport(confirmed: Bool) async {
+        guard let (url, collision) = pendingImport else { return }
+        pickedImport = nil
+        importWarnings = []
+        busy = true
+        defer { busy = false }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer {
+            if scoped {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+        do {
+            switch try await transfer.importSaves(from: url, collision: collision, confirmed: confirmed) {
+            case let .installed(slots, persistent):
+                let slotText = "\(slots) save\(slots == 1 ? "" : "s")"
+                let settingsText = persistent > 0 ? " and \(persistent) settings file\(persistent == 1 ? "" : "s")" : ""
+                message = "Imported \(slotText)\(settingsText)."
+                pendingImport = nil
+                model.reindexSaves(game.id)
+                exportURL = nil
+            case let .needsConfirmation(warnings):
+                importWarnings = warnings
+            case let .nothingRecognised(reasons):
+                message = "Nothing imported. " + reasons.joined(separator: " ")
+                pendingImport = nil
+            }
+        } catch {
+            message = "Import failed, nothing was changed: \(error.localizedDescription)"
+            pendingImport = nil
+        }
+        await reload()
     }
 
     private func backUpNow() async {

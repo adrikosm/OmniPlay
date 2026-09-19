@@ -159,6 +159,13 @@ final class AppModel {
         return session
     }
 
+    /// Rebuilds the save index for a game after a manual import or restore.
+    func reindexSaves(_ id: GameID) {
+        if let descriptor = Self.snapshot(for: id, paths: paths)?.report.descriptor.withID(id) {
+            indexSaves(for: descriptor)
+        }
+    }
+
     func stopPlaying(reason: RuntimeStopReason = .userExit) async {
         let session = await coordinator?.activeSession
         _ = await coordinator?.stop(reason: reason)
@@ -209,7 +216,7 @@ final class AppModel {
     }
 
     /// Rebuilds `saves_meta` from the slot files so the library can show what a game has saved.
-    private func indexSaves(for descriptor: GameDescriptor) {
+    func indexSaves(for descriptor: GameDescriptor) {
         guard let store else { return }
         let location = SaveLocation.forGame(descriptor.id, paths: paths)
         let files = (try? FileManager.default.contentsOfDirectory(

@@ -162,3 +162,108 @@ struct SaveRestoreTests {
         #expect(RescuedSaves.find(titleHash: "abc", paths: paths).isEmpty)
     }
 }
+
+@Suite("SaveKit validator and transaction")
+struct SaveSafetyTests {
+    private func temp(_ name: String, _ data: Data) throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString)-\(name)")
+        try data.write(to: url)
+        return url
+    }
+
+    @Test("Formats are recognised from bounded heads; unknown bytes are refused with their magic")
+    func formats() throws {
+        let mvGood = try temp(
+            "file1.rpgsave",
+            Data("N4IgzgnmAuCmC2IBcoACyQHECG9YH0BlKORAGhHzGwDdYBhAewFcA7aZARgF8KwBjAE6xYrZMG7cgA==".utf8)
+        )
+        let v0 = SaveValidator.validate(file: mvGood, family: .webLocalStorage)
+        #expect(v0.format == .mvLZString && v0.isAcceptable && !v0.needsConfirmation)
+        let mvBad = try temp("file2.rpgsave", Data("N4Igdg9gLgFglmA5iAXFATgVwKYF8g==".utf8))
+        let v1 = SaveValidator.validate(file: mvBad, family: .webLocalStorage)
+        #expect(v1.format == .unknown && !v1.isAcceptable)
+
+        let marshal = try temp("Save01.rvdata2", Data([0x04, 0x08, 0x5B, 0x00]))
+        let v2 = SaveValidator.validate(file: marshal, family: .rgssMarshal, expectedTitleHash: "a", manifestTitleHash: "b")
+        #expect(v2.format == .rgssMarshal && v2.matchesFamily && v2.titleMatch == .foreign("b") && v2.needsConfirmation)
+
+        let lsd = try temp("Save01.lsd", Data([0x0B]) + Data("LcfSaveData".utf8))
+        #expect(SaveValidator.validate(file: lsd, family: .easyrpgLSD).format == .easyrpgLSD)
+
+        let mz = try temp("file1.rmmzsave", Self.zlib(Data(#"{"system":{"@":"Game_System"}}"#.utf8)))
+        let v3 = SaveValidator.validate(file: mz, family: .webIndexedDB, expectedTitleHash: "a", manifestTitleHash: "a")
+        #expect(v3.format == .mzZlib && v3.matchesFamily && v3.titleMatch == .same && !v3.needsConfirmation)
+        #expect(SaveValidator.validate(file: mz, family: .renpySave).needsConfirmation)
+
+        let junk = try temp("weird.sav", Data([0xDE, 0xAD, 0xBE, 0xEF, 0x00]))
+        let v4 = SaveValidator.validate(file: junk, family: .rgssMarshal)
+        #expect(v4.format == .unknown && v4.warnings.contains { $0.contains("DE AD BE EF") })
+    }
+
+    @Test("LZString round-trips ASCII produced by the reference compressor")
+    func lzString() {
+        // "hello hello hello" compressed with lz-string's compressToBase64.
+        #expect(BoundedDecode.lzStringBase64("BYUwNmD2AEoTcpA=") == "hello hello hello")
+        #expect(BoundedDecode.lzStringBase64("") == nil)
+    }
+
+    @Test("Transaction swaps validated clones in and leaves files untouched when validation or the swap fails")
+    func transaction() async throws {
+        let root = try TemporaryGameRoot(name: "txn")
+        defer { root.remove() }
+        let paths = AppPaths(
+            root: root.url.appending(path: "S"),
+            cachesRoot: root.url.appending(path: "C"),
+            exportsRoot: root.url.appending(path: "E")
+        )
+        let loc = SaveLocation.forGame(GameID(), paths: paths)
+        let store = SaveFileStore(location: loc, fileExtension: "rpgsave")
+        try store.write(Data("before".utf8), key: "file1")
+        let target = try store.url(for: "file1")
+        let txn = SafePersistTransaction(location: loc, identityHash: "h")
+
+        let value = try await txn.run(targets: [target]) { staging in
+            try Data("after".utf8).write(to: staging.url(for: target))
+            return 42
+        }
+        #expect(value == 42)
+        #expect(try Data(contentsOf: target) == Data("after".utf8))
+
+        await #expect(throws: PersistError.self) {
+            try await txn.run(
+                targets: [target],
+                mutate: { staging in try Data("bad".utf8).write(to: staging.url(for: target)) },
+                validate: { _ in throw CocoaError(.fileReadCorruptFile) }
+            )
+        }
+        #expect(try Data(contentsOf: target) == Data("after".utf8))
+
+        await #expect(throws: PersistError.self) {
+            try await txn.run(
+                targets: [target],
+                mutate: { staging in try Data("newer".utf8).write(to: staging.url(for: target)) },
+                verifyAfterReload: { throw CocoaError(.fileReadUnknown) }
+            )
+        }
+        #expect(try Data(contentsOf: target) == Data("after".utf8))
+        // Three transactions plus the restore that followed the failed verification.
+        #expect(SaveVault.snapshots(location: loc).count == 4)
+        #expect(((try? FileManager.default.contentsOfDirectory(atPath: loc.root.path(percentEncoded: false))) ?? [])
+            .filter { $0.hasPrefix(".") }.isEmpty)
+    }
+
+    private static func zlib(_ data: Data) -> Data {
+        // Stored (uncompressed) deflate block wrapped in a zlib header; enough for the sniffers.
+        var out = Data([0x78, 0x01])
+        let len = UInt16(data.count)
+        out.append(contentsOf: [0x01, UInt8(len & 0xFF), UInt8(len >> 8), UInt8(~len & 0xFF), UInt8(~len >> 8)])
+        out.append(data)
+        var a: UInt32 = 1, b: UInt32 = 0
+        for byte in data {
+            a = (a + UInt32(byte)) % 65521; b = (b + a) % 65521
+        }
+        let adler = (b << 16) | a
+        out.append(contentsOf: [UInt8(adler >> 24), UInt8((adler >> 16) & 0xFF), UInt8((adler >> 8) & 0xFF), UInt8(adler & 0xFF)])
+        return out
+    }
+}
