@@ -56,14 +56,17 @@ final class AppModel {
             )
             phase = .ready
             #if DEBUG
+                OPLog.log(
+                    .ui,
+                    .debug,
+                    "launch arguments: \(ProcessInfo.processInfo.arguments.dropFirst())",
+                    session: HostSession.shared.sessionID
+                )
                 if ProcessInfo.processInfo.arguments.contains("--sample-library") {
                     SampleLibrary.insert(into: store)
                 }
-                if let folder = DebugLaunch.value(for: "--import-folder") {
-                    await imports?.enqueue(URL(
-                        filePath: folder,
-                        directoryHint: .isDirectory
-                    ))
+                if let path = DebugLaunch.value(for: "--import") {
+                    await imports?.enqueue(URL(filePath: path))
                 }
             #endif
             OPLog.log(.ui, .info, "app ready", session: HostSession.shared.sessionID)

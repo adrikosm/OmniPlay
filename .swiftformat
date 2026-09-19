@@ -7,4 +7,4 @@
 --wrapcollections before-first
 --commas always
 # Single-line computed properties and one-line function bodies are idiomatic here.
---disable wrapPropertyBodies,wrapFunctionBodies
+--disable wrapPropertyBodies,wrapFunctionBodies,wrapMultilineStatementBraces

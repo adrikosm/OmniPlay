@@ -5,6 +5,7 @@ import GameDetection
 import GameImport
 import GameStore
 import OverlayVFS
+import Synchronization
 
 /// One import from a folder to a registered, sealed, indexed game. Archives are refused until the
 /// libarchive extractor lands; everything that runs here is the commit path those extractors will share.
@@ -25,11 +26,32 @@ struct ImportPipeline: Sendable {
         }
 
         let kind = try ContainerSniffer.identify(source.url)
-        guard kind == .folder else {
-            throw ImportFailure.unsupportedContainer(firstBytesHex: "\(kind.rawValue): archive import arrives with the next milestone")
+        var stagedRoot = staging.appending(path: "Original", directoryHint: .isDirectory)
+        var totals: RunningTotals
+        var sourceBytes: Int64?
+        switch kind {
+        case .folder:
+            totals = try await stage(from: source.url, to: stagedRoot, txn: txn)
+        case .zip, .sevenZip, .tar, .gzip, .xz, .zstd:
+            totals = try await extractArchive(source.url, to: stagedRoot, txn: txn)
+            sourceBytes = fileSize(source.url)
+            // A zip inside a zip (depth ≤ 2): unwrap it into a sibling folder and continue from there.
+            var depth = 1
+            while let inner = singleArchive(in: stagedRoot) {
+                depth += 1
+                if let v = EntryValidator(limits: limits).checkNesting(depth: depth) {
+                    throw ImportFailure.safetyViolation(v)
+                }
+                let next = staging.appending(path: "Original-\(depth)", directoryHint: .isDirectory)
+                totals = try await extractArchive(inner, to: next, txn: txn)
+                sourceBytes = fileSize(inner)
+                try FileManager.default.removeItem(at: stagedRoot)
+                stagedRoot = next
+            }
+        case .rar4, .rar5, .cab, .pe, .asar, .unknown:
+            throw ImportFailure
+                .unsupportedContainer(firstBytesHex: kind == .unknown ? ContainerSniffer.firstBytesHex(source.url) : kind.rawValue)
         }
-        let stagedRoot = staging.appending(path: "Original", directoryHint: .isDirectory)
-        let totals = try await stage(from: source.url, to: stagedRoot, txn: txn)
 
         await txn.transition(to: .inspecting)
         let audited: RunningTotals
@@ -51,6 +73,57 @@ struct ImportPipeline: Sendable {
             txn: txn
         )
     }
+
+    // MARK: Archives
+
+    private func extractArchive(_ url: URL, to stagedRoot: URL, txn: ImportTransaction) async throws -> RunningTotals {
+        let extractor = LibArchiveExtractor(limits: limits)
+        var hdrcharset: String?
+        var pre = try extractor.preflight(url)
+        if pre.undecodableNames {
+            hdrcharset = "CP932" // Windows-Japanese archives are the common case without a UTF-8 flag
+            pre = try extractor.preflight(url, hdrcharset: hdrcharset)
+        }
+        if pre.encrypted {
+            throw ImportFailure.passwordRequired
+        }
+        let hint = pre.sizesKnown ? pre.declaredBytes : (fileSize(url) ?? 0) * 4
+        try StorageBudget.require(.forArchive(uncompressedSizeHint: hint), at: paths.root)
+        let total: Int64? = pre.sizesKnown ? pre.declaredBytes : nil
+        await txn.transition(to: .extracting(.init(completedBytes: 0, totalBytes: total)))
+        let reporter = ProgressReporter(txn: txn, total: total)
+        do {
+            return try extractor.extract(url, to: stagedRoot, hdrcharset: hdrcharset) { done, item in reporter.report(done, item) }
+        } catch let v as SafetyViolation {
+            throw ImportFailure.safetyViolation(v)
+        } catch let e as ExtractionError {
+            switch e {
+            case let .open(m): throw ImportFailure.unreadableSource(m)
+            case let .entry(path, m), let .unsupportedCompression(path, m): throw ImportFailure.extractionFailed(entry: path, underlying: m)
+            case let .write(path, errno): throw ImportFailure.extractionFailed(entry: path, underlying: String(cString: strerror(errno)))
+            }
+        }
+    }
+
+    /// The one regular file in `root` when it is an archive and nothing else meaningful sits beside it.
+    private func singleArchive(in root: URL) -> URL? {
+        var files: [URL] = []
+        var stop = false
+        try? LazyDirectoryWalker.walk(root: root) { entry in
+            if entry.isDirectory {
+                return .continue
+            }
+            files.append(entry.url)
+            if files.count > 1 {
+                stop = true; return .stop
+            }
+            return .continue
+        }
+        guard !stop, let only = files.first, let kind = try? ContainerSniffer.identify(only) else { return nil }
+        return [.zip, .sevenZip, .tar, .gzip, .xz, .zstd].contains(kind) ? only : nil
+    }
+
+    private func fileSize(_ url: URL) -> Int64? { (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) }
 
     // MARK: Staging
 
@@ -221,6 +294,29 @@ struct ImportPipeline: Sendable {
         let cleaned = raw.replacingOccurrences(of: "[_\\.]+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespaces)
         return cleaned.isEmpty ? "Untitled game" : cleaned
+    }
+}
+
+/// Throttles extraction progress into transaction states (at most five updates a second).
+private final class ProgressReporter: Sendable {
+    private let txn: ImportTransaction
+    private let total: Int64?
+    private let last = Mutex<Date>(.distantPast)
+
+    init(txn: ImportTransaction, total: Int64?) {
+        self.txn = txn
+        self.total = total
+    }
+
+    func report(_ done: Int64, _ item: String) {
+        let due = last.withLock { l in
+            guard Date.now.timeIntervalSince(l) > 0.2 else { return false }
+            l = .now
+            return true
+        }
+        guard due else { return }
+        let txn = txn, total = total
+        Task { await txn.transition(to: .extracting(.init(completedBytes: done, totalBytes: total, currentItem: item))) }
     }
 }
 

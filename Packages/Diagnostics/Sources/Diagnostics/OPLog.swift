@@ -9,6 +9,14 @@ public enum OPLog {
 
     private static let loggers = Mutex<[LogCategory: Logger]>([:])
     private static let sinks = Mutex<[SessionID: FileLogSink]>([:])
+    private static let fallback = Mutex<SessionID?>(nil)
+
+    /// Session used when a caller passes none, so package-level lines land in the host log too.
+    public static var defaultSession: SessionID? {
+        get { fallback.withLock { $0 } }
+        set { fallback.withLock { $0 = newValue } }
+    }
+
     private static let timestamp = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
 
     public static func logger(_ category: LogCategory) -> Logger {
@@ -24,7 +32,7 @@ public enum OPLog {
 
     public static func log(_ category: LogCategory, _ level: OSLogType = .default, _ message: String, session: SessionID? = nil) {
         logger(category).log(level: level, "\(message, privacy: .public)")
-        guard let session, let sink = sinks.withLock({ $0[session] }) else { return }
+        guard let session = session ?? defaultSession, let sink = sinks.withLock({ $0[session] }) else { return }
         let line = "\(Date.now.formatted(timestamp))\t\(level.label)\t\(category.rawValue)\t\(message)"
         Task { await sink.append(line) }
     }

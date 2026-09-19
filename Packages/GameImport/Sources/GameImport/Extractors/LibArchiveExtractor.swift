@@ -105,37 +105,66 @@ public struct LibArchiveExtractor: Sendable {
             }
             let declared: Int64? = archive_entry_size_is_set(entry) != 0 ? Int64(archive_entry_size(entry)) : nil
             let header = ArchiveEntryHeader(path: rawPath, kind: Self.kind(archive_entry_filetype(entry)), declaredSize: declared)
-            switch validator.validate(header, running: &totals) {
-            case let .reject(v): throw v
-            case .skip: archive_read_data_skip(a); continue
-            case let .extract(rel):
-                let target = destination.appending(path: rel)
-                if header.kind == .directory {
-                    try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
-                    continue
-                }
-                if FileManager.default.fileExists(atPath: target.path(percentEncoded: false)) {
-                    OPLog.log(.importer, .default, "duplicate entry \(rel): keeping the first")
-                    archive_read_data_skip(a)
-                    continue
-                }
-                try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-                let written = try writeEntry(a, to: target, declared: declared, path: rel)
-                totals.writtenBytes += written
-                if let v = validator.checkWritten(totals, sourceBytes: sourceBytes) {
-                    throw v
-                }
-                let mtime = archive_entry_mtime(entry)
-                if mtime > 0 {
-                    try? FileManager.default.setAttributes(
-                        [.modificationDate: Date(timeIntervalSince1970: TimeInterval(mtime))],
-                        ofItemAtPath: target.path(percentEncoded: false)
-                    )
-                }
-                progress?(totals.writtenBytes, rel)
-            }
+            let decision = validator.validate(header, running: &totals)
+            let ctx = EntryContext(
+                archive: a,
+                entry: entry,
+                header: header,
+                destination: destination,
+                sourceBytes: sourceBytes,
+                validator: validator
+            )
+            try place(ctx, decision: decision, totals: &totals, progress: progress)
         }
         return totals
+    }
+
+    private struct EntryContext {
+        let archive: OpaquePointer, entry: OpaquePointer, header: ArchiveEntryHeader, destination: URL
+        let sourceBytes: Int64?, validator: EntryValidator
+    }
+
+    /// Applies one validated entry: creates a directory, skips links and duplicates, or streams a file.
+    private func place(
+        _ ctx: EntryContext,
+        decision: EntryDecision,
+        totals: inout RunningTotals,
+        progress: (@Sendable (Int64, String) -> Void)?
+    ) throws {
+        let (a, entry, header, destination, sourceBytes, validator) = (
+            ctx.archive,
+            ctx.entry,
+            ctx.header,
+            ctx.destination,
+            ctx.sourceBytes,
+            ctx.validator
+        )
+        switch decision {
+        case let .reject(v): throw v
+        case .skip: archive_read_data_skip(a)
+        case let .extract(rel):
+            let target = destination.appending(path: rel)
+            if header.kind == .directory {
+                try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+                return
+            }
+            if FileManager.default.fileExists(atPath: target.path(percentEncoded: false)) {
+                OPLog.log(.importer, .default, "duplicate entry \(rel): keeping the first")
+                archive_read_data_skip(a)
+                return
+            }
+            try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            totals.writtenBytes += try writeEntry(a, to: target, declared: header.declaredSize, path: rel)
+            if let v = validator.checkWritten(totals, sourceBytes: sourceBytes) {
+                throw v
+            }
+            let mtime = archive_entry_mtime(entry)
+            if mtime > 0 {
+                let date = Date(timeIntervalSince1970: TimeInterval(mtime))
+                try? FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: target.path(percentEncoded: false))
+            }
+            progress?(totals.writtenBytes, rel)
+        }
     }
 
     // MARK: - Internals

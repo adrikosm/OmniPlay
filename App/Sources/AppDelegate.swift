@@ -34,6 +34,7 @@ final class HostSession {
     func start() {
         do { try paths.ensureLayout() } catch { layoutError = error }
         OPLog.beginSession(sessionID, directory: directory)
+        OPLog.defaultSession = sessionID
         OPLog.log(.runtime, .info, "OmniPlay launched (UIScene lifecycle) session=\(sessionID)", session: sessionID)
         if let layoutError {
             OPLog.log(.filesystem, .fault, "storage layout failed: \(layoutError)", session: sessionID)

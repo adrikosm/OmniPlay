@@ -8,16 +8,18 @@ import TestSupport
 struct SafetyTests {
     let extractor = LibArchiveExtractor()
 
-    private func extract(_ fixture: String, hdrcharset: String? = nil) throws -> (URL, RunningTotals, TemporaryGameRoot) {
+    private struct Extracted { let out: URL, totals: RunningTotals, root: TemporaryGameRoot }
+    private func extract(_ fixture: String, hdrcharset: String? = nil) throws -> Extracted {
         let root = try TemporaryGameRoot(name: "x")
         let out = root.url.appending(path: "out")
         let totals = try extractor.extract(Fixtures.url(fixture), to: out, hdrcharset: hdrcharset)
-        return (out, totals, root)
+        return Extracted(out: out, totals: totals, root: root)
     }
 
     @Test("A plain ZIP extracts byte-identical to the fixture tree")
     func zipRoundTrip() throws {
-        let (out, totals, root) = try extract("mv-basic.zip")
+        let x = try extract("mv-basic.zip")
+        let (out, totals, root) = (x.out, x.totals, x.root)
         defer { root.remove() }
         var files = 0
         try LazyDirectoryWalker.walk(root: Fixtures.url("mv-basic")) { e in
@@ -50,7 +52,8 @@ struct SafetyTests {
 
     @Test("Symlinks are never materialised; files under a link path land in a real directory")
     func symlinks() throws {
-        let (out, totals, root) = try extract("symlink.tar")
+        let x = try extract("symlink.tar")
+        let (out, totals, root) = (x.out, x.totals, x.root)
         defer { root.remove() }
         let link = out.appending(path: "link")
         #expect((try? link.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true)
@@ -86,14 +89,16 @@ struct SafetyTests {
     func shiftJIS() throws {
         let pre = try extractor.preflight(Fixtures.url("shiftjis-names.zip"))
         #expect(pre.undecodableNames || pre.entries == 2)
-        let (out, _, root) = try extract("shiftjis-names.zip", hdrcharset: "CP932")
+        let x = try extract("shiftjis-names.zip", hdrcharset: "CP932")
+        let (out, root) = (x.out, x.root)
         defer { root.remove() }
         #expect(FileManager.default.fileExists(atPath: out.appending(path: "ゲーム/読んで.txt").path(percentEncoded: false)))
     }
 
     @Test("Nested zip entries come out as files for the pipeline's depth check")
     func nested() throws {
-        let (out, _, root) = try extract("mv-basic-nested.zip")
+        let x = try extract("mv-basic-nested.zip")
+        let (out, root) = (x.out, x.root)
         defer { root.remove() }
         #expect(try ContainerSniffer.identify(out.appending(path: "inner/mv-basic.zip")) == .zip)
         let v = EntryValidator()
