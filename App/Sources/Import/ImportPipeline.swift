@@ -20,9 +20,17 @@ struct ImportPipeline: Sendable {
     /// What to do when the same source was imported before.
     enum DuplicatePolicy: Sendable { case ask, keepBoth, replace(GameID) }
 
+    /// Answers the user gave to earlier failures of the same source; a re-run carries them all.
+    struct Options: Sendable {
+        var duplicates: DuplicatePolicy = .ask
+        var passphrase: String?
+        var chosenRoot: String?
+    }
+
     struct Materialized { let root: URL, totals: RunningTotals, sourceBytes: Int64? }
 
-    func run(_ txn: ImportTransaction, duplicates: DuplicatePolicy = .ask) async throws -> GameID {
+    func run(_ txn: ImportTransaction, options: Options = Options()) async throws -> GameID {
+        let duplicates = options.duplicates
         let source = txn.source
         let staging = txn.stagingURL
         let accessed = source.url.startAccessingSecurityScopedResource()
@@ -39,7 +47,7 @@ struct ImportPipeline: Sendable {
            let existing = try store.games.fetch(id: previous) {
             throw ImportFailure.duplicate(existing: existing.id, title: existing.title)
         }
-        let staged = try await materialize(kind: kind, source: source, staging: staging, txn: txn)
+        let staged = try await materialize(kind: kind, source: source, staging: staging, txn: txn, passphrase: options.passphrase)
 
         await txn.transition(to: .normalizing)
         let audited: RunningTotals
@@ -48,7 +56,7 @@ struct ImportPipeline: Sendable {
         } catch let v as SafetyViolation {
             throw ImportFailure.safetyViolation(v)
         }
-        let located = try GameRootLocator.locate(stagingRoot: staged.root)
+        let located = try GameRootLocator.locate(stagingRoot: staged.root, chosen: options.chosenRoot)
         let gameRoot = located.relativePath.isEmpty ? staged.root : staged.root.appending(
             path: located.relativePath,
             directoryHint: .isDirectory
@@ -80,7 +88,13 @@ struct ImportPipeline: Sendable {
     // MARK: Materialize
 
     /// Copies a folder or extracts an archive (unwrapping one nested level) into staging.
-    private func materialize(kind: ContainerKind, source: ImportSource, staging: URL, txn: ImportTransaction) async throws -> Materialized {
+    private func materialize(
+        kind: ContainerKind,
+        source: ImportSource,
+        staging: URL,
+        txn: ImportTransaction,
+        passphrase: String?
+    ) async throws -> Materialized {
         var stagedRoot = staging.appending(path: "Original", directoryHint: .isDirectory)
         var totals: RunningTotals
         var sourceBytes: Int64?
@@ -88,7 +102,7 @@ struct ImportPipeline: Sendable {
         case .folder:
             totals = try await stage(from: source.url, to: stagedRoot, txn: txn)
         case .zip, .sevenZip, .tar, .gzip, .xz, .zstd:
-            totals = try await extractArchive(source.url, to: stagedRoot, txn: txn)
+            totals = try await extractArchive(source.url, to: stagedRoot, txn: txn, passphrase: passphrase)
             sourceBytes = fileSize(source.url)
             var depth = 1
             while let inner = GameRootLocator.nestedArchive(in: stagedRoot) {
@@ -97,7 +111,7 @@ struct ImportPipeline: Sendable {
                     throw ImportFailure.safetyViolation(v)
                 }
                 let next = staging.appending(path: "Original-\(depth)", directoryHint: .isDirectory)
-                totals = try await extractArchive(inner, to: next, txn: txn)
+                totals = try await extractArchive(inner, to: next, txn: txn, passphrase: passphrase)
                 sourceBytes = fileSize(inner)
                 try FileManager.default.removeItem(at: stagedRoot)
                 stagedRoot = next
@@ -107,7 +121,7 @@ struct ImportPipeline: Sendable {
             else { throw ImportFailure.unsupportedContainer(firstBytesHex: "malformed executable") }
             switch payload.kind {
             case let .appendedZip(offset), let .appendedSevenZip(offset):
-                totals = try await extractArchive(source.url, to: stagedRoot, txn: txn, offset: offset)
+                totals = try await extractArchive(source.url, to: stagedRoot, txn: txn, offset: offset, passphrase: passphrase)
                 sourceBytes = fileSize(source.url).map { $0 - offset }
             case .godotPCK: throw ImportFailure
                 .unsupportedContainer(firstBytesHex: "Godot executable: embedded PCK support arrives with the Godot epic")
@@ -125,11 +139,17 @@ struct ImportPipeline: Sendable {
 
     // MARK: Archives
 
-    private func extractArchive(_ url: URL, to stagedRoot: URL, txn: ImportTransaction, offset: Int64 = 0) async throws -> RunningTotals {
+    private func extractArchive(
+        _ url: URL,
+        to stagedRoot: URL,
+        txn: ImportTransaction,
+        offset: Int64 = 0,
+        passphrase: String? = nil
+    ) async throws -> RunningTotals {
         let extractor = LibArchiveExtractor(limits: limits)
         let hdrcharset = offset == 0 ? try NameDecoder.charset(for: url, extractor: extractor) : nil
         let pre = try extractor.preflight(url, hdrcharset: hdrcharset, offset: offset)
-        if pre.encrypted {
+        if pre.encrypted, passphrase == nil {
             throw ImportFailure.passwordRequired
         }
         let hint = pre.sizesKnown ? pre.declaredBytes : (fileSize(url) ?? 0) * 4
@@ -138,10 +158,13 @@ struct ImportPipeline: Sendable {
         await txn.transition(to: .extracting(.init(completedBytes: 0, totalBytes: total)))
         let reporter = ProgressReporter(txn: txn, total: total)
         do {
-            return try extractor.extract(url, to: stagedRoot, hdrcharset: hdrcharset, offset: offset) { done, item in reporter.report(
-                done,
-                item
-            ) }
+            return try extractor
+                .extract(url, to: stagedRoot, passphrase: passphrase, hdrcharset: hdrcharset, offset: offset) { done, item in
+                    reporter.report(
+                        done,
+                        item
+                    )
+                }
         } catch let v as SafetyViolation {
             throw ImportFailure.safetyViolation(v)
         } catch let e as ExtractionError {

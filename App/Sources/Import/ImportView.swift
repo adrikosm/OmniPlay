@@ -73,7 +73,7 @@ private struct ImportList: View {
                     ImportRow(
                         item: item,
                         showLibrary: { model.selectedTab = .library },
-                        resolveDuplicate: { policy in Task { await imports.resolveDuplicate(item, policy: policy) } }
+                        resolve: { change in Task { await imports.resolve(item, change) } }
                     )
                 }
             }
@@ -84,7 +84,8 @@ private struct ImportList: View {
 private struct ImportRow: View {
     let item: ImportItem
     let showLibrary: () -> Void
-    let resolveDuplicate: (ImportPipeline.DuplicatePolicy) -> Void
+    let resolve: (@escaping (inout ImportPipeline.Options) -> Void) -> Void
+    @State private var passphrase = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.s2) {
@@ -108,10 +109,34 @@ private struct ImportRow: View {
             case let .failed(.duplicate(existing, title)):
                 Text("You already have \"\(title)\". Replace it, or keep both?").font(.footnote).foregroundStyle(Theme.textSecondary)
                 HStack(spacing: Theme.s3) {
-                    Button("Replace") { resolveDuplicate(.replace(existing)) }
-                    Button("Keep both") { resolveDuplicate(.keepBoth) }
+                    Button("Replace") { resolve { $0.duplicates = .replace(existing) } }
+                    Button("Keep both") { resolve { $0.duplicates = .keepBoth } }
                 }
                 .font(.footnote.weight(.semibold))
+            case .failed(.passwordRequired):
+                Text(item.options.passphrase == nil ? "This archive is password protected." : "That password did not open the archive.")
+                    .font(.footnote).foregroundStyle(Theme.textSecondary)
+                HStack(spacing: Theme.s2) {
+                    SecureField("Password", text: $passphrase)
+                        .textFieldStyle(.plain)
+                        .padding(.horizontal, Theme.s3).frame(minHeight: 44)
+                        .background(.ultraThinMaterial, in: .rect(cornerRadius: 10))
+                        .submitLabel(.go)
+                        .onSubmit { unlock() }
+                    Button("Unlock") { unlock() }.font(.footnote.weight(.semibold)).disabled(passphrase.isEmpty)
+                }
+            case let .failed(.multipleRoots(candidates)):
+                Text("Several game folders are inside. Which one is the game?").font(.footnote).foregroundStyle(Theme.textSecondary)
+                ForEach(candidates.sorted(), id: \.self) { candidate in
+                    Button {
+                        resolve { $0.chosenRoot = candidate }
+                    } label: {
+                        Label(candidate, systemImage: "folder").font(.footnote.weight(.semibold)).frame(
+                            maxWidth: .infinity,
+                            alignment: .leading
+                        ).frame(minHeight: 44)
+                    }
+                }
             case let .failed(failure):
                 Text(Self.copy(for: failure)).font(.footnote).foregroundStyle(Theme.danger)
             case .cancelled:
@@ -123,6 +148,12 @@ private struct ImportRow: View {
         .padding(Theme.s3)
         .glassCard(radius: 14)
         .accessibilityElement(children: .combine)
+    }
+
+    private func unlock() {
+        let entered = passphrase
+        guard !entered.isEmpty else { return }
+        resolve { $0.passphrase = entered }
     }
 
     private func fraction(_ p: ImportProgress) -> Double? {

@@ -14,6 +14,11 @@ struct OmniPlayApp: App {
                 .preferredColorScheme(.dark)
                 .tint(Theme.lantern)
                 .task { await model.launch() }
+                // "Open in OmniPlay" from Files or a share sheet: the file lands in the import queue.
+                .onOpenURL { url in
+                    model.selectedTab = .importGames
+                    Task { await model.imports?.enqueue(url) }
+                }
         }
     }
 }

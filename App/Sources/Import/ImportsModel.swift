@@ -10,13 +10,16 @@ final class ImportItem: Identifiable {
     let id: UUID
     let name: String
     let transaction: ImportTransaction
+    /// Answers already given for this source; a retry adds one more.
+    let options: ImportPipeline.Options
     private(set) var state: ImportState = .queued
     private var watcher: Task<Void, Never>?
 
-    init(transaction: ImportTransaction, name: String) {
+    init(transaction: ImportTransaction, name: String, options: ImportPipeline.Options = .init()) {
         id = transaction.id
         self.transaction = transaction
         self.name = name
+        self.options = options
         watcher = Task { [weak self] in
             for await state in await transaction.states {
                 guard let self else { return }
@@ -40,18 +43,20 @@ final class ImportsModel {
         self.pipeline = pipeline
     }
 
-    func enqueue(_ url: URL, duplicates: ImportPipeline.DuplicatePolicy = .ask) async {
+    func enqueue(_ url: URL, options: ImportPipeline.Options = .init()) async {
         let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
         let source: ImportSource = isDirectory ? .folder(url) : .file(url)
         let pipeline = pipeline
-        let txn = await coordinator.enqueue(source: source) { try await pipeline.run($0, duplicates: duplicates) }
-        items.insert(ImportItem(transaction: txn, name: url.lastPathComponent), at: 0)
+        let txn = await coordinator.enqueue(source: source) { try await pipeline.run($0, options: options) }
+        items.insert(ImportItem(transaction: txn, name: url.lastPathComponent, options: options), at: 0)
     }
 
-    /// Re-runs a duplicate import with the user's choice and drops the row that asked.
-    func resolveDuplicate(_ item: ImportItem, policy: ImportPipeline.DuplicatePolicy) async {
+    /// Re-runs an import with one more answer (duplicate choice, passphrase, chosen root) and drops the row that asked.
+    func resolve(_ item: ImportItem, _ change: (inout ImportPipeline.Options) -> Void) async {
+        var options = item.options
+        change(&options)
         items.removeAll { $0.id == item.id }
-        await enqueue(item.transaction.source.url, duplicates: policy)
+        await enqueue(item.transaction.source.url, options: options)
     }
 
     func clearFinished() { items.removeAll { $0.state.isTerminal } }

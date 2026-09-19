@@ -40,7 +40,8 @@ public enum GameRootLocator {
     static let archiveKinds: Set<ContainerKind> = [.zip, .sevenZip, .tar, .gzip, .xz, .zstd]
     public static let maxCandidates = 16
 
-    public static func locate(stagingRoot: URL) throws -> LocatedRoot {
+    /// `chosen` is the candidate the user picked after a `multipleRoots` failure.
+    public static func locate(stagingRoot: URL, chosen: String? = nil) throws -> LocatedRoot {
         let fm = FileManager.default
         var stripped = try stripJunk(under: stagingRoot)
         var sidecars = ImportSidecars()
@@ -80,6 +81,9 @@ public enum GameRootLocator {
         }
         if candidates.count == 1 {
             return LocatedRoot(relativePath: candidates[0], sidecars: sidecars, strippedItems: stripped, candidates: candidates)
+        }
+        if let chosen, candidates.contains(chosen) {
+            return LocatedRoot(relativePath: chosen, sidecars: sidecars, strippedItems: stripped, candidates: candidates)
         }
         throw ImportFailure.multipleRoots(candidates)
     }

@@ -79,6 +79,9 @@ struct GameRootLocatorTests {
             _ = try GameRootLocator.locate(stagingRoot: root.url.appending(path: "Original"))
             Issue.record("no multipleRoots")
         } catch let ImportFailure.multipleRoots(c) { #expect(c.sorted() == ["A", "B"]) }
+        #expect(try GameRootLocator.locate(stagingRoot: root.url.appending(path: "Original"), chosen: "B").relativePath == "B")
+        #expect(throws: ImportFailure.self) { try GameRootLocator.locate(stagingRoot: root.url.appending(path: "Original"), chosen: "Nope")
+        }
     }
 }
 
