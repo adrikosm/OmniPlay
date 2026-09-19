@@ -8,6 +8,7 @@ let package = Package(
     dependencies: [
         .package(path: "../GameCore"),
         .package(path: "../Diagnostics"),
+        .package(path: "../OverlayVFS"),
     ],
     targets: [
         .target(
@@ -15,9 +16,10 @@ let package = Package(
             dependencies: [
                 .product(name: "GameCore", package: "GameCore"),
                 .product(name: "Diagnostics", package: "Diagnostics"),
+                .product(name: "OverlayVFS", package: "OverlayVFS"),
             ]
         ),
-        .testTarget(name: "LocalGameServerTests", dependencies: ["LocalGameServer"]),
+        .testTarget(name: "LocalGameServerTests", dependencies: ["LocalGameServer", .product(name: "TestSupport", package: "GameCore")]),
     ],
     swiftLanguageModes: [.v6]
 )
