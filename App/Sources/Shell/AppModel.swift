@@ -88,6 +88,7 @@ final class AppModel {
                     "launch arguments: \(ProcessInfo.processInfo.arguments.dropFirst())",
                     session: HostSession.shared.sessionID
                 )
+                LogRetention.sweep(logsRoot: paths.logsRoot())
                 if ProcessInfo.processInfo.arguments.contains("--sample-library") {
                     SampleLibrary.insert(into: store)
                 }
@@ -133,6 +134,10 @@ final class AppModel {
         let resolution = await freshResolution(for: record, snapshot: snapshot)
         var descriptor = snapshot.report.descriptor.withID(record.id)
         descriptor.profile = resolution.profile
+        // Big MZ titles get an image-cache cap unless the player set one; smaller ones keep the engine's behaviour.
+        if descriptor.engine == .rpgMakerMZ, record.installBytes > 1 << 30, descriptor.profile.overrides["imageCacheCapMB"] == nil {
+            descriptor.profile.overrides["imageCacheCapMB"] = "256"
+        }
         // Hints a previous session left (the loopback port keeps the web storage origin stable).
         for row in (try? store.overrides.all(game: record.id)) ?? [] where row.key.hasPrefix("hint.") {
             descriptor.profile.overrides[String(row.key.dropFirst(5))] = row.valueJson
@@ -182,6 +187,8 @@ final class AppModel {
         }
         playing = nil
         isPaused = false
+        let logs = paths.logsRoot()
+        Task.detached(priority: .utility) { LogRetention.sweep(logsRoot: logs) }
     }
 
     func pause() async {

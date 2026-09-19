@@ -98,3 +98,37 @@ struct DiagnosticsTests {
         #expect(FileManager.default.fileExists(atPath: out.appending(path: "host.log").path(percentEncoded: false)))
     }
 }
+
+@Suite("Log retention")
+struct LogRetentionTests {
+    @Test("Newest sessions survive per game, pinned ones stay longer, and the total cap prunes oldest first")
+    func sweep() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "logs-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let game = root.appending(path: "GAME")
+        for i in 0 ..< 14 {
+            let dir = game.appending(path: "s\(String(format: "%02d", i))")
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let file = dir.appending(path: "host.log")
+            try Data(count: 1000).write(to: file)
+            let date = Date(timeIntervalSince1970: 1_000_000 + Double(i) * 60)
+            try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: file.path(percentEncoded: false))
+            if i < 2 {
+                try Data("{}".utf8).write(to: dir.appending(path: "termination.json"))
+            }
+        }
+        var policy = LogRetention.Policy()
+        policy.sessionsPerGame = 10
+        let outcome = LogRetention.sweep(logsRoot: root, policy: policy)
+        let left = try FileManager.default.contentsOfDirectory(atPath: game.path(percentEncoded: false)).sorted()
+        // 12 unpinned sessions → newest 10 kept; the two oldest are pinned by their crash marker and stay.
+        #expect(outcome.removedSessions == 2)
+        #expect(left.contains("s00") && left.contains("s01") && !left.contains("s02") && !left.contains("s03") && left.contains("s13"))
+
+        policy.totalBytes = 5000
+        let capped = LogRetention.sweep(logsRoot: root, policy: policy)
+        #expect(capped.remainingBytes <= 5000 + 2 * 2)
+        let after = try FileManager.default.contentsOfDirectory(atPath: game.path(percentEncoded: false)).sorted()
+        #expect(after.contains("s13") && after.count <= 5)
+    }
+}

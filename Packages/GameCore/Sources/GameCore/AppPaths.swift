@@ -54,6 +54,8 @@ public struct AppPaths: Sendable, Equatable {
         path.hasPrefix("/") ? URL(filePath: path) : root.appending(path: path)
     }
 
+    public func logsRoot() -> URL { sub("Logs") }
+
     /// Saves kept after a game is deleted, keyed by title fingerprint; restored on re-import.
     public func rescuedSaves() -> URL { sub("RescuedSaves") }
     public func game(_ id: GameID) -> URL { games().appending(path: id.description, directoryHint: .isDirectory) }

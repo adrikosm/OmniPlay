@@ -44,6 +44,11 @@ struct SaveBridgeTests {
         let bootstrap = try WebRuntimeBundle.source("omniplay-bootstrap", profile: WebProfile())
         #expect(bootstrap.contains("omniplay:storage") && bootstrap.contains("omniplay:booted"))
         #expect(WebRuntimeBundle.pageScripts.first == "omniplay-storage")
+        var lowMemory = WebProfile()
+        lowMemory.imageCacheCapMB = 128
+        lowMemory.devicePixelRatio = 1
+        let compat = try WebRuntimeBundle.source("omniplay-compat", profile: lowMemory)
+        #expect(compat.contains(#""imageCacheCapMB":128,"devicePixelRatio":1"#) && compat.contains("loadBitmapFromUrl"))
         for name in WebRuntimeBundle.pageScripts + WebRuntimeBundle.isolatedScripts {
             #expect(try !(WebRuntimeBundle.source(name, profile: WebProfile())).isEmpty, Comment(rawValue: name))
         }

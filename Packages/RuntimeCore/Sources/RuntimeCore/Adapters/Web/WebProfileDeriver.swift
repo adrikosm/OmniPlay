@@ -16,6 +16,8 @@ public struct WebProfile: Sendable, Hashable {
     public var coopCoep = false
     public var forceWebGL2 = false
     public var imageCacheCapMB: Int?
+    /// Forced before the engine boots; 1 halves the pixel count of every canvas on a 3x phone.
+    public var devicePixelRatio: Int?
     public var orientation: OrientationPreference = .any
     /// Ask the engine for its own autosave slot when the player leaves (MV/MZ only).
     public var autosaveOnExit = false
@@ -72,6 +74,9 @@ public struct WebProfile: Sendable, Hashable {
         if let cap = hints["imageCacheCapMB"].flatMap(Int.init) {
             p.imageCacheCapMB = cap
         }
+        if let dpr = hints["devicePixelRatio"].flatMap(Int.init), (1 ... 3).contains(dpr) {
+            p.devicePixelRatio = dpr
+        }
         return p
     }
 
@@ -81,7 +86,7 @@ public struct WebProfile: Sendable, Hashable {
         return """
         {"nwUndefined":\(nwUndefined),"shims":[\(shimList)],"isGameActivePatch":\(isGameActivePatch),\
         "canPlayWebmFalse":\(canPlayWebmFalse),"audioFileExtOgg":\(audioFileExtOgg),\
-        "imageCacheCapMB":\(imageCacheCapMB.map(String.init) ?? "null")}
+        "imageCacheCapMB":\(imageCacheCapMB.map(String.init) ?? "null"),"devicePixelRatio":\(devicePixelRatio.map(String.init) ?? "null")}
         """
     }
 }

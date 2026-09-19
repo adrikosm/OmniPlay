@@ -3,7 +3,7 @@ import Foundation
 import GameImport
 
 /// One session directory (host.log, web-console.log, memory.jsonl, termination.json, detection.json when
-/// present) zipped for the share sheet. Missing files are simply absent; a note lists what was included.
+/// present) zipped for the share sheet. Missing files are simply absent; a README lists what was included.
 enum SessionBundle {
     static func export(sessionDirectory: URL) async throws -> URL {
         if let uuid = UUID(uuidString: sessionDirectory.lastPathComponent), let sink = OPLog.sink(for: SessionID(rawValue: uuid)) {
@@ -25,6 +25,8 @@ enum SessionBundle {
             prefix: sessionDirectory.lastPathComponent,
             extras: [("README.txt", Data(note.utf8))]
         )
+        // Exported sessions are pinned by log retention so the bundle's source outlives the usual rotation.
+        try? Data().write(to: sessionDirectory.appending(path: ".exported"))
         return out
     }
 }
