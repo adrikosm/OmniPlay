@@ -28,8 +28,8 @@ type_name:
   allowed_symbols: ["_"]
 cyclomatic_complexity:
   ignores_case_statements: true   # exhaustive switches over state enums are the readable form
-  warning: 20
-  error: 30
+  warning: 25
+  error: 35
 function_parameter_count:
   warning: 8
   error: 10

@@ -46,11 +46,7 @@ public struct WebEngineDetector: Detector {
                 hints["coopCoep"] = "true"
             }
         } else if ctx.exists("c3runtime.js") || ctx.exists("c2runtime.js") || !ctx.glob("scripts/c3runtime.js", limit: 1).isEmpty {
-            sub = (
-                "construct",
-                .html5,
-                0.9
-            )
+            sub = Sub(name: "construct", family: .html5, confidence: 0.9)
         } else if ctx.entry("tyrano")?.isDir == true || !ctx.glob("data/scenario/*.ks", limit: 1).isEmpty {
             sub = Sub(name: "tyrano", family: .html5, confidence: 0.92)
         } else if index.contains("<tw-storydata") {
@@ -71,7 +67,7 @@ public struct WebEngineDetector: Detector {
         let name = sub?.name ?? "generic", family = sub?.family ?? .html5, confidence = sub?.confidence ?? 0.6
         r.claimFamily(family, confidence)
         if let sub {
-            r.partial.profileHints["webSubFamily"] = sub.0
+            r.partial.profileHints["webSubFamily"] = sub.name
         }
         r.add(
             id,

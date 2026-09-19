@@ -1,7 +1,7 @@
 import Foundation
 import GameCore
 
-/// Ren'Py: `lib/` folder names are an exact Python-generation oracle; vc_version.py / __init__.py give the version.
+/// Ren'Py: `lib/` folder names are an exact Python-generation oracle; vc_version.py / __initFile_.py give the version.
 public struct RenPyDetector: Detector {
     public let id = DetectorID.renpy
     public let version = 1
@@ -31,13 +31,13 @@ public struct RenPyDetector: Detector {
         if let vc = ctx.text("renpy/vc_version.py", max: 64 << 10), let m = vc.firstMatch(of: /version\s*=\s*"([0-9][^"]*)"/) {
             version = EngineVersion(parsing: String(m.1))
             r.add(id, .version(path: "renpy/vc_version.py", value: String(m.1)), 0.97, .fileContent, "Ren'Py \(m.1)")
-        } else if let init_ = ctx.text("renpy/__init__.py", max: 256 << 10) {
-            if let m = init_.firstMatch(of: /version_tuple\s*=\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/) {
+        } else if let initFile = ctx.text("renpy/__initFile_.py", max: 256 << 10) {
+            if let m = initFile.firstMatch(of: /version_tuple\s*=\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/) {
                 version = EngineVersion(major: Int(m.1)!, minor: Int(m.2)!, patch: Int(m.3)!)
-                r.add(id, .version(path: "renpy/__init__.py", value: version!.raw), 0.95, .fileContent, "Ren'Py \(version!.raw)")
-            } else if let m = init_.firstMatch(of: /version\s*=\s*"Ren'Py ([0-9.]+)/) {
+                r.add(id, .version(path: "renpy/__initFile_.py", value: version!.raw), 0.95, .fileContent, "Ren'Py \(version!.raw)")
+            } else if let m = initFile.firstMatch(of: /version\s*=\s*"Ren'Py ([0-9.]+)/) {
                 version = EngineVersion(parsing: String(m.1))
-                r.add(id, .version(path: "renpy/__init__.py", value: String(m.1)), 0.9, .fileContent, "Ren'Py \(m.1)")
+                r.add(id, .version(path: "renpy/__initFile_.py", value: String(m.1)), 0.9, .fileContent, "Ren'Py \(m.1)")
             }
         }
         if version == nil, let sv = ctx.text("game/script_version.txt", max: 4096),

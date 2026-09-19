@@ -14,9 +14,10 @@ public struct GodotPCKDetector: Detector {
         if !facts.indexHTMLCandidates.isEmpty, !ctx.glob("*.wasm", limit: 1).isEmpty {
             return r
         }
-        var source: (URL, Int64, String)?
+        struct Source { let url: URL, offset: Int64, name: String }
+        var source: Source?
         if let e = ctx.glob("*.pck", limit: 1).first, let url = ctx.url(e.realRel) {
-            source = (url, 0, e.realRel)
+            source = Source(url: url, offset: 0, name: e.realRel)
         } else if case let .godotPCK(offset, _)? = ctx.pePayload?.kind, let exe = facts.exeNames.first, let url = ctx.url(exe) {
             source = (
                 url,
@@ -24,7 +25,8 @@ public struct GodotPCKDetector: Detector {
                 exe
             )
         }
-        guard let (url, offset, name) = source else { return r }
+        guard let source else { return r }
+        let (url, offset, name) = (source.url, source.offset, source.name)
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         try handle.seek(toOffset: UInt64(offset))

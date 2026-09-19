@@ -112,7 +112,7 @@ public struct RefusalDetectors: Detector {
             let raw = h[h.startIndex + at ..< h.endIndex].prefix { $0 != 0 }
             if let s = String(bytes: raw, encoding: .ascii), s.firstMatch(of: /^\d+\.\d+\.\d+[a-z]\d+/) != nil {
                 version = s
-            } else if let m = String(decoding: h, as: UTF8.self).firstMatch(of: /\d{4}\.\d+\.\d+[a-z]\d+/) {
+            } else if let m = (String(bytes: h, encoding: .isoLatin1) ?? "").firstMatch(of: /\d{4}\.\d+\.\d+[a-z]\d+/) {
                 version = String(m.0)
             }
         }
