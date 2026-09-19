@@ -84,6 +84,9 @@ public actor RuntimeCoordinator {
     /// One id per process launch; ledger rows from other boots are stale and ignored.
     public let bootID: String
     private var signpost = SignpostPhase(Signposts.runtime)
+    private var memory: MemoryRecorder?
+    private var memoryTask: Task<Void, Never>?
+    private var peakFootprint: UInt64 = 0
     private var restoredSpent = false
 
     public init(store: GameStore?, bootID: String = UUID().uuidString) {
@@ -127,6 +130,7 @@ public actor RuntimeCoordinator {
         default: signpost.enter("coordinator step", String(describing: new).prefix(24).description)
         }
         OPLog.log(.runtime, .info, "coordinator → \(new)")
+        recordMemory(label: String(describing: new).prefix(while: { $0 != "(" }).description)
         for c in stateContinuations.values {
             c.yield(new)
         }
@@ -154,6 +158,7 @@ public actor RuntimeCoordinator {
             throw CoordinatorError.preflight(pre)
         }
         let gameID = request.record.id
+        startMemoryRecording(in: request.configuration.logDirectory)
         set(.preparing(gameID))
         let adapter = await factory(request.configuration)
         runtime = adapter
@@ -227,10 +232,43 @@ public actor RuntimeCoordinator {
         if verdict != .clean {
             try? store?.slots.markSpent(bootID: bootID, slot: session.slot, by: session.gameID)
         }
-        try? store?.sessions.end(id: session.id, verdict: "\(verdict)", grade: grade, peakFootprint: peakFootprint, notes: "\(reason)")
+        let peak = peakFootprint ?? (self.peakFootprint > 0 ? Int64(self.peakFootprint) : nil)
+        try? store?.sessions.end(id: session.id, verdict: "\(verdict)", grade: grade, peakFootprint: peak, notes: "\(reason)")
+        stopMemoryRecording()
         set(.stopped(verdict))
         set(.idle)
         return verdict
+    }
+
+    // MARK: Memory around transitions (RUNTIME-009)
+
+    /// One `memory.jsonl` per game session: a sample on every transition and every ten seconds in between.
+    private func startMemoryRecording(in directory: URL) {
+        let recorder = MemoryRecorder(fileURL: directory.appending(path: "memory.jsonl"))
+        memory = recorder
+        peakFootprint = 0
+        memoryTask?.cancel()
+        memoryTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(10))
+                await self?.recordMemory(label: "tick", force: true)
+            }
+        }
+    }
+
+    private func recordMemory(label: String, force: Bool = true) {
+        guard let memory else { return }
+        let sample = MemoryProbe.sample(label: label)
+        if let footprint = sample.footprintBytes, footprint > peakFootprint {
+            peakFootprint = footprint
+        }
+        Task { await memory.record(sample, force: force) }
+    }
+
+    private func stopMemoryRecording() {
+        memoryTask?.cancel()
+        memoryTask = nil
+        memory = nil
     }
 
     /// Reports a runtime-side failure (crash, hang) and tears down.

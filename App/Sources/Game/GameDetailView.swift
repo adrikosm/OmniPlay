@@ -189,6 +189,13 @@ struct GameDetailView: View {
             .padding(.horizontal, Theme.s4)
             .glassCard(radius: 14)
             .padding(.top, Theme.s2)
+            NavigationLink { DiagnosticsView(game: game, snapshot: snapshot) } label: {
+                Label("Diagnostics", systemImage: "stethoscope").frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .foregroundStyle(Theme.textPrimary)
+            .frame(minHeight: 44)
+            .padding(.horizontal, Theme.s4)
+            .glassCard(radius: 14)
             if let resolution = snapshot?.resolution, !resolution.fallbacks.isEmpty || resolution.selectedRuntime == nil,
                snapshot?.report.outcome.isPlayableClass == true || snapshot?.report.outcome == .unknownEngine || snapshot?.report
                .outcome == .unknownVersion {
