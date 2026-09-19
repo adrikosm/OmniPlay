@@ -61,5 +61,6 @@ struct ImportPathValidatorTests {
         #expect(d.maxNestedArchives == 2)
         #expect(d.maxPathBytes == 1024)
         #expect(d.maxPathComponents == 64)
+        #expect(d.minBytesForRatioCheck == 64 << 20)
     }
 }

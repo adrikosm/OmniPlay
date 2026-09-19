@@ -93,7 +93,9 @@ public struct EntryValidator: Sendable {
                     detail: "declared total exceeds \(limits.maxUncompressedBytes) bytes"
                 ))
             }
-            if let c = entry.compressedSize, c > 0, Double(size) / Double(c) > limits.maxEntryCompressionRatio {
+            if let c = entry.compressedSize, c > 0, size > limits.minBytesForRatioCheck,
+               Double(size) / Double(c) > limits.maxEntryCompressionRatio
+            {
                 return .reject(.init(
                     rule: .entryRatio,
                     entryPath: entry.path,
@@ -117,7 +119,9 @@ public struct EntryValidator: Sendable {
         if totals.writtenBytes > Int64(limits.maxUncompressedBytes) {
             return .init(rule: .declaredSize, detail: "written \(totals.writtenBytes) bytes exceeds \(limits.maxUncompressedBytes)")
         }
-        if let src = sourceBytes, src > 0, Double(totals.writtenBytes) / Double(src) > limits.maxOverallCompressionRatio {
+        if let src = sourceBytes, src > 0, totals.writtenBytes > limits.minBytesForRatioCheck,
+           Double(totals.writtenBytes) / Double(src) > limits.maxOverallCompressionRatio
+        {
             return .init(
                 rule: .overallRatio,
                 detail: "overall ratio \(totals.writtenBytes / src):1 exceeds \(Int(limits.maxOverallCompressionRatio)):1"

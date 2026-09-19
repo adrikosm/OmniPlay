@@ -44,15 +44,21 @@ M4A = struct.pack(">I", 0x20) + b"ftypM4A " + b"\0\0\0\0" + b"M4A mp42isom\0\0\0
 OGG = b"OggS\x00\x02" + b"\0" * 20 + b"\x01\x1e" + b"\x01vorbis" + b"\0" * 23
 PNG = b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" + struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0) + b"\0" * 4 + struct.pack(">I", 0) + b"IEND\xaeB`\x82"
 
+class RawNameZipInfo(zipfile.ZipInfo):
+    """Writes the entry name bytes verbatim with the UTF-8 flag clear (CP932 fixtures)."""
+    raw = b""
+    def _encodeFilenameFlags(self):
+        return self.raw, self.flag_bits & ~0x800
+
 def zip_write(path, entries, comment=None, compression=zipfile.ZIP_DEFLATED, raw_names=False):
     """entries: list of (name, bytes). Names are stored as given; raw_names keeps CP932 bytes and clears the UTF-8 flag."""
     with zipfile.ZipFile(path, "w") as zf:
         for name, data in entries:
-            zi = zipfile.ZipInfo(name, date_time=TS)
+            zi = (RawNameZipInfo if raw_names else zipfile.ZipInfo)(name, date_time=TS)
             zi.compress_type = compression
             zi.external_attr = 0o644 << 16
             if raw_names:
-                zi.flag_bits &= ~0x800
+                zi.raw = name.encode("cp437")
             zf.writestr(zi, data)
         if comment:
             zf.comment = comment

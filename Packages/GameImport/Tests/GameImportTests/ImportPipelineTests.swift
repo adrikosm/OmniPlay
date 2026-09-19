@@ -49,7 +49,7 @@ struct ImportTransactionTests {
         #expect(seen.last == .ready(game))
         #expect(seen.count == 11)
         #expect(await txn.visited == seen)
-        #expect(!FileManager.default.fileExists(atPath: await txn.stagingURL.path(percentEncoded: false)))
+        #expect(await !FileManager.default.fileExists(atPath: txn.stagingURL.path(percentEncoded: false)))
     }
 
     @Test("Cancellation during extraction rolls back the staging directory")
@@ -202,6 +202,7 @@ struct SafetyPolicyTests {
         limits.maxUncompressedBytes = 1000
         limits.maxEntryCompressionRatio = 10
         limits.maxOverallCompressionRatio = 5
+        limits.minBytesForRatioCheck = 0
         let v = EntryValidator(limits: limits)
         var t = RunningTotals()
         #expect(v.validate(.init(path: "a", declaredSize: 500, compressedSize: 100), running: &t) == .extract("a"))
