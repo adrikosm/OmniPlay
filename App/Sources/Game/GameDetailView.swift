@@ -1,6 +1,7 @@
 import GameCore
 import GameDetection
 import GameStore
+import PhotosUI
 import RuntimeCore
 import SwiftUI
 
@@ -12,6 +13,10 @@ struct GameDetailView: View {
     @State private var snapshot: DetectionSnapshot?
     @State private var showPicker = false
     @State private var showPlayer = false
+    @State private var artworkPath: String?
+    @State private var showPhotos = false
+    @State private var showFiles = false
+    @State private var photoItem: PhotosPickerItem?
 
     var body: some View {
         ScrollView {
@@ -28,7 +33,25 @@ struct GameDetailView: View {
         .inkScreen()
         .navigationTitle(game.title)
         .navigationBarTitleDisplayMode(.inline)
-        .task { await load() }
+        .task {
+            artworkPath = game.artworkPath
+            await load()
+        }
+        .photosPicker(isPresented: $showPhotos, selection: $photoItem, matching: .images)
+        .fileImporter(isPresented: $showFiles, allowedContentTypes: [.image]) { result in
+            if case let .success(url) = result {
+                Task { await importCover(from: url) }
+            }
+        }
+        .onChange(of: photoItem) { _, item in
+            guard let item else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    await importCover(data: data)
+                }
+                photoItem = nil
+            }
+        }
         .sheet(isPresented: $showPicker) {
             if let snapshot {
                 RuntimePicker(game: game, report: snapshot.report) { await choose($0) }
@@ -43,10 +66,11 @@ struct GameDetailView: View {
 
     private var header: some View {
         HStack(alignment: .bottom, spacing: Theme.s4) {
-            CoverImage(path: game.artworkPath, engine: game.engine, maxPixels: 800)
+            CoverImage(path: artworkPath, engine: game.engine, maxPixels: 800)
                 .frame(width: 150, height: 200)
                 .clipShape(.rect(cornerRadius: Theme.tileRadius))
                 .overlay(RoundedRectangle(cornerRadius: Theme.tileRadius).strokeBorder(Theme.hairline, lineWidth: 1))
+                .overlay(alignment: .bottomTrailing) { coverMenu.padding(Theme.s2) }
                 .shadow(color: .black.opacity(0.5), radius: 24, y: 12)
             VStack(alignment: .leading, spacing: Theme.s2) {
                 Text(game.title).font(Theme.title(26)).foregroundStyle(Theme.textPrimary)
@@ -54,6 +78,57 @@ struct GameDetailView: View {
                 Chip(text: game.compatibilityState.label, tint: game.compatibilityState.tint)
             }
         }
+    }
+
+    /// Cover override: the game's own art stays the default; a user's picture is copied and downsampled.
+    private var coverMenu: some View {
+        Menu {
+            Button("Choose from Photos", systemImage: "photo") { showPhotos = true }
+            Button("Choose a file", systemImage: "folder") { showFiles = true }
+            if artworkPath != nil {
+                Button("Remove cover", systemImage: "trash", role: .destructive) { Task { await setCover(nil) } }
+            }
+        } label: {
+            Image(systemName: "pencil")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Theme.textPrimary)
+                .frame(width: 40, height: 40)
+                .background(.ultraThinMaterial, in: .circle)
+                .overlay(Circle().strokeBorder(Theme.hairline, lineWidth: 1))
+        }
+        .accessibilityLabel("Change cover")
+    }
+
+    private func importCover(from url: URL) async {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer {
+            if scoped {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+        guard let data = try? Data(contentsOf: url) else { return }
+        await importCover(data: data)
+    }
+
+    private func importCover(data: Data) async {
+        let temp = FileManager.default.temporaryDirectory.appending(path: "cover-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: temp) }
+        guard (try? data.write(to: temp)) != nil else { return }
+        let (id, paths) = (game.id, model.paths)
+        let path = await Task.detached { CoverExtractor.write(source: temp, game: id, paths: paths) }.value
+        if let path {
+            await setCover(path)
+        }
+    }
+
+    private func setCover(_ path: String?) async {
+        guard let store = model.store, var record = try? store.games.fetch(id: game.id) else { return }
+        if path == nil, let old = record.artworkPath {
+            try? FileManager.default.removeItem(at: URL(filePath: old))
+        }
+        record.artworkPath = path
+        try? store.games.update(record)
+        withAnimation(Theme.quick) { artworkPath = path }
     }
 
     private var engineLine: String {

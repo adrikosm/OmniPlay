@@ -25,6 +25,7 @@ extension ImportPipeline {
             }
             try install(plan, into: id)
             try register(plan, id: id)
+            attachCover(plan, id: id)
             OPLog.log(.importer, .info, "registered \(id) \(plan.title) as \(plan.report.descriptor.engine.rawValue)", session: session)
             return id
         } catch {
@@ -45,6 +46,7 @@ extension ImportPipeline {
         do {
             try install(plan, into: id)
             try register(plan, id: id, replacing: true)
+            attachCover(plan, id: id)
             try? fm.removeItem(at: backup)
             OPLog.log(.importer, .info, "replaced \(id) with \(plan.title)", session: session)
             return id
@@ -152,6 +154,15 @@ extension ImportPipeline {
             bytes: plan.bytes,
             outcome: replacing ? "replaced" : "ok"
         ))
+    }
+
+    /// Best-effort: a missing cover is a placeholder, never a failed import.
+    func attachCover(_ plan: CommitPlan, id: GameID) {
+        let engine = plan.report.descriptor.engine
+        guard let path = CoverExtractor.extract(game: id, engine: engine, rootRelativePath: plan.located.relativePath, paths: paths),
+              var record = try? store.games.fetch(id: id) else { return }
+        record.artworkPath = path
+        try? store.games.update(record)
     }
 
     static func outcomeName(_ o: DetectionOutcome) -> String {

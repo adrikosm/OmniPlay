@@ -5,7 +5,7 @@ a fixed random seed make the output hash-identical across runs; MANIFEST.sha256 
 
 usage: make-fixtures.py            regenerate Fixtures/synthetic and MANIFEST.sha256
 """
-import hashlib, io, json, os, random, shutil, struct, sys, tarfile, zipfile
+import hashlib, io, json, os, random, shutil, struct, sys, tarfile, zipfile, zlib
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Fixtures", "synthetic")
 ROOT = os.path.normpath(ROOT)
@@ -67,6 +67,15 @@ WEBM = webm_bytes()
 MP4 = mp4_bytes()
 M4A = mp4_bytes(video="mp4a", audio="mp4a", brand=b"M4A ")
 OGG = b"OggS\x00\x02" + b"\0" * 20 + b"\x01\x1e" + b"\x01vorbis" + b"\0" * 23
+def png(width, height, rgb):
+    """A real, decodable RGB PNG filled with one colour (deterministic)."""
+    raw = b"".join(b"\x00" + bytes(rgb) * width for _ in range(height))
+    def chunk(tag, data):
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
+
+TITLE_PNG = png(96, 64, (200, 120, 40))
 PNG = b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" + struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0) + b"\0" * 4 + struct.pack(">I", 0) + b"IEND\xaeB`\x82"
 
 class RawNameZipInfo(zipfile.ZipInfo):
@@ -126,6 +135,7 @@ def mv_tree(prefix, encrypted=False):
     w(f"{prefix}/www/audio/bgm/town.mid", b"MThd" + struct.pack(">IHHH", 6, 1, 1, 96) + b"MTrk" + struct.pack(">I", 4) + b"\x00\xff\x2f\x00")
     w(f"{prefix}/www/audio/se/hit.wav", b"RIFF" + struct.pack("<I", 36) + b"WAVEfmt " + struct.pack("<IHHIIHH", 16, 1, 1, 22050, 44100, 2, 16) + b"data" + struct.pack("<I", 0))
     w(f"{prefix}/www/movies/outro.mp4", mp4_bytes(moov_at_end=True))
+    w(f"{prefix}/www/img/system/Title1.png", TITLE_PNG)
     w(f"{prefix}/package.json", '{"name":"mv","main":"www/index.html","window":{"title":"MV","width":816,"height":624}}')
     w(f"{prefix}/Game.exe", PE)
     if encrypted:
@@ -142,6 +152,7 @@ def mz_tree(prefix):
     w(f"{prefix}/movies/intro.webm", WEBM)
     w(f"{prefix}/audio/bgm/a.ogg", OGG)
     w(f"{prefix}/img/characters/Actor1.png", PNG)
+    w(f"{prefix}/img/titles1/Castle.png", TITLE_PNG)
     w(f"{prefix}/package.json", '{"name":"mz","main":"index.html"}')
     w(f"{prefix}/Game.exe", PE)
 
@@ -149,6 +160,7 @@ def rgss(prefix, ini_lib, archive, scripts, header_version):
     w(f"{prefix}/Game.ini", f"[Game]\r\nRTP=Standard\r\nLibrary={ini_lib}\r\nScripts=Data\\Scripts.{scripts.split('.')[-1]}\r\nTitle=Synthetic\r\n")
     w(f"{prefix}/Game.exe", PE)
     w(f"{prefix}/{archive}", b"RGSSAD\0" + bytes([header_version]) + b"\0" * 56)
+    w(f"{prefix}/Graphics/Titles1/Title.png", TITLE_PNG)
     w(f"{prefix}/Data/{scripts}", b"\x04\x08[\x06[\x08i\x03" + b"# encoding: ruby 1.8 grammar sample: puts 'hi' if x and not y\n" + b"\0" * 32)
 
 def renpy(prefix, libs, version_file, version_text, extra=()):
@@ -157,6 +169,7 @@ def renpy(prefix, libs, version_file, version_text, extra=()):
     w(f"{prefix}/{version_file}", version_text)
     w(f"{prefix}/game/script.rpyc", b"RENPY RPC2" + b"\0" * 22 + b"\x78\x9c" + bytes(40))
     w(f"{prefix}/game/options.rpy", "define config.name = _(\"Synthetic\")\n")
+    w(f"{prefix}/game/gui/main_menu.png", TITLE_PNG)
     w(f"{prefix}/Synthetic.exe", PE)
     for rel, data in extra:
         w(f"{prefix}/{rel}", data)
