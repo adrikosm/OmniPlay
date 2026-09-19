@@ -126,8 +126,11 @@ public enum SaveValidator {
             }
         }
         guard let range = text.range(of: "\"_renpy_version\"") else { return nil }
-        let tail = text[range.upperBound...]
-        guard let open = tail.firstIndex(of: "\""), let close = tail[tail.index(after: open)...].firstIndex(of: "\"") else { return nil }
-        return String(tail[tail.index(after: open) ..< close])
+        // The value is a string ("8.1.3") in older saves and a list ([8, 5, 3]) in newer ones.
+        let tail = text[range.upperBound...].drop { $0 == ":" || $0 == " " }
+        let end = tail.hasPrefix("[") ? (tail.firstIndex(of: "]").map { tail.index(after: $0) } ?? tail.endIndex)
+            : (tail.firstIndex { $0 == "," || $0 == "}" } ?? tail.endIndex)
+        let raw = tail[..<end].trimmingCharacters(in: CharacterSet(charactersIn: "\"[] "))
+        return raw.isEmpty ? nil : raw.replacingOccurrences(of: ", ", with: ".").replacingOccurrences(of: ",", with: ".")
     }
 }

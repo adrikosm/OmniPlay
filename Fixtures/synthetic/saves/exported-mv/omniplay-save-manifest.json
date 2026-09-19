@@ -1,0 +1,16 @@
+{
+  "engine": "rpgMakerMV",
+  "entries": [
+    {
+      "bytes": 396,
+      "relativePath": "slots/file1.rpgsave",
+      "sha256": "171b168d6450770683a61fe4c6e0d0efc2d7b310ca026197709551d94a1570b3"
+    }
+  ],
+  "exportedAt": 700000000.0,
+  "family": "webLocalStorage",
+  "formatVersion": 1,
+  "gameID": "00000000-0000-0000-0000-000000000001",
+  "title": "Synthetic MV",
+  "titleHash": "folder-0000000000000000000000000000000000000000000000000000000000000000"
+}

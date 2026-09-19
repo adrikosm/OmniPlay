@@ -156,6 +156,120 @@ def mz_tree(prefix):
     w(f"{prefix}/package.json", '{"name":"mz","main":"index.html"}')
     w(f"{prefix}/Game.exe", PE)
 
+LZ_KEY = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
+
+def lz_compress_b64(text):
+    """lz-string compressToBase64, ported from the reference implementation (what RPG Maker MV saves use)."""
+    dictionary = {}; to_create = {}; w = ""; enlarge_in = 2; dict_size = 3; num_bits = 2
+    out = []; val = [0]; pos = [0]
+    def write_bit(b):
+        val[0] = (val[0] << 1) | b
+        if pos[0] == 5:
+            pos[0] = 0; out.append(LZ_KEY[val[0]]); val[0] = 0
+        else:
+            pos[0] += 1
+    def write_bits(n, value):
+        for _ in range(n):
+            write_bit(value & 1); value >>= 1
+    def emit(w_):
+        nonlocal enlarge_in, num_bits
+        if w_ in to_create:
+            if ord(w_[0]) < 256:
+                write_bits(num_bits, 0); write_bits(8, ord(w_[0]))
+            else:
+                write_bits(num_bits, 1); write_bits(16, ord(w_[0]))
+            enlarge_in -= 1
+            if enlarge_in == 0:
+                enlarge_in = 2 ** num_bits; num_bits += 1
+            del to_create[w_]
+        else:
+            write_bits(num_bits, dictionary[w_])
+        enlarge_in -= 1
+        if enlarge_in == 0:
+            enlarge_in = 2 ** num_bits; num_bits += 1
+    for c in text:
+        if c not in dictionary:
+            dictionary[c] = dict_size; dict_size += 1; to_create[c] = True
+        wc = w + c
+        if wc in dictionary:
+            w = wc
+        else:
+            emit(w); dictionary[wc] = dict_size; dict_size += 1; w = c
+    if w:
+        emit(w)
+    write_bits(num_bits, 2)
+    while True:
+        val[0] <<= 1
+        if pos[0] == 5:
+            out.append(LZ_KEY[val[0]]); break
+        pos[0] += 1
+    r = "".join(out)
+    return r + "=" * ((4 - len(r) % 4) % 4)
+
+def zlib_stream(data):
+    return zlib.compress(data, 6)
+
+def marshal_hash(pairs):
+    """Ruby Marshal 4.8 stream: a Hash of Symbol => Fixnum/String, enough for header sniffing and later editors."""
+    def fixnum(n):
+        if n == 0: return b"\x00"
+        if 0 < n < 123: return bytes([n + 5])
+        if -124 < n < 0: return bytes([(n - 5) & 0xFF])
+        if n < 0: raise ValueError("negative multi-byte fixnums not needed here")
+        body = n.to_bytes(4, "little").rstrip(b"\x00")
+        return bytes([len(body)]) + body
+    out = b"\x04\x08{" + fixnum(len(pairs))
+    for key, value in pairs:
+        out += b":" + fixnum(len(key)) + key.encode()
+        if isinstance(value, int):
+            out += b"i" + fixnum(value)
+        else:
+            out += b"I\"" + fixnum(len(value)) + value.encode() + fixnum(1) + b":\x06ET"
+    return out
+
+def save_manifest(title_hash, title, engine, family, entries):
+    return json.dumps({"formatVersion": 1, "engine": engine, "family": family, "gameID": "00000000-0000-0000-0000-000000000001",
+                       "titleHash": title_hash, "title": title, "exportedAt": 700000000.0,
+                       "entries": [{"relativePath": p, "bytes": n, "sha256": h} for p, n, h in entries]}, indent=2, sort_keys=True)
+
+def content_fixtures():
+    mv_json = json.dumps({"system": {"@": "Game_System", "_saveCount": 3, "_versionId": 12345}, "screen": {"@": "Game_Screen"},
+                          "timer": {"@": "Game_Timer"}, "switches": {"@": "Game_Switches", "_data": [None, True]},
+                          "variables": {"@": "Game_Variables", "_data": [None, 7, 42]}, "selfSwitches": {"@": "Game_SelfSwitches", "_data": {}},
+                          "actors": {"@": "Game_Actors", "_data": []}, "party": {"@": "Game_Party", "_gold": 1234, "_steps": 88, "_actors": [1]},
+                          "map": {"@": "Game_Map", "_mapId": 1}, "player": {"@": "Game_Player", "_x": 8, "_y": 6}}, separators=(",", ":"))
+    mv_save = lz_compress_b64(mv_json)
+    w("saves/mv-valid/file1.rpgsave", mv_save)
+    w("saves/mv-valid/global.rpgsave", lz_compress_b64(json.dumps([None, {"globalId": "RPGMV", "title": "Synthetic MV", "playtime": "00:12:34"}])))
+    w("saves/pc-mv/file1.rpgsave", mv_save)
+    w("saves/pc-mv/file2.rpgsave", lz_compress_b64(mv_json.replace('"_gold":1234', '"_gold":99')))
+    mz_json = mv_json.encode()
+    w("saves/mz-valid/file1.rmmzsave", zlib_stream(mz_json))
+    w("saves/mz-valid/global.rmmzsave", zlib_stream(json.dumps([None, {"title": "Synthetic MZ", "playtime": "00:01:00"}]).encode()))
+    w("saves/mz-corrupt/file1.rmmzsave", zlib_stream(mz_json)[:40])
+    w("saves/mz-corrupt/file2.rmmzsave", b"\x78\x9c" + bytes(64))
+    w("saves/rgss-vxace/Save01.rvdata2", marshal_hash([("characters", 0), ("frame_count", 120), ("map_id", 1), ("gold", 100)]) + bytes(256))
+    w("saves/rgss-vxace/Save02.rvdata2", marshal_hash([("characters", 0), ("frame_count", 4000), ("map_id", 3), ("gold", 55)]) + bytes(256))
+    renpy_json = json.dumps({"_save_name": "", "_renpy_version": [8, 5, 3], "_version": "1.0", "_game_runtime": 61.5, "_ctime": 1700000000.0})
+    renpy_entries = [("json", renpy_json.encode()), ("log", b"\x80\x05" + bytes(128)), ("screenshot.png", TITLE_PNG), ("renpy_version", b"8.5.3.26050201")]
+    w("saves/renpy/1-1-LT1.save", zip_bytes(renpy_entries))
+    w("saves/renpy/persistent", zlib_stream(b"\x80\x05" + b"persistent-placeholder" + bytes(32)))
+    entries = [("slots/file1.rpgsave", len(mv_save.encode()), hashlib.sha256(mv_save.encode()).hexdigest())]
+    w("saves/foreign/slots/file1.rpgsave", mv_save)
+    w("saves/foreign/omniplay-save-manifest.json", save_manifest("folder-ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "Other Game", "rpgMakerMV", "webLocalStorage", entries))
+    w("saves/exported-mv/slots/file1.rpgsave", mv_save)
+    w("saves/exported-mv/omniplay-save-manifest.json", save_manifest("folder-0000000000000000000000000000000000000000000000000000000000000000", "Synthetic MV", "rpgMakerMV", "webLocalStorage", entries))
+    w("mods/renpy-insert/game/zzz_omniplay_test.rpy", "init 999 python:\n    config.developer = True\n")
+    w("mods/mv-plugin/js/plugins/TestPlugin.js", "//=============================================================================\n// TestPlugin.js\n/*:\n * @plugindesc Synthetic test plugin\n */\n(function(){})();\n")
+    w("mods/mv-plugin/plugins.fragment.json", json.dumps([{"name": "TestPlugin", "status": True, "description": "Synthetic test plugin", "parameters": {}}]))
+    w("mods/mz-asset/img/system/Window.png", png(64, 64, (20, 40, 200)))
+    w("mods/conflict-a/img/system/Window.png", png(64, 64, (200, 20, 20)))
+    w("mods/conflict-a/README.txt", "mod a\n")
+    w("mods/conflict-b/img/system/Window.png", png(64, 64, (20, 200, 20)))
+    w("mods/conflict-b/README.txt", "mod b\n")
+    w("translations/mtool/ManualTransFile.json", json.dumps({"はじめる": "Start", "つづきから": "Continue"}, ensure_ascii=False, indent=2))
+    w("translations/renpy-tl/game/tl/english/script.rpy", "translate english start_1:\n    e \"Hello.\"\n")
+
 def asar_bytes(tree):
     """Electron ASAR: Pickle(u32 size) + Pickle(string header JSON) + concatenated file bodies. `tree` maps
     relative paths to bytes; a value of ("unpacked", bytes) is left out of the archive body."""
@@ -235,6 +349,7 @@ def build():
     w("godot-web-min/index.wasm", b"\0asm\x01\0\0\0")
     # ---- RGSS ----
     electron("electron-asar")
+    content_fixtures()
     w("app-only.asar", asar_bytes({"index.html": b"<!DOCTYPE html><html><body><script src='game.js'></script></body></html>", "game.js": b"// asar\n"}))
     rgss("rgss-xp", "RGSS104E.dll", "Game.rgssad", "Scripts.rxdata", 1)
     rgss("rgss-vx", "RGSS202E.dll", "Game.rgss2a", "Scripts.rvdata", 1)

@@ -298,3 +298,23 @@ struct PersistentStoreTests {
         #expect(SaveVault.snapshots(location: loc).count == 1)
     }
 }
+
+@Suite("SaveKit validator on fixtures")
+struct SaveValidatorFixtureTests {
+    private func validate(_ rel: String, _ family: SaveFamily) -> SaveValidation {
+        SaveValidator.validate(file: Fixtures.url("saves/\(rel)"), family: family)
+    }
+
+    @Test("Synthetic saves of every family are recognised; corrupt ones are refused")
+    func families() {
+        #expect(validate("mv-valid/file1.rpgsave", .webLocalStorage).format == .mvLZString)
+        #expect(validate("pc-mv/file2.rpgsave", .webLocalStorage).format == .mvLZString)
+        #expect(validate("mz-valid/file1.rmmzsave", .webIndexedDB).format == .mzZlib)
+        #expect(validate("mz-corrupt/file2.rmmzsave", .webIndexedDB).format == .unknown)
+        #expect(validate("rgss-vxace/Save02.rvdata2", .rgssMarshal).format == .rgssMarshal)
+        let renpy = validate("renpy/1-1-LT1.save", .renpySave)
+        #expect(renpy.format == .renpySave && renpy.versionHint == "8.5.3", "\(renpy)")
+        #expect(validate("renpy/persistent", .renpySave).format == .renpyPersistent)
+        #expect(validate("mv-valid/file1.rpgsave", .rgssMarshal).needsConfirmation)
+    }
+}

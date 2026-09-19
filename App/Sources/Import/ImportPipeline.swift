@@ -101,7 +101,7 @@ struct ImportPipeline: Sendable {
         switch kind {
         case .folder:
             totals = try await stage(from: source.url, to: stagedRoot, txn: txn)
-        case .zip, .sevenZip, .tar, .gzip, .xz, .zstd:
+        case .zip, .sevenZip, .tar, .gzip, .xz, .zstd, .cab, .rar4, .rar5:
             totals = try await extractArchive(source.url, to: stagedRoot, txn: txn, passphrase: passphrase)
             sourceBytes = fileSize(source.url)
             var depth = 1
@@ -133,9 +133,8 @@ struct ImportPipeline: Sendable {
         case .asar:
             totals = try await extractAsar(source.url, to: stagedRoot, txn: txn)
             sourceBytes = fileSize(source.url)
-        case .rar4, .rar5, .cab, .unknown:
-            throw ImportFailure
-                .unsupportedContainer(firstBytesHex: kind == .unknown ? ContainerSniffer.firstBytesHex(source.url) : kind.rawValue)
+        case .unknown:
+            throw ImportFailure.unsupportedContainer(firstBytesHex: ContainerSniffer.firstBytesHex(source.url))
         }
         if let asar = Self.electronArchive(in: stagedRoot) {
             // Electron layout: resources/app.asar (+ app.asar.unpacked) becomes resources/app/ so the locator sees files.
