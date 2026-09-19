@@ -75,6 +75,9 @@ targets:
       - name: Check no UI imports in packages
         script: "\"$SRCROOT/Scripts/check-no-ui-imports.sh\""
         basedOnDependencyAnalysis: false
+      - name: Hydrate native deps
+        script: "\"$SRCROOT/Scripts/native/hydrate.sh\""
+        basedOnDependencyAnalysis: false
     info:
       path: App/Info.plist
       properties:

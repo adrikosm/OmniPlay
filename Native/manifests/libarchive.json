@@ -1,0 +1,36 @@
+{
+  "arch": "arm64",
+  "artefact": "Packages/GameImport/Native/libarchive.xcframework",
+  "built_at": "2026-09-19T05:03:43+00:00",
+  "component": "libarchive",
+  "flags": {
+    "iphoneos_min": "27.0",
+    "macosx_min": "15.0"
+  },
+  "outputs": {
+    "Info.plist": "22d21a110427f08c29bbbc49469a018c0a6f1996e55a236399bddd46167ba19e",
+    "ios-arm64-simulator/Headers/archive.h": "5dc85c3288bd0f293b9d99101627f1bfbc775a0d400640881bcbf056acca59f2",
+    "ios-arm64-simulator/Headers/archive_entry.h": "ce6d82c6ed0132022136566195b6b2494a93c0e2db46d968d52624bd296bfcbf",
+    "ios-arm64-simulator/Headers/module.modulemap": "7f3bb84a309becef1e53679789615385f142a5a0d1ce3582d2701cbe134fd8b2",
+    "ios-arm64-simulator/libarchive_all.a": "c63c164ac3b3aab6a1f88ac767e9e8210b3b118630075ce61b85097959777ad8",
+    "ios-arm64/Headers/archive.h": "5dc85c3288bd0f293b9d99101627f1bfbc775a0d400640881bcbf056acca59f2",
+    "ios-arm64/Headers/archive_entry.h": "ce6d82c6ed0132022136566195b6b2494a93c0e2db46d968d52624bd296bfcbf",
+    "ios-arm64/Headers/module.modulemap": "7f3bb84a309becef1e53679789615385f142a5a0d1ce3582d2701cbe134fd8b2",
+    "ios-arm64/libarchive_all.a": "8c8d8067d467d260279e0a12174c0ddb46880e577f848aac43f745d6ff3351eb",
+    "macos-arm64/Headers/archive.h": "5dc85c3288bd0f293b9d99101627f1bfbc775a0d400640881bcbf056acca59f2",
+    "macos-arm64/Headers/archive_entry.h": "ce6d82c6ed0132022136566195b6b2494a93c0e2db46d968d52624bd296bfcbf",
+    "macos-arm64/Headers/module.modulemap": "7f3bb84a309becef1e53679789615385f142a5a0d1ce3582d2701cbe134fd8b2",
+    "macos-arm64/libarchive_all.a": "6c321790f3ef609d717b704d366961301e6cb3c78b3ebc040911b8c2a0ad6002"
+  },
+  "sdks": {
+    "iphoneos": "27.0",
+    "iphonesimulator": "27.0",
+    "macosx": "27.0"
+  },
+  "sources": {
+    "Native/libarchive": "27cbc7827172698143e440801fc0ba39ccb4f1f5",
+    "Native/xz": "d3e650e63c110e830fd5391e7f8b45df0b91d3da",
+    "Native/zstd": "f8745da6ff1ad1e7bab384bd1f9d742439278e99"
+  },
+  "toolchain": "Xcode 27.0 Build version 27A266a"
+}

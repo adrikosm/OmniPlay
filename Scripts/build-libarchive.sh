@@ -58,3 +58,4 @@ mkdir -p "$OUT"; /bin/rm -rf "$OUT/libarchive.xcframework"
 xcodebuild -create-xcframework "${libs[@]}" -output "$OUT/libarchive.xcframework" >/dev/null
 echo "built $OUT/libarchive.xcframework"
 ls "$OUT/libarchive.xcframework"
+Scripts/native/manifest.sh libarchive Packages/GameImport/Native/libarchive.xcframework Native/libarchive Native/xz Native/zstd
