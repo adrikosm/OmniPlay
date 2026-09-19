@@ -130,11 +130,62 @@ struct ImportPipeline: Sendable {
                  .cab: throw ImportFailure.unsupportedContainer(firstBytesHex: "self-extracting RAR/CAB installers are not supported yet")
             case .none: throw ImportFailure.unsupportedContainer(firstBytesHex: "a Windows program with no game data inside")
             }
-        case .rar4, .rar5, .cab, .asar, .unknown:
+        case .asar:
+            totals = try await extractAsar(source.url, to: stagedRoot, txn: txn)
+            sourceBytes = fileSize(source.url)
+        case .rar4, .rar5, .cab, .unknown:
             throw ImportFailure
                 .unsupportedContainer(firstBytesHex: kind == .unknown ? ContainerSniffer.firstBytesHex(source.url) : kind.rawValue)
         }
+        if let asar = Self.electronArchive(in: stagedRoot) {
+            // Electron layout: resources/app.asar (+ app.asar.unpacked) becomes resources/app/ so the locator sees files.
+            let unpackedSibling = asar.deletingLastPathComponent().appending(
+                path: asar.lastPathComponent + ".unpacked",
+                directoryHint: .isDirectory
+            )
+            var removedBytes = fileSize(asar) ?? 0
+            try? LazyDirectoryWalker.walk(root: unpackedSibling) { removedBytes += $0.fileSize; return .continue }
+            let more = try await extractAsar(
+                asar,
+                to: asar.deletingLastPathComponent().appending(path: "app", directoryHint: .isDirectory),
+                txn: txn
+            )
+            try? FileManager.default.removeItem(at: asar)
+            try? FileManager.default.removeItem(at: unpackedSibling)
+            // The audit compares declared bytes with what is on disk; the archive left, its contents arrived.
+            totals.writtenBytes += more.writtenBytes - removedBytes
+            if totals.declaredBytes > 0 {
+                totals.declaredBytes += more.writtenBytes - removedBytes
+            }
+            totals.entries += more.entries
+        }
         return Materialized(root: stagedRoot, totals: totals, sourceBytes: sourceBytes)
+    }
+
+    /// `resources/app.asar` up to two levels below the staged root.
+    static func electronArchive(in root: URL) -> URL? {
+        var found: URL?
+        try? LazyDirectoryWalker.walk(root: root) { entry in
+            if entry.relativePath.split(separator: "/").count > 3 {
+                return .skipDescendants
+            }
+            if !entry.isDirectory, entry.url.lastPathComponent == "app.asar",
+               entry.url.deletingLastPathComponent().lastPathComponent == "resources" {
+                found = entry.url
+                return .stop
+            }
+            return .continue
+        }
+        return found
+    }
+
+    private func extractAsar(_ url: URL, to stagedRoot: URL, txn: ImportTransaction) async throws -> RunningTotals {
+        await txn.transition(to: .extracting(.init(completedBytes: 0, totalBytes: fileSize(url))))
+        do {
+            return try AsarExtractor(limits: limits).extract(url, to: stagedRoot)
+        } catch let v as SafetyViolation {
+            throw ImportFailure.safetyViolation(v)
+        }
     }
 
     // MARK: Archives

@@ -156,6 +156,41 @@ def mz_tree(prefix):
     w(f"{prefix}/package.json", '{"name":"mz","main":"index.html"}')
     w(f"{prefix}/Game.exe", PE)
 
+def asar_bytes(tree):
+    """Electron ASAR: Pickle(u32 size) + Pickle(string header JSON) + concatenated file bodies. `tree` maps
+    relative paths to bytes; a value of ("unpacked", bytes) is left out of the archive body."""
+    files = {}; body = b""
+    def node(path):
+        cur = files
+        parts = path.split("/")
+        for part in parts[:-1]:
+            cur = cur.setdefault(part, {"files": {}})["files"]
+        return cur, parts[-1]
+    for path in sorted(tree):
+        value = tree[path]
+        parent, name = node(path)
+        if isinstance(value, tuple):
+            parent[name] = {"size": len(value[1]), "unpacked": True}
+        else:
+            parent[name] = {"size": len(value), "offset": str(len(body))}
+            body += value
+    header = json.dumps({"files": files}, separators=(",", ":"), sort_keys=True).encode()
+    pad = (4 - len(header) % 4) % 4
+    header_pickle = struct.pack("<II", 4 + len(header) + pad, len(header)) + header + b"\0" * pad
+    return struct.pack("<II", 4, len(header_pickle)) + header_pickle + body
+
+def electron(prefix):
+    tree = {
+        "package.json": b'{"name":"asar-game","main":"index.html"}',
+        "index.html": b"<!DOCTYPE html><html><head><title>Asar</title><script src='js/game.js'></script></head><body><canvas id='c'></canvas></body></html>",
+        "js/game.js": b"const c=document.getElementById('c');\n",
+        "img/icon.png": TITLE_PNG,
+        "data/big.bin": ("unpacked", bytes(range(256)) * 64),
+    }
+    w(f"{prefix}/resources/app.asar", asar_bytes(tree))
+    w(f"{prefix}/resources/app.asar.unpacked/data/big.bin", tree["data/big.bin"][1])
+    w(f"{prefix}/Game.exe", PE)
+
 def rgss(prefix, ini_lib, archive, scripts, header_version):
     w(f"{prefix}/Game.ini", f"[Game]\r\nRTP=Standard\r\nLibrary={ini_lib}\r\nScripts=Data\\Scripts.{scripts.split('.')[-1]}\r\nTitle=Synthetic\r\n")
     w(f"{prefix}/Game.exe", PE)
@@ -199,6 +234,8 @@ def build():
     w("godot-web-min/index.pck", gdpc(4, 7, 2))
     w("godot-web-min/index.wasm", b"\0asm\x01\0\0\0")
     # ---- RGSS ----
+    electron("electron-asar")
+    w("app-only.asar", asar_bytes({"index.html": b"<!DOCTYPE html><html><body><script src='game.js'></script></body></html>", "game.js": b"// asar\n"}))
     rgss("rgss-xp", "RGSS104E.dll", "Game.rgssad", "Scripts.rxdata", 1)
     rgss("rgss-vx", "RGSS202E.dll", "Game.rgss2a", "Scripts.rvdata", 1)
     rgss("rgss-vxace", "RGSS301.dll", "Game.rgss3a", "Scripts.rvdata2", 3)

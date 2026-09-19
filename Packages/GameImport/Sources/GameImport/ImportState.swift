@@ -126,7 +126,11 @@ public actor ImportTransaction {
         } else {
             signpost.enter("import phase", next.label)
         }
-        OPLog.log(.importer, .info, "txn \(id) → \(next.label)")
+        if case let .failed(failure) = next {
+            OPLog.log(.importer, .error, "txn \(id) → failed: \(failure)")
+        } else {
+            OPLog.log(.importer, .info, "txn \(id) → \(next.label)")
+        }
         for c in continuations.values {
             c.yield(next)
         }
