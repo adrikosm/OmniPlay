@@ -41,30 +41,7 @@ public struct RGSSDetector: Detector {
                 )
             }
         }
-        if let ini = ctx.smallFile("Game.ini", max: 64 << 10) {
-            let text = String(data: ini, encoding: .utf8) ?? String(data: ini, encoding: .shiftJIS) ?? ""
-            let fields = Self.iniFields(text)
-            if let lib = fields["library"] {
-                let gen: EngineGeneration? = lib.uppercased().contains("RGSS1") ? .rgss1 : lib.uppercased().contains("RGSS2") ? .rgss2 : lib
-                    .uppercased().contains("RGSS3") ? .rgss3 : nil
-                r.add(id, .text(path: "Game.ini", excerpt: lib), 0.9, .fileContent, "Game.ini names the \(lib) runtime")
-                if let gen {
-                    if let g = generation, g != gen {
-                        conflict = true
-                    } else {
-                        generation = gen
-                    }
-                    r.claimFamily(Self.family(gen), conflict ? 0.7 : 0.92)
-                }
-            }
-            if let title = fields["title"], !title.isEmpty {
-                r.partial.title = title
-            }
-            if let rtp = fields["rtp"] ?? fields["rtp1"], !rtp.isEmpty, !ctx.exists("Graphics/Characters") {
-                r.partial.warnings.append(.rtpRequired(rtp))
-                r.add(id, .text(path: "Game.ini", excerpt: rtp), 0.8, .fileContent, "Needs the \(rtp) RTP; its graphics are not bundled")
-            }
-        }
+        readGameIni(ctx, report: &r, generation: &generation, conflict: &conflict)
         for (name, gen) in [
             ("Data/Scripts.rxdata", EngineGeneration.rgss1),
             ("Data/Scripts.rvdata", .rgss2),
@@ -117,6 +94,39 @@ public struct RGSSDetector: Detector {
             ))
         }
         return r
+    }
+
+    /// Game.ini: runtime library, title and RTP name (UTF-8 or Shift-JIS).
+    private func readGameIni(
+        _ ctx: ScanContext,
+        report r: inout DetectorReport,
+        generation: inout EngineGeneration?,
+        conflict: inout Bool
+    ) {
+        if let ini = ctx.smallFile("Game.ini", max: 64 << 10) {
+            let text = String(data: ini, encoding: .utf8) ?? String(data: ini, encoding: .shiftJIS) ?? ""
+            let fields = Self.iniFields(text)
+            if let lib = fields["library"] {
+                let gen: EngineGeneration? = lib.uppercased().contains("RGSS1") ? .rgss1 : lib.uppercased().contains("RGSS2") ? .rgss2 : lib
+                    .uppercased().contains("RGSS3") ? .rgss3 : nil
+                r.add(id, .text(path: "Game.ini", excerpt: lib), 0.9, .fileContent, "Game.ini names the \(lib) runtime")
+                if let gen {
+                    if let g = generation, g != gen {
+                        conflict = true
+                    } else {
+                        generation = gen
+                    }
+                    r.claimFamily(Self.family(gen), conflict ? 0.7 : 0.92)
+                }
+            }
+            if let title = fields["title"], !title.isEmpty {
+                r.partial.title = title
+            }
+            if let rtp = fields["rtp"] ?? fields["rtp1"], !rtp.isEmpty, !ctx.exists("Graphics/Characters") {
+                r.partial.warnings.append(.rtpRequired(rtp))
+                r.add(id, .text(path: "Game.ini", excerpt: rtp), 0.8, .fileContent, "Needs the \(rtp) RTP; its graphics are not bundled")
+            }
+        }
     }
 
     static func family(_ g: EngineGeneration) -> EngineFamily { g == .rgss1 ? .rpgMakerXP : g == .rgss2 ? .rpgMakerVX : .rpgMakerVXAce }
