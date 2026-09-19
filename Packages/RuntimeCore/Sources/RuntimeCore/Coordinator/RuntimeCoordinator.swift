@@ -81,7 +81,29 @@ public actor RuntimeCoordinator {
     private var runtime: (any GameRuntime)?
     private var stateContinuations: [UUID: AsyncStream<State>.Continuation] = [:]
 
-    public init(store: GameStore?) { self.store = store }
+    /// One id per process launch; ledger rows from other boots are stale and ignored.
+    public let bootID: String
+    private var restoredSpent = false
+
+    public init(store: GameStore?, bootID: String = UUID().uuidString) {
+        self.store = store
+        self.bootID = bootID
+    }
+
+    /// Spent slots persisted by this boot come back into the in-memory ledger once.
+    private func restoreSpentIfNeeded() async {
+        guard !restoredSpent else { return }
+        restoredSpent = true
+        for slot in (try? store?.slots.spent(bootID: bootID)) ?? [] {
+            await ledger.markSpent(slot)
+        }
+    }
+
+    /// Slots that need an app relaunch before any game can use them again.
+    public func spentSlots() async -> Set<SessionSlot> {
+        await restoreSpentIfNeeded()
+        return await ledger.spentSlots
+    }
 
     public func register(_ id: RuntimeIdentifier, factory: @escaping RuntimeFactory) { factories[id] = factory }
     public var registeredRuntimes: [RuntimeIdentifier] { Array(factories.keys) }
@@ -107,6 +129,7 @@ public actor RuntimeCoordinator {
 
     /// Can this game launch right now, before any adapter is built?
     public func preflight(_ request: LaunchRequest) async -> LaunchPreflight {
+        await restoreSpentIfNeeded()
         guard let runtimeID = request.resolution.selectedRuntime else { return .noRuntime(request.resolution.reason) }
         guard factories[runtimeID] != nil else { return .notBuilt(runtimeID) }
         switch await ledger.launchVerdict(for: runtimeID.slot, game: request.record.id.rawValue) {
@@ -195,6 +218,9 @@ public actor RuntimeCoordinator {
         await ledger.recordStop(of: session.slot, game: session.gameID.rawValue, verdict: verdict)
         if verdict == .restartRequired {
             restartRequired = true
+        }
+        if verdict != .clean {
+            try? store?.slots.markSpent(bootID: bootID, slot: session.slot, by: session.gameID)
         }
         try? store?.sessions.end(id: session.id, verdict: "\(verdict)", grade: grade, peakFootprint: peakFootprint, notes: "\(reason)")
         set(.stopped(verdict))

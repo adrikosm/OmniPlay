@@ -79,3 +79,14 @@ struct SessionSlotLedgerTests {
         ]))
     }
 }
+
+extension SessionSlotLedgerTests {
+    @Test("A restored spent slot refuses every game until the process relaunches")
+    func restoredSpent() async {
+        let ledger = SessionSlotLedger()
+        await ledger.markSpent(.ruby31)
+        #expect(await ledger.launchVerdict(for: .ruby31, game: UUID()) == .restartRequired(.spentByTeardown))
+        #expect(await ledger.spentSlots == [.ruby31])
+        #expect(await ledger.launchVerdict(for: .web, game: UUID()) == .ready)
+    }
+}

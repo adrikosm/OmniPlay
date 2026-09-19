@@ -70,6 +70,9 @@ public actor SessionSlotLedger {
         }
     }
 
+    /// Restores a spent slot recorded earlier in this process boot (a crash mid-session must not hide the truth).
+    public func markSpent(_ slot: SessionSlot) { states[slot] = .spent }
+
     /// Slots that need a process relaunch for *any* game.
     public var spentSlots: Set<SessionSlot> {
         Set(states.filter { $0.value == .spent }.map(\.key))

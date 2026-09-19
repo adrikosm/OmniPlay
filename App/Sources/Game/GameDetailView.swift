@@ -18,6 +18,8 @@ struct GameDetailView: View {
     @State private var showFiles = false
     @State private var photoItem: PhotosPickerItem?
     @State private var lowMemory = false
+    @State private var preflight: LaunchPreflight?
+    @State private var confirmRelaunch = false
 
     var body: some View {
         ScrollView {
@@ -38,6 +40,9 @@ struct GameDetailView: View {
             artworkPath = game.artworkPath
             lowMemory = model.isLowMemory(game.id)
             await load()
+            if let snapshot {
+                preflight = await model.preflight(game, snapshot: snapshot)
+            }
         }
         .photosPicker(isPresented: $showPhotos, selection: $photoItem, matching: .images)
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.image]) { result in
@@ -143,9 +148,24 @@ struct GameDetailView: View {
 
     private var actions: some View {
         VStack(alignment: .leading, spacing: Theme.s2) {
-            Button { showPlayer = true } label: { Label(playTitle, systemImage: "play.fill").frame(maxWidth: .infinity) }
+            if case .slotSpent = preflight {
+                Label("Restart needed. This engine can run one game per app launch.", systemImage: "arrow.counterclockwise.circle")
+                    .font(.footnote).foregroundStyle(Theme.lantern)
+                    .padding(Theme.s3).frame(maxWidth: .infinity, alignment: .leading).glassCard(radius: 12)
+                Button { confirmRelaunch = true } label: {
+                    Label("Save & Relaunch", systemImage: "arrow.counterclockwise").frame(maxWidth: .infinity)
+                }
                 .buttonStyle(LanternButtonStyle())
-                .disabled(!canPlay)
+                .confirmationDialog("Relaunch OmniPlay?", isPresented: $confirmRelaunch, titleVisibility: .visible) {
+                    Button("Save & Relaunch") { Task { await model.relaunch(opening: game.id) } }
+                } message: {
+                    Text("Any running game is stopped and its saves flushed. OmniPlay closes and reopens on this game.")
+                }
+            } else {
+                Button { showPlayer = true } label: { Label(playTitle, systemImage: "play.fill").frame(maxWidth: .infinity) }
+                    .buttonStyle(LanternButtonStyle())
+                    .disabled(!canPlay)
+            }
             Text(playReason).font(.footnote).foregroundStyle(Theme.textSecondary)
             if game.engine == .rpgMakerMZ || game.engine == .rpgMakerMV || game.engine == .html5 {
                 Toggle(isOn: Binding(get: { lowMemory }, set: { on in

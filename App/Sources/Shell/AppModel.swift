@@ -36,6 +36,10 @@ final class AppModel {
     private(set) var isPaused = false
     /// One line for the player about media that cannot play yet, set when a session starts.
     private(set) var launchNotice: String?
+    /// Engine slots spent in this app launch; games on them show "Restart needed" before Play.
+    private(set) var spentSlots: Set<SessionSlot> = []
+    /// A game to open right after launch, left by Save & Relaunch.
+    private(set) var pendingOpen: GameID?
 
     init(paths: AppPaths = HostSession.shared.paths) {
         self.paths = paths
@@ -65,7 +69,7 @@ final class AppModel {
         switch result {
         case let .success(store):
             self.store = store
-            let coordinator = RuntimeCoordinator(store: store)
+            let coordinator = RuntimeCoordinator(store: store, bootID: HostSession.shared.sessionID.description)
             await coordinator.register(.web) { _ in WebRuntime() }
             await registry.register(.init(
                 id: .web,
@@ -81,6 +85,7 @@ final class AppModel {
                 pipeline: ImportPipeline(paths: paths, store: store, session: HostSession.shared.sessionID, registry: registry)
             )
             phase = .ready
+            pendingOpen = Self.consumeRelaunchRequest(paths: paths)
             #if DEBUG
                 OPLog.log(
                     .ui,
@@ -127,6 +132,48 @@ final class AppModel {
     func freshResolution(for record: GameRecord, snapshot: DetectionSnapshot) async -> RuntimeResolution {
         await RuntimeResolver(registry: registry).resolve(snapshot.report, override: record.manualRuntimeOverride)
     }
+
+    /// What tapping Play would do, before tapping it (§14.2: the user sees "Restart needed" first).
+    func preflight(_ record: GameRecord, snapshot: DetectionSnapshot) async -> LaunchPreflight? {
+        guard let coordinator else { return nil }
+        let resolution = await freshResolution(for: record, snapshot: snapshot)
+        let descriptor = snapshot.report.descriptor.withID(record.id)
+        let configuration = RuntimeConfiguration.forGame(descriptor, paths: paths, profile: resolution.profile, sidecars: [])
+        let verdict = await coordinator.preflight(LaunchRequest(
+            record: record,
+            descriptor: descriptor,
+            resolution: resolution,
+            configuration: configuration
+        ))
+        spentSlots = await coordinator.spentSlots()
+        return verdict
+    }
+
+    nonisolated static func relaunchFile(_ paths: AppPaths) -> URL { paths.exportsRoot.deletingLastPathComponent()
+        .appending(path: "relaunch.json")
+    }
+
+    /// Save & Relaunch: saves are already flushed by the stop; the target is written for the next launch and the
+    /// process exits. A personal app may do this; the confirmation dialog says so.
+    func relaunch(opening id: GameID) async {
+        await stopPlaying(reason: .hostShutdown)
+        let url = Self.relaunchFile(paths)
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? JSONEncoder().encode(["game": id.description]).write(to: url, options: .atomic)
+        OPLog.log(.runtime, .info, "relaunching to \(id)")
+        try? await Task.sleep(for: .milliseconds(200))
+        exit(0)
+    }
+
+    nonisolated static func consumeRelaunchRequest(paths: AppPaths) -> GameID? {
+        let url = relaunchFile(paths)
+        defer { try? FileManager.default.removeItem(at: url) }
+        guard let data = try? Data(contentsOf: url), let dict = try? JSONDecoder().decode([String: String].self, from: data),
+              let raw = dict["game"] else { return nil }
+        return GameID(uuidString: raw)
+    }
+
+    func clearPendingOpen() { pendingOpen = nil }
 
     /// Starts a session for `record` inside `host`. Throws with a message fit for the player.
     func play(_ record: GameRecord, snapshot: DetectionSnapshot, host: any RuntimeHost) async throws -> ActiveSession {
@@ -181,6 +228,9 @@ final class AppModel {
         _ = await coordinator?.stop(reason: reason)
         if let playing {
             indexSaves(for: playing)
+        }
+        if let coordinator {
+            spentSlots = await coordinator.spentSlots()
         }
         if let session {
             await OPLog.endSession(SessionID(rawValue: session.id))

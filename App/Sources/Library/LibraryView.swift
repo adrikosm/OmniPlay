@@ -41,7 +41,7 @@ private struct LibraryContent: View {
             } else {
                 LazyVGrid(columns: columns, spacing: Theme.s4) {
                     ForEach(viewModel.games) { game in
-                        NavigationLink(value: game) { GameTile(game: game) }
+                        NavigationLink(value: game) { GameTile(game: game, restartNeeded: restartNeeded(game)) }
                             .buttonStyle(TileButtonStyle())
                             .contextMenu {
                                 Button(
@@ -73,6 +73,12 @@ private struct LibraryContent: View {
                 }
             }
         #endif
+            .onChange(of: viewModel.games.isEmpty, initial: true) { _, empty in
+                if !empty, let id = model.pendingOpen, let target = viewModel.games.first(where: { $0.id == id }) {
+                    path = [target]
+                    model.clearPendingOpen()
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -119,6 +125,8 @@ private struct LibraryContent: View {
 }
 
 private extension LibraryContent {
+    func restartNeeded(_ game: GameRecord) -> Bool { game.runtime.map { model.spentSlots.contains($0.slot) } ?? false }
+
     var filterSymbol: String {
         switch viewModel.filter {
         case .favorites: "heart.fill"
@@ -152,6 +160,7 @@ private extension LibraryContent {
 /// Cover tile: 3:4 art, serif title, engine and state chips. The whole tile is the target.
 struct GameTile: View {
     let game: GameRecord
+    var restartNeeded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.s2) {
@@ -160,7 +169,9 @@ struct GameTile: View {
                 .clipShape(.rect(cornerRadius: Theme.tileRadius))
                 .overlay(RoundedRectangle(cornerRadius: Theme.tileRadius).strokeBorder(Theme.hairline, lineWidth: 1))
                 .overlay(alignment: .topTrailing) {
-                    if game.compatibilityState != .loadable {
+                    if restartNeeded {
+                        Chip(text: "Restart needed", tint: Theme.lantern).padding(Theme.s2)
+                    } else if game.compatibilityState != .loadable {
                         Chip(text: game.compatibilityState.label, tint: game.compatibilityState.tint).padding(Theme.s2)
                     }
                 }
