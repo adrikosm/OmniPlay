@@ -14,8 +14,10 @@ public enum RuntimeStopReason: Sendable, Equatable {
     case switchingGame
     case memoryPressure
     case thermal
-    case crash
+    case crash(detail: String)
+    case hostBackground
     case hostShutdown
+    case fallback
 }
 
 public enum PauseSemantics: Sendable, Equatable {
@@ -43,24 +45,8 @@ public struct RuntimeCapabilities: Sendable, Equatable {
 /// The kind of surface the shell must host for this adapter.
 public enum RuntimeSurface: Sendable, Equatable {
     case webView
+    case uiView
     case metalLayer
-    case sdlWindow
-}
-
-public struct RuntimeConfiguration: Sendable {
-    public var paths: AppPaths
-    public var game: GameID
-    public var rtpDirectory: URL?
-    public var profile: CompatibilityProfile
-    public var sessionID: SessionID
-
-    public init(paths: AppPaths, game: GameID, rtpDirectory: URL? = nil, profile: CompatibilityProfile, sessionID: SessionID = .init()) {
-        self.paths = paths
-        self.game = game
-        self.rtpDirectory = rtpDirectory
-        self.profile = profile
-        self.sessionID = sessionID
-    }
 }
 
 /// Typed state bridge requests (§27). Engine-specific payloads are opaque here.
@@ -100,10 +86,4 @@ public enum RuntimeEvent: Sendable {
     case log(LogCategory, String)
     case gradeReached(PlayabilityGrade)
     case watchdogStalled(seconds: Double)
-}
-
-/// The shell-side object an adapter reports to. Owns the render container and the session log.
-public protocol RuntimeHost: AnyObject, Sendable {
-    var sessionID: SessionID { get }
-    func runtimeDidEmit(_ event: RuntimeEvent)
 }

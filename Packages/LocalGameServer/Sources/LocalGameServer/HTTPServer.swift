@@ -242,7 +242,12 @@ final class HTTPConnection: Sendable {
     }
 
     private static let httpDate: Date.VerbatimFormatStyle = .init(
-        format: "\(weekday: .abbreviated), \(day: .twoDigits) \(month: .abbreviated) \(year: .defaultDigits) \(hour: .twoDigits(clock: .twentyFourHour, hourCycle: .zeroBased)):\(minute: .twoDigits):\(second: .twoDigits) GMT",
-        locale: Locale(identifier: "en_US_POSIX"), timeZone: TimeZone(identifier: "GMT")!, calendar: Calendar(identifier: .gregorian)
+        format: """
+        \(weekday: .abbreviated), \(day: .twoDigits) \(month: .abbreviated) \(year: .defaultDigits) \
+        \(hour: .twoDigits(clock: .twentyFourHour, hourCycle: .zeroBased)):\(minute: .twoDigits):\(second: .twoDigits) GMT
+        """,
+        locale: Locale(identifier: "en_US_POSIX"),
+        timeZone: TimeZone(identifier: "GMT")!,
+        calendar: Calendar(identifier: .gregorian)
     )
 }

@@ -11,6 +11,9 @@ let package = Package(
         .package(path: "../InputKit"),
         .package(path: "../SaveKit"),
         .package(path: "../GameDetection"),
+        .package(path: "../GameStore"),
+        .package(path: "../OverlayVFS"),
+        .package(path: "../LocalGameServer"),
     ],
     targets: [
         .target(
@@ -21,7 +24,11 @@ let package = Package(
                 .product(name: "InputKit", package: "InputKit"),
                 .product(name: "SaveKit", package: "SaveKit"),
                 .product(name: "GameDetection", package: "GameDetection"),
-            ]
+                .product(name: "GameStore", package: "GameStore"),
+                .product(name: "OverlayVFS", package: "OverlayVFS"),
+                .product(name: "LocalGameServer", package: "LocalGameServer"),
+            ],
+            resources: [.copy("WebRuntimeAssets")]
         ),
         .testTarget(name: "RuntimeCoreTests", dependencies: ["RuntimeCore", .product(name: "TestSupport", package: "GameCore")]),
     ],
