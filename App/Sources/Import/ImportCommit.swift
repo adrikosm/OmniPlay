@@ -5,13 +5,12 @@ import GameDetection
 import GameImport
 import GameStore
 import OverlayVFS
+import RuntimeCore
 
-/// The commit half of the import: install into `Games/<id>`, seal, index, register; or replace an existing game.
+/// The commit half of the import: install into `Games/<id>`, seal, index, persist the report; or replace an existing game.
 extension ImportPipeline {
-    // MARK: Commit
-
     struct CommitPlan {
-        let stagedRoot: URL, located: LocatedRoot, title: String, detection: DetectionResult
+        let stagedRoot: URL, located: LocatedRoot, title: String, report: DetectionReport, resolution: RuntimeResolution
         let bytes: Int64, source: ImportSource, fingerprint: String
     }
 
@@ -26,7 +25,7 @@ extension ImportPipeline {
             }
             try install(plan, into: id)
             try register(plan, id: id)
-            OPLog.log(.importer, .info, "registered \(id) \(plan.title) as \(plan.detection.engine.rawValue)", session: session)
+            OPLog.log(.importer, .info, "registered \(id) \(plan.title) as \(plan.report.descriptor.engine.rawValue)", session: session)
             return id
         } catch {
             try? OriginalGuard.unseal(originalRoot: paths.tier(.original, for: id))
@@ -58,44 +57,64 @@ extension ImportPipeline {
         }
     }
 
-    /// Moves the staged tree into place, seals it, indexes it and writes game.json.
-    private func install(_ plan: CommitPlan, into id: GameID) throws {
+    /// Moves the staged tree into place, seals it, indexes it and writes game.json plus the full detection report.
+    func install(_ plan: CommitPlan, into id: GameID) throws {
         let gameRoot = paths.game(id)
         let original = paths.tier(.original, for: id)
         try FileManager.default.moveItem(at: plan.stagedRoot, to: original)
         try OriginalGuard.seal(originalRoot: original, manifest: gameRoot.appending(path: "original.manifest"))
         try PathIndex.open(at: gameRoot.appending(path: "index.sqlite")).rebuild(layer: "original", root: original)
-        let descriptor = GameDescriptor(
+        var d = plan.report.descriptor
+        d = GameDescriptor(
             id: id,
             title: plan.title,
-            rootRelativePath: plan.located.relativePath,
-            engine: plan.detection.engine,
-            version: plan.detection.engineVersion.flatMap(EngineVersion.init(parsing:)),
-            warnings: plan.located.sidecars.notes,
-            confidence: plan.detection.confidence,
-            evidence: plan.detection.evidence,
+            rootRelativePath: d.rootRelativePath,
+            engine: d.engine,
+            generation: d.generation,
+            version: d.version,
+            runtimeCandidates: d.runtimeCandidates,
+            entryPoint: d.entryPoint,
+            containerType: try? ContainerSniffer.identify(plan.source.url).rawValue,
+            saveFamily: d.saveFamily,
+            exportPlatform: d.exportPlatform,
+            mediaRequirements: d.mediaRequirements,
+            blockers: d.blockers,
+            warnings: d.warnings + plan.located.sidecars.notes.map { .note($0) },
+            capabilities: d.capabilities,
+            confidence: d.confidence,
+            evidence: d.evidence,
             identityHash: plan.fingerprint,
-            grade: plan.detection.engine.tier == .refused ? .refused : .loadable
+            grade: d.grade,
+            profile: d.profile
         )
-        try JSONEncoder().encode(descriptor).write(to: gameRoot.appending(path: "game.json"), options: .atomic)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(d).write(to: gameRoot.appending(path: "game.json"), options: .atomic)
+        let logs = paths.logs(game: id, session: UUID()).deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+        try encoder.encode(DetectionSnapshot(report: plan.report, resolution: plan.resolution)).write(
+            to: logs.appending(path: "detection.json"),
+            options: .atomic
+        )
         if !plan.located.sidecars.files.isEmpty {
-            try JSONEncoder().encode(plan.located.sidecars).write(to: gameRoot.appending(path: "sidecars.json"), options: .atomic)
+            try encoder.encode(plan.located.sidecars).write(to: gameRoot.appending(path: "sidecars.json"), options: .atomic)
         }
     }
 
-    private func register(_ plan: CommitPlan, id: GameID, replacing: Bool = false) throws {
-        var record = try (replacing ? store.games.fetch(id: id) : nil) ?? GameRecord(
-            id: id,
-            title: plan.title,
-            engine: plan.detection.engine
-        )
+    func register(_ plan: CommitPlan, id: GameID, replacing: Bool = false) throws {
+        let d = plan.report.descriptor
+        var record = try (replacing ? store.games.fetch(id: id) : nil) ?? GameRecord(id: id, title: plan.title, engine: d.engine)
         record.title = plan.title
-        record.engine = plan.detection.engine
+        record.engine = d.engine
+        record.generation = d.generation
+        record.version = d.version?.raw
+        record.runtime = plan.resolution.selectedRuntime
+        record.runtimeVersion = plan.resolution.selectedRuntimeVersion
         record.rootRelPath = plan.located.relativePath
-        record.detectionConfidence = plan.detection.confidence
-        record.compatibilityState = plan.detection.engine.tier == .refused ? .refused : .loadable
+        record.detectionConfidence = plan.report.confidence
+        record.compatibilityState = plan.report.outcome.isPlayableClass ? .loadable : .refused
         record.installBytes = plan.bytes
-        record.version = plan.detection.engineVersion
+        record.compatProfileJson = d.profile
         if replacing {
             try store.games.update(record)
         } else {
@@ -103,11 +122,21 @@ extension ImportPipeline {
         }
         _ = try store.detection.saveResult(.init(
             gameId: id,
-            outcome: plan.detection.engine.rawValue,
-            confidence: plan.detection.confidence,
-            evidence: plan.detection.evidence,
-            detectorVersions: ["rgss-archive-magic": "1"]
+            outcome: Self.outcomeName(plan.report.outcome),
+            confidence: plan.report.confidence,
+            evidence: plan.report.evidence.map(\.record),
+            detectorVersions: plan.report.detectorVersions.mapValues(String.init)
         ))
+        if let runtime = plan.resolution.selectedRuntime {
+            _ = try store.runtime.saveSelection(.init(
+                gameId: id,
+                selectedRuntime: runtime,
+                version: plan.resolution.selectedRuntimeVersion,
+                reason: plan.resolution.reason,
+                warnings: plan.resolution.warnings.map { "\($0)" },
+                fallbacks: plan.resolution.fallbacks.map(\.runtime)
+            ))
+        }
         let container = (try? ContainerSniffer.identify(plan.source.url).rawValue) ?? "unknown"
         _ = try store.imports.record(.init(
             gameId: id,
@@ -118,4 +147,22 @@ extension ImportPipeline {
             outcome: replacing ? "replaced" : "ok"
         ))
     }
+
+    static func outcomeName(_ o: DetectionOutcome) -> String {
+        switch o {
+        case .supported: "supported"
+        case .supportedWithLimitations: "supportedWithLimitations"
+        case .experimental: "experimental"
+        case .unknownVersion: "unknownVersion"
+        case .unknownEngine: "unknownEngine"
+        case .unsupported: "unsupported"
+        case .refused: "refused"
+        }
+    }
+}
+
+/// What the detail screen reads back: the report and how it resolved.
+struct DetectionSnapshot: Codable, Sendable {
+    var report: DetectionReport
+    var resolution: RuntimeResolution
 }

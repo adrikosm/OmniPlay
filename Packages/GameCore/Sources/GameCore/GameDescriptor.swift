@@ -26,11 +26,11 @@ public struct GameDescriptor: Codable, Sendable, Hashable, Identifiable {
     public var runtimeCandidates: [RuntimeIdentifier]
     public var entryPoint: String?
     public var containerType: String?
-    public var saveFamily: String?
-    public var exportPlatform: String?
-    public var mediaRequirements: [String]
-    public var blockers: [String]
-    public var warnings: [String]
+    public var saveFamily: SaveFamily
+    public var exportPlatform: ExportPlatform
+    public var mediaRequirements: [MediaRequirement]
+    public var blockers: [Blocker]
+    public var warnings: [GameWarning]
     public var capabilities: [String]
     public var confidence: Double
     public var evidence: [EvidenceRecord]
@@ -50,11 +50,11 @@ public struct GameDescriptor: Codable, Sendable, Hashable, Identifiable {
         runtimeCandidates: [RuntimeIdentifier] = [],
         entryPoint: String? = nil,
         containerType: String? = nil,
-        saveFamily: String? = nil,
-        exportPlatform: String? = nil,
-        mediaRequirements: [String] = [],
-        blockers: [String] = [],
-        warnings: [String] = [],
+        saveFamily: SaveFamily = .unknown,
+        exportPlatform: ExportPlatform = .unknown,
+        mediaRequirements: [MediaRequirement] = [],
+        blockers: [Blocker] = [],
+        warnings: [GameWarning] = [],
         capabilities: [String] = [],
         confidence: Double = 0,
         evidence: [EvidenceRecord] = [],

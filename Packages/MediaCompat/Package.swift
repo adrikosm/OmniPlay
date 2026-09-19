@@ -15,7 +15,7 @@ let package = Package(
                 .product(name: "GameCore", package: "GameCore"),
             ]
         ),
-        .testTarget(name: "MediaCompatTests", dependencies: ["MediaCompat"]),
+        .testTarget(name: "MediaCompatTests", dependencies: ["MediaCompat", .product(name: "TestSupport", package: "GameCore")]),
     ],
     swiftLanguageModes: [.v6]
 )

@@ -3,6 +3,7 @@ import GameCore
 import GameImport
 import GameStore
 import OverlayVFS
+import RuntimeCore
 import SwiftUI
 
 enum AppTab: Hashable { case library, importGames, settings }
@@ -22,6 +23,7 @@ final class AppModel {
     private(set) var store: GameStore?
     private(set) var importer: ImportCoordinator
     private(set) var imports: ImportsModel?
+    let registry = RuntimeRegistry()
     var selectedTab: AppTab = .library
 
     init(paths: AppPaths = HostSession.shared.paths) {
@@ -54,7 +56,7 @@ final class AppModel {
             self.store = store
             imports = ImportsModel(
                 coordinator: importer,
-                pipeline: ImportPipeline(paths: paths, store: store, session: HostSession.shared.sessionID)
+                pipeline: ImportPipeline(paths: paths, store: store, session: HostSession.shared.sessionID, registry: registry)
             )
             phase = .ready
             #if DEBUG
@@ -88,6 +90,32 @@ final class AppModel {
             try? FileManager.default.removeItem(at: dir)
             OPLog.log(.importer, .default, "removed orphan game directory \(dir.lastPathComponent)")
         }
+    }
+
+    /// The stored detection report and resolution for a game, read off the main actor.
+    nonisolated static func snapshot(for id: GameID, paths: AppPaths) -> DetectionSnapshot? {
+        let url = paths.logs(game: id, session: UUID()).deletingLastPathComponent().appending(path: "detection.json")
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(DetectionSnapshot.self, from: data)
+    }
+
+    /// Stores a per-game runtime choice, re-resolves against it and persists the new selection.
+    func chooseRuntime(_ runtime: RuntimeIdentifier?, for id: GameID) async -> RuntimeResolution? {
+        guard let store, var snapshot = Self.snapshot(for: id, paths: paths) else { return nil }
+        let value = runtime.flatMap { try? String(data: JSONEncoder().encode($0), encoding: .utf8) }
+        try? store.overrides.set(game: id, key: "runtime", valueJson: value ?? "null")
+        snapshot.resolution = await RuntimeResolver(registry: registry).resolve(snapshot.report, override: runtime)
+        let url = paths.logs(game: id, session: UUID()).deletingLastPathComponent().appending(path: "detection.json")
+        try? JSONEncoder().encode(snapshot).write(to: url, options: .atomic)
+        if var record = try? store.games.fetch(id: id) {
+            record.runtime = snapshot.resolution.selectedRuntime
+            record.manualRuntimeOverride = runtime
+            try? store.games.update(record)
+        }
+        if let selected = snapshot.resolution.selectedRuntime {
+            _ = try? store.runtime.saveSelection(.init(gameId: id, selectedRuntime: selected, reason: snapshot.resolution.reason))
+        }
+        return snapshot.resolution
     }
 
     /// Deletes only the library database; game files under `Games/` are untouched. Then relaunches.

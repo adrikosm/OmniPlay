@@ -97,6 +97,15 @@ public final class PathIndex: Sendable {
         }
     }
 
+    /// Keys matching a SQLite GLOB pattern (case-sensitive on lower-cased keys), at most `limit`.
+    public func glob(layer: String, pattern: String, limit: Int = 64) throws -> [IndexedEntry] {
+        try queue.read { db in
+            try IndexedEntry.fetchAll(db, sql: """
+            SELECT layer, key, real_rel AS realRel, is_dir AS isDir, size FROM entries WHERE layer = ? AND key GLOB ? ORDER BY key LIMIT ?
+            """, arguments: [layer, pattern, limit])
+        }
+    }
+
     public func layers() throws -> [String] { try queue.read { try String.fetchAll(
         $0,
         sql: "SELECT DISTINCT layer FROM entries ORDER BY layer"

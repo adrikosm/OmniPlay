@@ -10,6 +10,7 @@ let package = Package(
         .package(path: "../Diagnostics"),
         .package(path: "../InputKit"),
         .package(path: "../SaveKit"),
+        .package(path: "../GameDetection"),
     ],
     targets: [
         .target(
@@ -19,9 +20,10 @@ let package = Package(
                 .product(name: "Diagnostics", package: "Diagnostics"),
                 .product(name: "InputKit", package: "InputKit"),
                 .product(name: "SaveKit", package: "SaveKit"),
+                .product(name: "GameDetection", package: "GameDetection"),
             ]
         ),
-        .testTarget(name: "RuntimeCoreTests", dependencies: ["RuntimeCore"]),
+        .testTarget(name: "RuntimeCoreTests", dependencies: ["RuntimeCore", .product(name: "TestSupport", package: "GameCore")]),
     ],
     swiftLanguageModes: [.v6]
 )

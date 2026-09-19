@@ -38,9 +38,34 @@ def pe_stub(extra_sections=0):
     return head + b"\x90" * 0x200
 
 PE = pe_stub()
-WEBM = b"\x1a\x45\xdf\xa3" + b"\x9f\x42\x86\x81\x01\x42\xf7\x81\x01\x42\xf2\x81\x04\x42\xf3\x81\x08\x42\x82\x84webm\x42\x87\x81\x04\x42\x85\x81\x02" + b"\0" * 64
-MP4 = struct.pack(">I", 0x20) + b"ftypisom" + b"\0\0\x02\0" + b"isomiso2avc1mp41" + struct.pack(">I", 8) + b"free"
-M4A = struct.pack(">I", 0x20) + b"ftypM4A " + b"\0\0\0\0" + b"M4A mp42isom\0\0\0\0" + struct.pack(">I", 8) + b"free"
+def ebml(eid, payload):
+    """EBML element: id bytes + 8-byte size vint + payload."""
+    return eid + bytes([0x01]) + len(payload).to_bytes(7, "big") + payload
+
+def webm_bytes(video="V_VP9", audio="A_VORBIS"):
+    header = ebml(b"\x1a\x45\xdf\xa3", ebml(b"\x42\x86", b"\x01") + ebml(b"\x42\xf7", b"\x01") + ebml(b"\x42\x82", b"webm") + ebml(b"\x42\x87", b"\x04"))
+    def track(n, ttype, codec):
+        return ebml(b"\xae", ebml(b"\xd7", bytes([n])) + ebml(b"\x83", bytes([ttype])) + ebml(b"\x86", codec.encode()))
+    tracks = ebml(b"\x16\x54\xae\x6b", track(1, 1, video) + track(2, 2, audio))
+    segment = ebml(b"\x18\x53\x80\x67", ebml(b"\x15\x49\xa9\x66", ebml(b"\x2a\xd7\xb1", (1000000).to_bytes(4, "big"))) + tracks)
+    return header + segment + bytes(64)
+
+def box(kind, payload=b""):
+    return struct.pack(">I", 8 + len(payload)) + kind + payload
+
+def mp4_bytes(video="avc1", audio="mp4a", brand=b"isom", moov_at_end=False):
+    ftyp = box(b"ftyp", brand + b"\0\0\x02\0" + b"isomiso2avc1mp41")
+    def trak(fourcc):
+        entry = box(fourcc.encode(), bytes(78))
+        stsd = box(b"stsd", b"\0\0\0\0" + struct.pack(">I", 1) + entry)
+        return box(b"trak", box(b"mdia", box(b"minf", box(b"stbl", stsd))))
+    moov = box(b"moov", box(b"mvhd", bytes(100)) + trak(video) + trak(audio))
+    mdat = box(b"mdat", bytes(256))
+    return ftyp + (mdat + moov if moov_at_end else moov + mdat)
+
+WEBM = webm_bytes()
+MP4 = mp4_bytes()
+M4A = mp4_bytes(video="mp4a", audio="mp4a", brand=b"M4A ")
 OGG = b"OggS\x00\x02" + b"\0" * 20 + b"\x01\x1e" + b"\x01vorbis" + b"\0" * 23
 PNG = b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" + struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0) + b"\0" * 4 + struct.pack(">I", 0) + b"IEND\xaeB`\x82"
 
@@ -97,6 +122,10 @@ def mv_tree(prefix, encrypted=False):
     w(f"{prefix}/www/movies/intro.mp4", MP4)
     w(f"{prefix}/www/audio/bgm/a.ogg", OGG)
     w(f"{prefix}/www/audio/bgm/a.m4a", M4A)
+    w(f"{prefix}/www/audio/me/fanfare.mp3", b"ID3\x04\x00\x00\x00\x00\x00\x00" + bytes(32))
+    w(f"{prefix}/www/audio/bgm/town.mid", b"MThd" + struct.pack(">IHHH", 6, 1, 1, 96) + b"MTrk" + struct.pack(">I", 4) + b"\x00\xff\x2f\x00")
+    w(f"{prefix}/www/audio/se/hit.wav", b"RIFF" + struct.pack("<I", 36) + b"WAVEfmt " + struct.pack("<IHHIIHH", 16, 1, 1, 22050, 44100, 2, 16) + b"data" + struct.pack("<I", 0))
+    w(f"{prefix}/www/movies/outro.mp4", mp4_bytes(moov_at_end=True))
     w(f"{prefix}/package.json", '{"name":"mv","main":"www/index.html","window":{"title":"MV","width":816,"height":624}}')
     w(f"{prefix}/Game.exe", PE)
     if encrypted:
@@ -139,6 +168,7 @@ def build():
     # ---- web engines ----
     mv_tree("mv-basic"); mv_tree("mv-encrypted", encrypted=True)
     mz_tree("mz-basic"); mz_tree("mz-nwplugin")
+    w("mz-nwplugin/js/plugins.js", "var $plugins =\n[\n{\"name\":\"NwFs\",\"status\":true,\"description\":\"saves through node fs\",\"parameters\":{}}\n];\n")
     w("mz-nwplugin/js/plugins/NwFs.js", "/*:\n * @plugindesc writes saves with node fs\n */\nconst fs = require('fs');\nconst path = require('path');\n")
     w("html5-generic/index.html", "<!DOCTYPE html><html><head><title>Generic</title><script src='game.js'></script></head><body><canvas id='c'></canvas></body></html>")
     w("html5-generic/game.js", "const c=document.getElementById('c');\n")

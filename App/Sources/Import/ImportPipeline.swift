@@ -5,18 +5,22 @@ import GameDetection
 import GameImport
 import GameStore
 import OverlayVFS
+import RuntimeCore
 import Synchronization
 
-/// One import from a folder to a registered, sealed, indexed game. Archives are refused until the
-/// libarchive extractor lands; everything that runs here is the commit path those extractors will share.
+/// One import from a folder or archive to a registered, sealed, indexed, detected game. Every step that
+/// touches bytes is bounded; every failure rolls back to nothing.
 struct ImportPipeline: Sendable {
     let paths: AppPaths
     let store: GameStore
     let session: SessionID
+    let registry: RuntimeRegistry
     let limits = SafetyLimits.default
 
     /// What to do when the same source was imported before.
     enum DuplicatePolicy: Sendable { case ask, keepBoth, replace(GameID) }
+
+    struct Materialized { let root: URL, totals: RunningTotals, sourceBytes: Int64? }
 
     func run(_ txn: ImportTransaction, duplicates: DuplicatePolicy = .ask) async throws -> GameID {
         let source = txn.source
@@ -36,29 +40,33 @@ struct ImportPipeline: Sendable {
             throw ImportFailure.duplicate(existing: existing.id, title: existing.title)
         }
         let staged = try await materialize(kind: kind, source: source, staging: staging, txn: txn)
-        let (stagedRoot, totals, sourceBytes) = (staged.root, staged.totals, staged.sourceBytes)
 
         await txn.transition(to: .normalizing)
         let audited: RunningTotals
-        do { audited = try PostExtractionAudit.run(root: stagedRoot, totals: totals, sourceBytes: sourceBytes, limits: limits)
+        do {
+            audited = try PostExtractionAudit.run(root: staged.root, totals: staged.totals, sourceBytes: staged.sourceBytes, limits: limits)
         } catch let v as SafetyViolation {
             throw ImportFailure.safetyViolation(v)
         }
-        let located = try GameRootLocator.locate(stagingRoot: stagedRoot)
-        let gameRoot = located.relativePath.isEmpty ? stagedRoot : stagedRoot.appending(
+        let located = try GameRootLocator.locate(stagingRoot: staged.root)
+        let gameRoot = located.relativePath.isEmpty ? staged.root : staged.root.appending(
             path: located.relativePath,
             directoryHint: .isDirectory
         )
 
         await txn.transition(to: .detecting)
-        let detection = try detect(root: gameRoot)
+        let title = Self.title(from: source.url)
+        let report = try detect(root: gameRoot, located: located, source: source, title: title, fingerprint: fingerprint)
+        await txn.transition(to: .resolvingRuntime)
+        let resolution = await RuntimeResolver(registry: registry).resolve(report)
 
         await txn.transition(to: .registering)
         let plan = CommitPlan(
-            stagedRoot: stagedRoot,
+            stagedRoot: staged.root,
             located: located,
-            title: Self.title(from: source.url),
-            detection: detection,
+            title: report.descriptor.title.isEmpty ? title : report.descriptor.title,
+            report: report,
+            resolution: resolution,
             bytes: audited.writtenBytes,
             source: source,
             fingerprint: fingerprint
@@ -69,9 +77,9 @@ struct ImportPipeline: Sendable {
         return try await commit(plan)
     }
 
-    /// Copies a folder or extracts an archive (unwrapping one nested level) into staging.
-    struct Materialized { let root: URL, totals: RunningTotals, sourceBytes: Int64? }
+    // MARK: Materialize
 
+    /// Copies a folder or extracts an archive (unwrapping one nested level) into staging.
     private func materialize(kind: ContainerKind, source: ImportSource, staging: URL, txn: ImportTransaction) async throws -> Materialized {
         var stagedRoot = staging.appending(path: "Original", directoryHint: .isDirectory)
         var totals: RunningTotals
@@ -82,7 +90,6 @@ struct ImportPipeline: Sendable {
         case .zip, .sevenZip, .tar, .gzip, .xz, .zstd:
             totals = try await extractArchive(source.url, to: stagedRoot, txn: txn)
             sourceBytes = fileSize(source.url)
-            // A zip inside a zip (depth ≤ 2): unwrap it into a sibling folder and continue from there.
             var depth = 1
             while let inner = GameRootLocator.nestedArchive(in: stagedRoot) {
                 depth += 1
@@ -96,7 +103,6 @@ struct ImportPipeline: Sendable {
                 stagedRoot = next
             }
         case .pe:
-            // Unwrap, don't emulate: an NW.js or SFX executable carries the game as an appended archive.
             guard let payload = try PEOverlayScanner.scan(source.url)
             else { throw ImportFailure.unsupportedContainer(firstBytesHex: "malformed executable") }
             switch payload.kind {
@@ -114,7 +120,6 @@ struct ImportPipeline: Sendable {
             throw ImportFailure
                 .unsupportedContainer(firstBytesHex: kind == .unknown ? ContainerSniffer.firstBytesHex(source.url) : kind.rawValue)
         }
-
         return Materialized(root: stagedRoot, totals: totals, sourceBytes: sourceBytes)
     }
 
@@ -148,35 +153,18 @@ struct ImportPipeline: Sendable {
         }
     }
 
-    private func fileSize(_ url: URL) -> Int64? { (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) }
-
-    // MARK: Staging
+    // MARK: Folders
 
     private func stage(from source: URL, to stagedRoot: URL, txn: ImportTransaction) async throws -> RunningTotals {
         var totalBytes: Int64 = 0
         try LazyDirectoryWalker.walk(root: source, skipHidden: false) { totalBytes += $0.fileSize; return .continue }
         try StorageBudget.require(.forCopy(bytes: totalBytes), at: paths.root)
         await txn.transition(to: .staging(.init(completedBytes: 0, totalBytes: totalBytes)))
-
         let validator = EntryValidator(limits: limits)
         var totals = RunningTotals()
         var copied: Int64 = 0
         var lastReport = Date.distantPast
         var pending: [(URL, String)] = []
-        // The walk is synchronous; copies are collected per 64 entries so the async copier never runs inside the enumerator.
-        var stop: SafetyViolation?
-        func drain() async throws {
-            for (url, rel) in pending {
-                try Task.checkCancellation()
-                try await ChunkedCopier.copy(from: url, to: stagedRoot.appending(path: rel)) { _ in }
-                copied += (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
-                if Date.now.timeIntervalSince(lastReport) > 0.2 {
-                    lastReport = .now
-                    await txn.transition(to: .staging(.init(completedBytes: copied, totalBytes: totalBytes, currentItem: rel)))
-                }
-            }
-            pending.removeAll(keepingCapacity: true)
-        }
         var resume: String?
         repeat {
             let more = try walkSlice(
@@ -187,7 +175,16 @@ struct ImportPipeline: Sendable {
                 totals: &totals,
                 pending: &pending
             )
-            try await drain()
+            for (url, rel) in pending {
+                try Task.checkCancellation()
+                try await ChunkedCopier.copy(from: url, to: stagedRoot.appending(path: rel)) { _ in }
+                copied += fileSize(url) ?? 0
+                if Date.now.timeIntervalSince(lastReport) > 0.2 {
+                    lastReport = .now
+                    await txn.transition(to: .staging(.init(completedBytes: copied, totalBytes: totalBytes, currentItem: rel)))
+                }
+            }
+            pending.removeAll(keepingCapacity: true)
             if !more {
                 break
             }
@@ -236,24 +233,26 @@ struct ImportPipeline: Sendable {
         return pending.count >= 64
     }
 
-    // MARK: Detection (structure-only until Epic 3)
+    // MARK: Detection
 
-    private func detect(root: URL) throws -> DetectionResult {
-        let tree = try DirectoryGameTree(root: root)
-        if let hit = try RGSSArchiveSignature().evaluate(tree) {
-            return hit
-        }
-        return DetectionResult(
-            engine: .unknown,
-            confidence: 0,
-            evidence: [.init(check: "structure", outcome: "no signature matched", weight: 0)]
-        )
+    private func detect(
+        root: URL,
+        located: LocatedRoot,
+        source: ImportSource,
+        title: String,
+        fingerprint: String
+    ) throws -> DetectionReport {
+        let payload = try? PEOverlayScanner.scan(source.url)
+        let ctx = try ScanContext(root: root, sidecars: located.sidecars, pePayload: payload)
+        defer { ctx.close() }
+        return DetectionPipeline.standard.run(ctx, title: title, identityHash: fingerprint, rootRelativePath: located.relativePath)
     }
+
+    func fileSize(_ url: URL) -> Int64? { (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) }
 
     static func title(from url: URL) -> String {
         let raw = url.deletingPathExtension().lastPathComponent
-        let cleaned = raw.replacingOccurrences(of: "[_\\.]+", with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespaces)
+        let cleaned = raw.replacingOccurrences(of: "[_\\.]+", with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces)
         return cleaned.isEmpty ? "Untitled game" : cleaned
     }
 }
@@ -278,29 +277,5 @@ private final class ProgressReporter: Sendable {
         guard due else { return }
         let txn = txn, total = total
         Task { await txn.transition(to: .extracting(.init(completedBytes: done, totalBytes: total, currentItem: item))) }
-    }
-}
-
-/// Read-only probe over a staged directory for the detection signatures.
-/// ponytail: the path list is materialised (fine for the RGSS signature); Epic 3's structure inspector streams instead.
-struct DirectoryGameTree: GameTreeProbe {
-    let root: URL
-    let paths: [String]
-
-    init(root: URL) throws {
-        self.root = root
-        var list: [String] = []
-        try LazyDirectoryWalker.walk(root: root) {
-            if !$0.isDirectory {
-                list.append($0.relativePath)
-            }; return .continue
-        }
-        paths = list
-    }
-
-    func readPrefix(of relativePath: String, maxBytes: Int) throws -> Data? {
-        let url = root.appending(path: relativePath)
-        guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else { return nil }
-        return try BoundedReader.readHeader(url: url, bytes: maxBytes)
     }
 }
