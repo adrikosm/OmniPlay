@@ -18,6 +18,8 @@ struct SaveBackupsView: View {
     @State private var pendingImport: (URL, SaveTransfer.Collision)?
     @State private var importWarnings: [String] = []
     @State private var pickedImport: URL?
+    @State private var stores: [PersistentStoreInfo] = []
+    @State private var pendingReset: PersistentStoreInfo?
     @State private var busy = false
 
     private var location: SaveLocation { SaveLocation.forGame(game.id, paths: model.paths) }
@@ -86,11 +88,55 @@ struct SaveBackupsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .glassCard()
 
+                VStack(alignment: .leading, spacing: Theme.s3) {
+                    Text("Settings and progress data").font(Theme.title(22)).foregroundStyle(Theme.textPrimary)
+                    Text("Kept apart from the save slots. Resetting takes a snapshot first.").font(.footnote)
+                        .foregroundStyle(Theme.textSecondary)
+                    if stores.isEmpty {
+                        Text("This game keeps nothing outside its saves.").font(.footnote).foregroundStyle(Theme.textSecondary)
+                    }
+                    ForEach(stores) { store in
+                        HStack(alignment: .firstTextBaseline) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(store.kind.title).font(.subheadline).foregroundStyle(Theme.textPrimary)
+                                Text(Self.storeSummary(store))
+                                    .font(.caption).foregroundStyle(Theme.textSecondary)
+                            }
+                            Spacer()
+                            Button("Reset") { pendingReset = store }
+                                .font(.subheadline.weight(.semibold)).foregroundStyle(Theme.danger).frame(minWidth: 44, minHeight: 44)
+                                .disabled(busy || !store.isPresent)
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("persistentStore.\(store.kind.rawValue)")
+                    }
+                }
+                .padding(Theme.s4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .glassCard()
+
                 if let message {
                     Text(message).font(.footnote).foregroundStyle(Theme.textSecondary)
                 }
             }
             .padding(Theme.s4)
+        }
+        .confirmationDialog(
+            "Reset \(pendingReset?.kind.title ?? "this data")?",
+            isPresented: Binding(get: { pendingReset != nil }, set: {
+                if !$0 {
+                    pendingReset = nil
+                }
+            }),
+            titleVisibility: .visible
+        ) {
+            Button("Reset", role: .destructive) {
+                if let store = pendingReset {
+                    Task { await reset(store) }
+                }
+            }
+        } message: {
+            Text("The game starts with fresh settings next time. A snapshot keeps the current data.")
         }
         .navigationTitle("Saves and backups")
         .navigationBarTitleDisplayMode(.inline)
@@ -176,6 +222,11 @@ struct SaveBackupsView: View {
         }
     }
 
+    static func storeSummary(_ store: PersistentStoreInfo) -> String {
+        guard store.isPresent else { return "Empty" }
+        return "\(store.files) file\(store.files == 1 ? "" : "s") · \(store.bytes.formatted(.byteCount(style: .file)))"
+    }
+
     static func label(_ origin: SaveProvenance.Origin) -> String {
         switch origin {
         case .beforeLaunch: "Before launch"
@@ -191,11 +242,18 @@ struct SaveBackupsView: View {
 
     private func reload() async {
         let location = location
-        let (slotList, snapList) = await Task.detached {
-            (SaveFileStore(location: location, fileExtension: "").keysAnyExtension(), SaveVault.snapshots(location: location))
+        let kinds = SaveStrategy.forEngine(game.engine, generation: game.generation).persistentStores
+            .compactMap { PersistentStoreKind(rawValue: $0.rawValue) }
+        let (slotList, snapList, storeList) = await Task.detached {
+            (
+                SaveFileStore(location: location, fileExtension: "").keysAnyExtension(),
+                SaveVault.snapshots(location: location),
+                PersistentStoreRegistry.stores(location: location, kinds: kinds)
+            )
         }.value
         slots = slotList
         snapshots = snapList
+        stores = storeList
     }
 
     private var transfer: SaveTransfer {
@@ -247,6 +305,20 @@ struct SaveBackupsView: View {
         } catch {
             message = "Import failed, nothing was changed: \(error.localizedDescription)"
             pendingImport = nil
+        }
+        await reload()
+    }
+
+    private func reset(_ store: PersistentStoreInfo) async {
+        busy = true
+        defer { busy = false }
+        pendingReset = nil
+        do {
+            try await PersistentStoreRegistry.reset(store, location: location, identityHash: identityHash)
+            message = "\(store.kind.title) reset."
+            model.reindexSaves(game.id)
+        } catch {
+            message = "Reset failed, nothing was changed: \(error.localizedDescription)"
         }
         await reload()
     }

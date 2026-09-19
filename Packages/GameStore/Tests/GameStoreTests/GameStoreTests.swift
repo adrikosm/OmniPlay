@@ -258,5 +258,14 @@ extension GameStoreTests {
         try f.store.saves.replaceAll(game: g.id, with: [row("RPG File1"), row("RPG File2")])
         try f.store.saves.replaceAll(game: g.id, with: [row("RPG File1")])
         #expect(try f.store.saves.fetch(game: g.id).map(\.slotKey) == ["RPG File1"])
+        try f.store.persistentStores.replaceAll(
+            game: g.id,
+            with: [.init(gameId: g.id, kind: "webLocalStorage", relPath: "Saves/persistent/webLocalStorage", bytes: 3, modifiedAt: .now)]
+        )
+        try f.store.persistentStores.replaceAll(
+            game: g.id,
+            with: [.init(gameId: g.id, kind: "webIndexedDB", relPath: "Saves/persistent/webIndexedDB", bytes: 9, modifiedAt: .now)]
+        )
+        #expect(try f.store.persistentStores.fetch(game: g.id).map(\.kind) == ["webIndexedDB"])
     }
 }

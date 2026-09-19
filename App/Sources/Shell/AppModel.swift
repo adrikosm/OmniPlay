@@ -1,5 +1,6 @@
 import Diagnostics
 import GameCore
+import GameDetection
 import GameImport
 import GameStore
 import InputKit
@@ -237,6 +238,18 @@ final class AppModel {
             )
         }
         try? store.saves.replaceAll(game: descriptor.id, with: records)
+        let kinds = SaveStrategy.forEngine(descriptor.engine, generation: descriptor.generation).persistentStores
+            .compactMap { PersistentStoreKind(rawValue: $0.rawValue) }
+        let stores = PersistentStoreRegistry.stores(location: location, kinds: kinds).filter(\.isPresent).map {
+            PersistentStoreRecord(
+                gameId: descriptor.id,
+                kind: $0.kind.rawValue,
+                relPath: paths.stored($0.directory),
+                bytes: $0.bytes,
+                modifiedAt: $0.modifiedAt ?? .now
+            )
+        }
+        try? store.persistentStores.replaceAll(game: descriptor.id, with: stores)
     }
 
     /// Stores a per-game runtime choice, re-resolves against it and persists the new selection.

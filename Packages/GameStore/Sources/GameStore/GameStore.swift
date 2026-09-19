@@ -70,6 +70,23 @@ public extension GameStore {
     var slots: Slots { Slots(store: self) }
     var imports: Imports { Imports(store: self) }
     var saves: Saves { Saves(store: self) }
+    var persistentStores: PersistentStores { PersistentStores(store: self) }
+
+    /// The `persistent_stores` index, rebuilt with the saves after every session.
+    struct PersistentStores: Sendable {
+        let store: GameStore
+
+        public func replaceAll(game: GameID, with records: [PersistentStoreRecord]) throws {
+            try store.write("persistentStores.replaceAll") { db in
+                try PersistentStoreRecord.filter(sql: "game_id = ?", arguments: [game.description]).deleteAll(db)
+                for record in records {
+                    _ = try record.inserted(db)
+                }
+            }
+        }
+
+        public func fetch(game: GameID) throws -> [PersistentStoreRecord] { try store.fetchAll(PersistentStoreRecord.self, game: game) }
+    }
 
     /// The `saves_meta` index: one row per slot file, rebuilt from the file system after every session.
     struct Saves: Sendable {

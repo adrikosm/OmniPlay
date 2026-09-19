@@ -163,17 +163,29 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.omniplay.app.tests
 
+  OmniPlayUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [Tests/OmniPlayUITests]
+    dependencies:
+      - target: OmniPlay
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.omniplay.app.uitests
+        TEST_TARGET_NAME: OmniPlay
+
 schemes:
   OmniPlay:
     build:
       targets:
         OmniPlay: all
         OmniPlayTests: [test]
+        OmniPlayUITests: [test]
     run:
       config: Debug
     test:
       config: Debug
       gatherCoverageData: true
-      targets: [OmniPlayTests]
+      targets: [OmniPlayTests, OmniPlayUITests]
     archive:
       config: Release

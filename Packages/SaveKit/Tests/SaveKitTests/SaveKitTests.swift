@@ -267,3 +267,34 @@ struct SaveSafetyTests {
         return out
     }
 }
+
+@Suite("Persistent stores")
+struct PersistentStoreTests {
+    @Test("Registry lists engine kinds plus on-disk folders once, and reset snapshots first then empties the store")
+    func registryAndReset() async throws {
+        let root = try TemporaryGameRoot(name: "persist")
+        defer { root.remove() }
+        let paths = AppPaths(
+            root: root.url.appending(path: "S"),
+            cachesRoot: root.url.appending(path: "C"),
+            exportsRoot: root.url.appending(path: "E")
+        )
+        let loc = SaveLocation.forGame(GameID(), paths: paths)
+        let web = loc.persistent.appending(path: "webLocalStorage")
+        try FileManager.default.createDirectory(at: web, withIntermediateDirectories: true)
+        try Data("cfg".utf8).write(to: web.appending(path: "ls.UlBHIENvbmZpZw.rpgsave"))
+        try FileManager.default.createDirectory(at: loc.persistent.appending(path: "renpyPersistent"), withIntermediateDirectories: true)
+
+        let stores = PersistentStoreRegistry.stores(location: loc, kinds: [.webLocalStorage, .mvGlobalConfig])
+        #expect(stores.map(\.kind) == [.webLocalStorage, .renpyPersistent])
+        #expect(stores[0].files == 1 && stores[0].bytes == 3 && stores[0].isPresent && !stores[1].isPresent)
+
+        try await PersistentStoreRegistry.reset(stores[0], location: loc, identityHash: "h")
+        #expect(PersistentStoreRegistry.stores(location: loc, kinds: [.webLocalStorage])[0].files == 0)
+        let snaps = SaveVault.snapshots(location: loc)
+        #expect(snaps.count == 1 && snaps[0].manifest.entries
+            .map(\.relativePath) == ["persistent/webLocalStorage/ls.UlBHIENvbmZpZw.rpgsave"])
+        try await PersistentStoreRegistry.reset(stores[1], location: loc, identityHash: "h")
+        #expect(SaveVault.snapshots(location: loc).count == 1)
+    }
+}
