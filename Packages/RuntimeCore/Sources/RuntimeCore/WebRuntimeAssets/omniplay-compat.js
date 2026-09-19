@@ -14,7 +14,7 @@
     if (profile.audioFileExtOgg && typeof AudioManager !== "undefined") AudioManager.audioFileExt = () => ".ogg";
     if (typeof SceneManager !== "undefined" && SceneManager.run && !SceneManager.__omniplayBooted) {
       SceneManager.__omniplayBooted = true;
-      if (window.OmniPlay?.booted) window.OmniPlay.booted();
+      try { document.dispatchEvent(new Event("omniplay:booted")); } catch (_) {}
     }
   };
   document.addEventListener("DOMContentLoaded", patch);

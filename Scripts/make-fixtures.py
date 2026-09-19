@@ -171,7 +171,7 @@ def build():
     w("mz-nwplugin/js/plugins.js", "var $plugins =\n[\n{\"name\":\"NwFs\",\"status\":true,\"description\":\"saves through node fs\",\"parameters\":{}}\n];\n")
     w("mz-nwplugin/js/plugins/NwFs.js", "/*:\n * @plugindesc writes saves with node fs\n */\nconst fs = require('fs');\nconst path = require('path');\n")
     w("html5-generic/index.html", "<!DOCTYPE html><html><head><title>Generic</title><script src='game.js'></script></head><body><canvas id='c'></canvas></body></html>")
-    w("html5-generic/game.js", "const c=document.getElementById('c');\n")
+    w("html5-generic/game.js", "const c=document.getElementById('c');\nconst runs=Number(localStorage.getItem('runs')||0)+1;localStorage.setItem('runs',String(runs));document.title='Generic run '+runs;\n")
     w("tyrano-min/index.html", "<!DOCTYPE html><html><head><script src='tyrano/tyrano.js'></script></head><body><div id='tyrano_base'></div></body></html>")
     w("tyrano-min/tyrano/tyrano.js", "var tyrano = {version: '5.20'};\n")
     w("tyrano-min/data/scenario/first.ks", "*start\n[cm]\nhello[l]\n")

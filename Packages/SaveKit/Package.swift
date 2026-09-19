@@ -7,15 +7,17 @@ let package = Package(
     products: [.library(name: "SaveKit", targets: ["SaveKit"])],
     dependencies: [
         .package(path: "../GameCore"),
+        .package(path: "../Diagnostics"),
     ],
     targets: [
         .target(
             name: "SaveKit",
             dependencies: [
                 .product(name: "GameCore", package: "GameCore"),
+                .product(name: "Diagnostics", package: "Diagnostics"),
             ]
         ),
-        .testTarget(name: "SaveKitTests", dependencies: ["SaveKit"]),
+        .testTarget(name: "SaveKitTests", dependencies: ["SaveKit", .product(name: "TestSupport", package: "GameCore")]),
     ],
     swiftLanguageModes: [.v6]
 )

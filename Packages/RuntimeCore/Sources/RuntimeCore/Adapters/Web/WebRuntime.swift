@@ -30,6 +30,7 @@
         private var port: UInt16 = 0
         private var webView: WKWebView?
         private var handler: MessageBridge?
+        private var saves: SaveBridge?
         private var watchdog = WebProcessWatchdog(now: .now)
         private var watchdogTask: Task<Void, Never>?
         private weak var host: (any RuntimeHost)?
@@ -42,6 +43,15 @@
         public func prepare(configuration: RuntimeConfiguration) async throws {
             self.configuration = configuration
             profile = WebProfile.derive(from: configuration.descriptor)
+            let location = SaveLocation(savesRoot: configuration.saveDirectory.deletingLastPathComponent())
+            try location.ensure()
+            try SaveVault.writeProvenance(
+                game: configuration.game,
+                titleHash: configuration.descriptor.identityHash,
+                engine: configuration.descriptor.engine,
+                location: location
+            )
+            saves = SaveBridge(location: location, engine: configuration.descriptor.engine, session: configuration.sessionID)
             let index = try PathIndex.open(at: configuration.indexURL)
             let resolver = OverlayResolver(layers: configuration.layers, index: index)
             let entry = configuration.entryPoint ?? "index.html"
@@ -76,9 +86,10 @@
                 config.userContentController.add(bridge, contentWorld: world, name: name)
             }
             do {
+                let seed = saves?.seed() ?? "{}"
                 for name in WebRuntimeBundle.pageScripts {
                     try config.userContentController.addUserScript(WKUserScript(
-                        source: WebRuntimeBundle.source(name, profile: profile),
+                        source: WebRuntimeBundle.source(name, profile: profile, saves: seed),
                         injectionTime: .atDocumentStart,
                         forMainFrameOnly: true
                     ))
@@ -142,7 +153,55 @@
 
         public func inspect(_: StateInspectionRequest) async throws -> StateInspectionResult { throw Failure.notPrepared }
         public func mutate(_: StateMutation) async throws -> StateMutationResult { throw Failure.notPrepared }
-        public func saveSnapshot() async throws -> SaveSnapshot { throw Failure.notPrepared }
+        public func saveSnapshot() async throws -> SaveSnapshot {
+            guard let saves, let configuration else { throw Failure.notPrepared }
+            return try await SaveVault.snapshot(
+                location: saves.location,
+                identityHash: configuration.descriptor.identityHash,
+                reason: .manualSnapshot
+            )
+        }
+
+        /// Asks RPG Maker MV/MZ to write the engine's own autosave slot while the page is still alive.
+        /// MZ has a real autosave slot (0); MV has none, so slot 99 stands in. Anything else is skipped.
+        static let autosaveScript = """
+        (async () => {
+          try {
+            if (typeof DataManager === "undefined" || typeof SceneManager === "undefined") return "no-engine";
+            if (typeof $gameMap === "undefined" || !$gameMap) return "no-engine";
+            if (!(SceneManager._scene instanceof Scene_Map)) return "not-on-map";
+            const slot = typeof StorageManager.saveZip === "function" ? 0 : 99;
+            if (typeof $gameSystem?.onBeforeSave === "function") $gameSystem.onBeforeSave();
+            await Promise.resolve(DataManager.saveGame(slot));
+            return "saved:" + slot;
+          } catch (e) { return "error:" + e; }
+        })()
+        """
+
+        private func autosave() async {
+            guard let webView, profile.autosaveOnExit else { return }
+            let box = OutcomeBox()
+            let result = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+                let finish: @MainActor (String) -> Void = { outcome in
+                    guard !box.done else { return }
+                    box.done = true
+                    continuation.resume(returning: outcome)
+                }
+                webView.callAsyncJavaScript(Self.autosaveScript, in: nil, in: .page) { outcome in
+                    switch outcome {
+                    case let .success(value): finish(value as? String ?? "unknown")
+                    case let .failure(error): finish("error: \(error.localizedDescription)")
+                    }
+                }
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(3))
+                    finish("timeout")
+                }
+            }
+            OPLog.log(.save, .info, "autosave on exit: \(result)", session: configuration?.sessionID)
+        }
+
+        @MainActor private final class OutcomeBox { var done = false }
 
         public func handleMemoryPressure(_ level: MemoryPressureLevel) {
             guard level == .critical else { return }
@@ -158,6 +217,9 @@
         public func stop(reason: RuntimeStopReason) async -> TeardownVerdict {
             watchdogTask?.cancel()
             watchdogTask = nil
+            if reason == .userExit || reason == .memoryPressure || reason == .switchingGame {
+                await autosave()
+            }
             if let webView {
                 let controller = webView.configuration.userContentController
                 for name in MessageBridge.handlers {
@@ -194,8 +256,9 @@
                 onFailure?("The game page failed to load: \(detail)")
             case .processTerminated:
                 act(watchdog.handle(.terminated, now: .now))
-            case let .save(op, key, value):
-                host?.runtimeDidEmit(.log(.save, "\(op) \(key) \(value?.count ?? 0) bytes")) // WEB-008 persists these
+            case let .save(op, kind, key, value):
+                saves?.handle(op: op, kind: kind, key: key, value: value)
+                host?.runtimeDidEmit(.log(.save, "\(op) \(kind) \(key) \(value?.count ?? 0) bytes"))
             }
         }
 
@@ -227,11 +290,10 @@
     final class MessageBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         static let handlers = ["omniplay.console", "omniplay.save", "omniplay.heartbeat", "omniplay.state", "omniplay.fs"]
 
-        enum Event { case heartbeat, booted, console(level: String, message: String), navigationFailed(String), processTerminated, save(
-            op: String,
-            key: String,
-            value: String?
-        ) }
+        enum Event {
+            case heartbeat, booted, console(level: String, message: String), navigationFailed(String), processTerminated
+            case save(op: String, kind: String, key: String, value: String?)
+        }
 
         private let session: SessionID
         private let onEvent: @MainActor (Event) -> Void
@@ -253,6 +315,7 @@
             case "omniplay.save":
                 onEvent(.save(
                     op: body["op"] as? String ?? "",
+                    kind: body["kind"] as? String ?? "ls",
                     key: (body["key"] as? String ?? "").prefix(256).description,
                     value: body["value"] as? String
                 ))

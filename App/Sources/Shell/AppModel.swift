@@ -4,6 +4,7 @@ import GameImport
 import GameStore
 import OverlayVFS
 import RuntimeCore
+import SaveKit
 import SwiftUI
 
 enum AppTab: Hashable { case library, importGames, settings }
@@ -26,6 +27,8 @@ final class AppModel {
     let registry = RuntimeRegistry()
     private(set) var coordinator: RuntimeCoordinator?
     var selectedTab: AppTab = .library
+    /// The game a session is running for, kept so the save index can be rebuilt when it ends.
+    private(set) var playing: GameDescriptor?
 
     init(paths: AppPaths = HostSession.shared.paths) {
         self.paths = paths
@@ -125,7 +128,13 @@ final class AppModel {
         descriptor.profile = resolution.profile
         let configuration = RuntimeConfiguration.forGame(descriptor, paths: paths, profile: resolution.profile, sidecars: [])
         let request = LaunchRequest(record: record, descriptor: descriptor, resolution: resolution, configuration: configuration)
+        let saves = SaveLocation.forGame(record.id, paths: paths)
+        if SaveVault.hasContent(saves) {
+            _ = try? await SaveVault.snapshot(location: saves, identityHash: descriptor.identityHash, reason: .beforeLaunch)
+            SaveVault.prune(location: saves, keep: 10)
+        }
         let session = try await coordinator.launch(request, host: host)
+        playing = descriptor
         var updated = record
         updated.lastPlayedAt = .now
         try? store.games.update(updated)
@@ -134,6 +143,34 @@ final class AppModel {
 
     func stopPlaying(reason: RuntimeStopReason = .userExit) async {
         _ = await coordinator?.stop(reason: reason)
+        if let playing {
+            indexSaves(for: playing)
+        }
+        playing = nil
+    }
+
+    /// Rebuilds `saves_meta` from the slot files so the library can show what a game has saved.
+    private func indexSaves(for descriptor: GameDescriptor) {
+        guard let store else { return }
+        let location = SaveLocation.forGame(descriptor.id, paths: paths)
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: location.slots,
+            includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey]
+        )) ?? []
+        let records = files.filter { !$0.lastPathComponent.hasPrefix(".") }.map { url in
+            let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+            let stem = url.deletingPathExtension().lastPathComponent
+            return SaveMetaRecord(
+                gameId: descriptor.id,
+                slotKey: SaveKey.decodeWebStorage(stem) ?? stem,
+                relPath: "Saves/slots/\(url.lastPathComponent)",
+                family: descriptor.saveFamily.rawValue,
+                bytes: Int64(values?.fileSize ?? 0),
+                modifiedAt: values?.contentModificationDate ?? .now,
+                provenanceHash: descriptor.identityHash
+            )
+        }
+        try? store.saves.replaceAll(game: descriptor.id, with: records)
     }
 
     /// Stores a per-game runtime choice, re-resolves against it and persists the new selection.

@@ -69,6 +69,23 @@ public extension GameStore {
     var sessions: Sessions { Sessions(store: self) }
     var slots: Slots { Slots(store: self) }
     var imports: Imports { Imports(store: self) }
+    var saves: Saves { Saves(store: self) }
+
+    /// The `saves_meta` index: one row per slot file, rebuilt from the file system after every session.
+    struct Saves: Sendable {
+        let store: GameStore
+
+        public func replaceAll(game: GameID, with records: [SaveMetaRecord]) throws {
+            try store.write("saves.replaceAll") { db in
+                try SaveMetaRecord.filter(sql: "game_id = ?", arguments: [game.description]).deleteAll(db)
+                for record in records {
+                    _ = try record.inserted(db)
+                }
+            }
+        }
+
+        public func fetch(game: GameID) throws -> [SaveMetaRecord] { try store.fetchAll(SaveMetaRecord.self, game: game) }
+    }
 
     struct Games: Sendable {
         let store: GameStore

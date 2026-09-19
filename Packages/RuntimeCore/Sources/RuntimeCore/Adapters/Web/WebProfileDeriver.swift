@@ -17,6 +17,8 @@ public struct WebProfile: Sendable, Hashable {
     public var forceWebGL2 = false
     public var imageCacheCapMB: Int?
     public var orientation: OrientationPreference = .any
+    /// Ask the engine for its own autosave slot when the player leaves (MV/MZ only).
+    public var autosaveOnExit = false
     public var headerPolicy: HeaderPolicy { HeaderPolicy(coopCoep: coopCoep) }
 
     public static func derive(from descriptor: GameDescriptor, debug: Bool = false) -> WebProfile {
@@ -26,9 +28,11 @@ public struct WebProfile: Sendable, Hashable {
         case .rpgMakerMV:
             p.audioFileExtOgg = descriptor.mediaRequirements.contains { $0.action == .shim("audioFileExtOgg") }
             p.orientation = .landscape
+            p.autosaveOnExit = true
         case .rpgMakerMZ:
             p.isGameActivePatch = true
             p.orientation = .landscape
+            p.autosaveOnExit = true
             if descriptor.warnings.contains(where: {
                 if case .note = $0 {
                     false

@@ -30,7 +30,7 @@ final class FakeRuntime: GameRuntime {
     func mutate(_: StateMutation) async throws -> StateMutationResult { .init(applied: false) }
     func saveSnapshot() async throws -> SaveSnapshot { .init(
         provenance: .init(gameIdentityHash: "h", origin: .manualSnapshot),
-        files: [],
+        entries: [],
         checksum: ""
     ) }
     func handleMemoryPressure(_: MemoryPressureLevel) {}

@@ -236,3 +236,27 @@ struct GameStoreTests {
         #expect(try store.games.fetchAll().map(\.title) == ["Fav", "Other"])
     }
 }
+
+extension GameStoreTests {
+    @Test("Save index is replaced wholesale per game")
+    func savesIndex() throws {
+        let f = try openStore()
+        defer { f.root.remove() }
+        let g = GameRecord(title: "Saver", engine: .rpgMakerMV)
+        try f.store.games.insert(g)
+        let row = { (key: String) in
+            SaveMetaRecord(
+                gameId: g.id,
+                slotKey: key,
+                relPath: "Saves/slots/\(key).rpgsave",
+                family: "webLocalStorage",
+                bytes: 3,
+                modifiedAt: .now,
+                provenanceHash: "h"
+            )
+        }
+        try f.store.saves.replaceAll(game: g.id, with: [row("RPG File1"), row("RPG File2")])
+        try f.store.saves.replaceAll(game: g.id, with: [row("RPG File1")])
+        #expect(try f.store.saves.fetch(game: g.id).map(\.slotKey) == ["RPG File1"])
+    }
+}
