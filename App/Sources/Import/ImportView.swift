@@ -40,7 +40,8 @@ struct ImportView: View {
         VStack(alignment: .leading, spacing: Theme.s3) {
             Text("Bring a game in").font(Theme.title(30)).foregroundStyle(Theme.textPrimary)
             Text(
-                "Pick a game folder from Files. OmniPlay copies it into its own space, checks every file, and keeps the original untouched. Zip and other archives follow with the next update."
+                "Pick a game folder from Files. OmniPlay copies it into its own space, checks every file, "
+                    + "and keeps the original untouched. Zip and other archives follow with the next update."
             )
             .foregroundStyle(Theme.textSecondary)
             .frame(maxWidth: 420, alignment: .leading)
@@ -149,7 +150,8 @@ private struct ImportRow: View {
         case let .unsupportedContainer(hex): "This file type is not supported yet (\(hex))."
         case let .safetyViolation(v): "Rejected for safety: \(v.detail)\(v.entryPath.map { " at \($0)" } ?? "")."
         case let .storageInsufficient(required, available):
-            "Not enough space: needs \(required.formatted(.byteCount(style: .file))), \(available.formatted(.byteCount(style: .file))) available."
+            "Not enough space: needs \(required.formatted(.byteCount(style: .file))), "
+                + "\(available.formatted(.byteCount(style: .file))) available."
         case let .extractionFailed(entry, underlying): "Extraction failed at \(entry): \(underlying)"
         case .passwordRequired: "This archive is password protected."
         case .noGameRoot: "No game was found inside."

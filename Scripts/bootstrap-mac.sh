@@ -30,6 +30,7 @@ else
   brew_state="installed missing formulae"
 fi
 Scripts/install-hooks.sh
+git submodule update --init --depth 1 Native/libarchive Native/xz Native/zstd 2>/dev/null || git submodule update --init
 
 printf '\n%-12s %s\n' tool version
 printf '%-12s %s\n' xcode "$have" swift "$swiftv"

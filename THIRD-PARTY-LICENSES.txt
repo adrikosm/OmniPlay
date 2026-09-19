@@ -2,8 +2,23 @@ OmniPlay third-party components
 ================================
 
 Each component is listed with version, licence and the path of the full licence text under LICENSES/.
-Patches applied to GPL/LGPL components are published in this repository.
+Patches applied to GPL/LGPL components are published in this repository. Pinned sources live as git
+submodules under Native/; prebuilt outputs are never committed.
 
 GRDB.swift 7.11.1 — MIT — LICENSES/GRDB.swift.txt
-    SQLite toolkit used for the library database (GameStore) and the per-game path index (OverlayVFS).
+    SQLite toolkit for the library database (GameStore) and the per-game path index (OverlayVFS).
     https://github.com/groue/GRDB.swift
+
+libarchive 3.8.9 — BSD-2-Clause — LICENSES/libarchive.txt
+    ZIP / 7z / tar reader and ZIP writer, statically linked (Native/libarchive, Scripts/build-libarchive.sh).
+    https://github.com/libarchive/libarchive
+
+xz / liblzma 5.8.4 — 0BSD — LICENSES/xz.txt
+    LZMA/XZ filter for libarchive, statically linked (Native/xz).
+    https://github.com/tukaani-project/xz
+
+zstd 1.5.7 — BSD-3-Clause (dual GPLv2, BSD chosen) — LICENSES/zstd.txt
+    Zstandard filter for libarchive, statically linked (Native/zstd).
+    https://github.com/facebook/zstd
+
+zlib, bzip2, iconv — provided by the Apple SDK and linked from the system.

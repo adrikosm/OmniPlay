@@ -21,6 +21,7 @@ identify and explains what it cannot; it does not claim universal compatibility.
 
 ```bash
 Scripts/bootstrap-mac.sh       # verify Xcode/Swift, install missing Homebrew tools, install git hooks
+Scripts/build-libarchive.sh    # static libarchive + liblzma + libzstd XCFramework (device, simulator, Mac)
 Scripts/generate-project.sh    # xcodegen: project.yml -> OmniPlay.xcodeproj
 Scripts/build-sim.sh           # build, install and launch on the iPhone 17 Pro Max (iOS 27.0) simulator
 Scripts/build-device.sh        # build, install and launch on the first paired iPhone
@@ -37,7 +38,7 @@ gitignored: edit `project.yml`, not the project.
 |---|---|
 | `App/` | SwiftUI shell on the UIScene lifecycle, Info.plist, entitlements, asset catalog |
 | `Packages/` | Local SwiftPM packages holding all non-UI logic; none of them import SwiftUI |
-| `Native/` | Build scripts and pinned sources for native engines and libraries; outputs are gitignored |
+| `Native/` | Pinned upstream sources as submodules (libarchive, xz, zstd, later the engines); build outputs are gitignored |
 | `Scripts/` | Bootstrap, project generation, build, test and repository-hygiene scripts |
 | `Fixtures/synthetic/` | Deterministic, generated test inputs with no game content (`Scripts/make-fixtures.py`) |
 | `Fixtures/private/`, `Fixtures/large/` | Local-only real samples and multi-gigabyte stress inputs, gitignored |

@@ -1,0 +1,9 @@
+[submodule "Native/libarchive"]
+	path = Native/libarchive
+	url = https://github.com/libarchive/libarchive.git
+[submodule "Native/xz"]
+	path = Native/xz
+	url = https://github.com/tukaani-project/xz.git
+[submodule "Native/zstd"]
+	path = Native/zstd
+	url = https://github.com/facebook/zstd.git
