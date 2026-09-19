@@ -222,12 +222,24 @@ public enum MediaProbe {
             walk(d, d.startIndex, d.endIndex, depth: 0, into: &fourccs)
             let video = fourccs
                 .compactMap { (c: String) -> VideoCodec? in
-                    switch c { case "avc1", "avc3": .h264; case "hvc1", "hev1": .hevc; case "av01": .av1; case "vp09": .vp9; default: nil }
+                    switch c {
+                    case "avc1", "avc3": .h264
+                    case "hvc1", "hev1": .hevc
+                    case "av01": .av1
+                    case "vp09": .vp9
+                    default: nil
+                    }
                 }
                 .first
             let audio = fourccs
                 .compactMap { (c: String) -> AudioCodec? in
-                    switch c { case "mp4a": .aac; case "Opus": .opus; case "fLaC": .flac; case ".mp3": .mp3; default: nil }
+                    switch c {
+                    case "mp4a": .aac
+                    case "Opus": .opus
+                    case "fLaC": .flac
+                    case ".mp3": .mp3
+                    default: nil
+                    }
                 }.first
             return (video, audio)
         }
