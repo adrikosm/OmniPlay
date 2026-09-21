@@ -3,18 +3,19 @@
 OmniPlay is a personal-use, sideloaded iOS 27 game launcher and runtime host. It imports a game
 distribution in a common container, identifies the engine and version, and runs it offline with a
 matching embedded runtime: RPG Maker (MV/MZ through WebKit, XP/VX/VX Ace through mkxp-z, 2000/2003
-through EasyRPG), Ren'Py, plain HTML5 titles and, as evidence allows, ScummVM, Godot and a few
-smaller engines. Saves, controls, mods and diagnostics stay owned by the host. It runs what it can
+through EasyRPG), Ren'Py, plain HTML5 titles ScummVM, Godot, Wolf RPG, KiriKiri and TyranoBuilder. These are MVP targets; runtime
+availability is still being implemented. Unity/Unite is best-effort coverage. Saves, controls, mods and diagnostics stay owned by the host. It runs what it can
 identify and explains what it cannot; it does not claim universal compatibility.
 
-**Status:** pre-alpha. Foundations are being laid; nothing plays a game yet.
+**Status:** pre-alpha. The web slice has simulator acceptance and RGSS integration is in progress.
+Other required native runtimes are not yet available. Physical-device compatibility remains unverified.
 
 ## Requirements
 
 - Apple silicon Mac with Xcode 27.0 (pinned in `.xcode-version`), the iOS 27 SDK and Swift 6.4
 - iOS 27.0 simulator runtime (Xcode → Settings → Components)
 - Homebrew, for xcodegen, ninja, meson, scons and pkg-config (`Scripts/bootstrap-mac.sh` installs them)
-- A paid Apple Developer Program membership for device builds
+- Your own signing team/profile for installation; unsigned preparation needs no Apple account
 - Reference device: iPhone 17 Pro Max on iOS 27
 
 ## Build and run
@@ -24,13 +25,29 @@ Scripts/bootstrap-mac.sh       # verify Xcode/Swift, install missing Homebrew to
 Scripts/build-libarchive.sh    # static libarchive + liblzma + libzstd XCFramework (device, simulator, Mac)
 Scripts/generate-project.sh    # xcodegen: project.yml -> OmniPlay.xcodeproj
 Scripts/build-sim.sh           # build, install and launch on the iPhone 17 Pro Max (iOS 27.0) simulator
-Scripts/build-device.sh        # build, install and launch on the first paired iPhone
+Scripts/build-device.sh --unsigned  # prepare iphoneos app and build manifest without signing
+Scripts/build-device.sh --device <identifier>  # sign locally, install and launch on this paired phone
 Scripts/test.sh                # swift test for every package, then the app test bundle on the simulator
 ```
 
-Device builds read your team ID from `Signing.xcconfig`, which is gitignored. Copy
-`Signing.xcconfig.example` and replace the placeholder. `OmniPlay.xcodeproj` is generated and
+Signed device builds read your team ID from `Signing.xcconfig`, which is gitignored. Copy
+`Signing.xcconfig.example` and replace the placeholder locally. Find the phone identifier with
+`xcrun devicectl list devices`; the script never chooses a device automatically. The default core
+build requests no optional memory entitlements. Set `OMNIPLAY_ENTITLEMENTS_FILE` as shown in the
+example only if your profile supports those capabilities. Keep `OMNIPLAY_BUNDLE_IDENTIFIER` and
+your signing team stable for updates. `OmniPlay.xcodeproj` is generated and
 gitignored: edit `project.yml`, not the project.
+
+Unsigned output is `.build/DeviceDerivedData/Build/Products/Debug-iphoneos/OmniPlay.app`.
+`.build/device-handoff/manifest.json` records the executable hash, source revision/dirty state,
+SDK, requested entitlements and native dependency pins; `build.log` records the build. These are
+local, gitignored outputs. An unsigned app cannot be installed until you sign it. Open the generated
+project in Xcode, choose your team and phone, and build/run, or use the explicit `--device` command.
+
+For phone acceptance, launch from the home screen without a debugger, import a game offline,
+play, save, force-quit, relaunch and continue. Export a save before updating. Re-sign/install over
+the existing app without uninstalling, then verify the save still loads. A successful build or
+installation is not proof that every planned engine works.
 
 ## Repository layout
 

@@ -19,6 +19,9 @@ settings:
     CLANG_CXX_LANGUAGE_STANDARD: c++17
     ENABLE_USER_SCRIPT_SANDBOXING: NO
     DEAD_CODE_STRIPPING: YES
+    # Empty means core capabilities only; opt into memory entitlements in Signing.xcconfig.
+    OMNIPLAY_ENTITLEMENTS_FILE: ""
+    OMNIPLAY_BUNDLE_IDENTIFIER: com.omniplay.app
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
   configs:
@@ -149,14 +152,11 @@ targets:
             UTTypeConformsTo: [public.data, public.archive]
             UTTypeDescription: LÖVE game
             UTTypeTagSpecification: { public.filename-extension: [love] }
-    entitlements:
-      path: App/OmniPlay.entitlements
-      properties:
-        com.apple.developer.kernel.increased-memory-limit: true
-        com.apple.developer.kernel.extended-virtual-addressing: true
+    # The existing entitlements plist is opt-in through OMNIPLAY_ENTITLEMENTS_FILE.
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.omniplay.app
+        PRODUCT_BUNDLE_IDENTIFIER: $(OMNIPLAY_BUNDLE_IDENTIFIER)
+        CODE_SIGN_ENTITLEMENTS: $(OMNIPLAY_ENTITLEMENTS_FILE)
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
 

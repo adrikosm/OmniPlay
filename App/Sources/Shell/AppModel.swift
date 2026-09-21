@@ -57,6 +57,11 @@ final class AppModel {
         let paths = paths
         let result = await Task.detached(priority: .userInitiated) { () -> Result<GameStore, Error> in
             do {
+                #if DEBUG
+                    if ProcessInfo.processInfo.arguments.contains("--reset-library") {
+                        Self.resetLibrary(paths: paths)
+                    }
+                #endif
                 try paths.ensureLayout()
                 let store = try GameStore.open(paths: paths)
                 ImportCoordinator.sweepStaleStaging(paths: paths, olderThan: 0) // nothing can be in flight at launch
@@ -68,7 +73,6 @@ final class AppModel {
         }.value
         switch result {
         case let .success(store):
-            self.store = store
             let coordinator = RuntimeCoordinator(store: store, bootID: HostSession.shared.sessionID.description)
             await coordinator.register(.web) { _ in WebRuntime() }
             await registry.register(.init(
@@ -84,6 +88,8 @@ final class AppModel {
                 coordinator: importer,
                 pipeline: ImportPipeline(paths: paths, store: store, session: HostSession.shared.sessionID, registry: registry)
             )
+            // Publishing the store starts library observation and may trigger a pending game launch.
+            self.store = store
             phase = .ready
             pendingOpen = Self.consumeRelaunchRequest(paths: paths)
             #if DEBUG
@@ -164,6 +170,23 @@ final class AppModel {
         try? await Task.sleep(for: .milliseconds(200))
         exit(0)
     }
+
+    #if DEBUG
+        /// UI tests start from nothing: library database, game trees, saves and logs are removed before the store opens.
+        nonisolated static func resetLibrary(paths: AppPaths) {
+            let fm = FileManager.default
+            for dir in [
+                paths.games(),
+                paths.logsRoot(),
+                paths.database().deletingLastPathComponent(),
+                paths.rescuedSaves(),
+                paths.cachesRoot,
+            ] {
+                try? fm.removeItem(at: dir)
+            }
+            try? paths.ensureLayout()
+        }
+    #endif
 
     nonisolated static func consumeRelaunchRequest(paths: AppPaths) -> GameID? {
         let url = relaunchFile(paths)

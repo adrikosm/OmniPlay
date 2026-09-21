@@ -1,3 +1,7 @@
-// Copy to Signing.xcconfig (gitignored) and set your Apple Developer team ID.
+// Copy to Signing.xcconfig (gitignored). Choose your team locally in Xcode.
 DEVELOPMENT_TEAM = REPLACE_ME
 CODE_SIGN_STYLE = Automatic
+// Keep this stable after installation so updates retain the existing app container.
+OMNIPLAY_BUNDLE_IDENTIFIER = com.omniplay.app
+// Core build needs no optional memory entitlements. Enable only if your profile supports them:
+// OMNIPLAY_ENTITLEMENTS_FILE = App/OmniPlay.entitlements

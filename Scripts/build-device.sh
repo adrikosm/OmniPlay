@@ -1,15 +1,104 @@
 #!/bin/zsh
-# Build, install and launch OmniPlay on the first paired physical iPhone. Needs Signing.xcconfig with a
-# real DEVELOPMENT_TEAM (copy Signing.xcconfig.example) and a paired device (Xcode 27 pairs wirelessly:
-# Window > Devices and Simulators, with the phone unlocked and Developer Mode on).
+# Prepare an unsigned iphoneos app, or build/install on an explicitly selected device.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-Scripts/generate-project.sh >/dev/null
-grep -q 'REPLACE_ME' Signing.xcconfig && { echo "Signing.xcconfig still has the placeholder team. Set DEVELOPMENT_TEAM to your 10-character Apple Developer team ID." >&2; exit 1; }
-udid="$(xcrun devicectl list devices -j "$(mktemp -t devices).json" >/dev/null 2>&1; xcrun devicectl list devices 2>/dev/null | awk '/paired/ && !/simulated/ {print $(NF-3)}' | head -1)"
-[[ -n "$udid" ]] || { echo "No paired iPhone. Connect or pair the phone (Xcode > Window > Devices and Simulators), unlock it, enable Developer Mode, then retry." >&2; exit 1; }
-xcodebuild -project OmniPlay.xcodeproj -scheme OmniPlay -destination "id=$udid" -derivedDataPath .build/DerivedData -allowProvisioningUpdates build -quiet
-app="$(find .build/DerivedData/Build/Products/Debug-iphoneos -maxdepth 1 -name OmniPlay.app)"
-xcrun devicectl device install app --device "$udid" "$app"
-xcrun devicectl device process launch --device "$udid" com.omniplay.app
-echo "OmniPlay running on device $udid"
+usage() {
+  cat <<'HELP'
+Usage: Scripts/build-device.sh --unsigned
+       Scripts/build-device.sh --device <identifier>
+
+--unsigned  Build without signing or installing; no account/device required.
+--device    Sign using local Signing.xcconfig, then install and launch on this device.
+Find identifiers with: xcrun devicectl list devices
+Output: .build/DeviceDerivedData/Build/Products/Debug-iphoneos/OmniPlay.app
+Evidence: .build/device-handoff/manifest.json and build.log
+HELP
+}
+mode="${1:-}"
+case "$mode" in
+  --help|-h) usage; exit 0 ;;
+  --unsigned) [[ $# == 1 ]] || { usage >&2; exit 2; } ;;
+  --device) [[ $# == 2 && -n "$2" && "$2" != -* ]] || { usage >&2; exit 2; } ;;
+  *) usage >&2; exit 2 ;;
+esac
+
+out="$PWD/.build/device-handoff"
+mkdir -p "$out"
+# An earlier manifest must not look like evidence for a failed new attempt.
+rm -f "$out/manifest.json"
+Scripts/generate-project.sh
+args=(-project OmniPlay.xcodeproj -scheme OmniPlay -configuration Debug -sdk iphoneos
+      -derivedDataPath .build/DeviceDerivedData)
+if [[ "$mode" == --unsigned ]]; then
+  args+=(-destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO)
+else
+  args+=(-destination "id=$2" -allowProvisioningUpdates)
+fi
+xcodebuild "${args[@]}" -showBuildSettings -json > "$out/build-settings.json"
+if [[ "$mode" == --device ]]; then
+  python3 - "$out/build-settings.json" <<'PY'
+import json, sys
+settings = next(t['buildSettings'] for t in json.load(open(sys.argv[1])) if t['target'] == 'OmniPlay')
+team = settings.get('DEVELOPMENT_TEAM', '').strip()
+if not team or team == 'REPLACE_ME':
+    sys.exit('Set DEVELOPMENT_TEAM in local Signing.xcconfig, or use --unsigned to prepare without signing.')
+PY
+fi
+print "Building iphoneos app ($mode); log: $out/build.log"
+if ! xcodebuild "${args[@]}" build -quiet > "$out/build.log" 2>&1; then
+  tail -60 "$out/build.log" >&2
+  print -u2 "Device build failed. Full log: $out/build.log"
+  exit 1
+fi
+
+python3 - "$out" "$mode" <<'PY'
+import datetime, hashlib, json, pathlib, plistlib, subprocess, sys
+out = pathlib.Path(sys.argv[1])
+settings = next(t['buildSettings'] for t in json.loads((out/'build-settings.json').read_text()) if t['target'] == 'OmniPlay')
+app = pathlib.Path(settings['TARGET_BUILD_DIR']) / settings['FULL_PRODUCT_NAME']
+with (app/'Info.plist').open('rb') as f:
+    info = plistlib.load(f)
+def sha(path):
+    with path.open('rb') as f:
+        return hashlib.file_digest(f, 'sha256').hexdigest()
+def git(*args):
+    return subprocess.check_output(['git', *args], text=True).strip()
+entitlements_file = settings.get('CODE_SIGN_ENTITLEMENTS', '')
+entitlements = {}
+if entitlements_file:
+    path = pathlib.Path(entitlements_file)
+    if not path.is_absolute():
+        path = pathlib.Path(settings['SRCROOT']) / path
+    with path.open('rb') as f:
+        entitlements = plistlib.load(f)
+components = []
+for path in sorted(pathlib.Path('Native/manifests').glob('*.json')):
+    m = json.loads(path.read_text())
+    components.append({k: m.get(k) for k in ('component', 'sources', 'built_at', 'toolchain', 'sdks')}
+                      | {'manifest_sha256': sha(path), 'output_count': len(m.get('outputs', {}))})
+manifest = {
+    'created_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    'mode': sys.argv[2].removeprefix('--'), 'app_path': str(app),
+    'bundle_id': info['CFBundleIdentifier'], 'version': info['CFBundleShortVersionString'],
+    'build': info['CFBundleVersion'], 'minimum_ios': info['MinimumOSVersion'],
+    'sdk': settings['SDK_NAME'], 'architecture': settings['ARCHS'],
+    'xcode': subprocess.check_output(['xcodebuild', '-version'], text=True).strip(),
+    'source_commit': git('rev-parse', 'HEAD'),
+    'worktree_dirty': bool(git('status', '--porcelain')),
+    'executable_sha256': sha(app/info['CFBundleExecutable']),
+    'requested_entitlements': entitlements, 'native_components': components,
+    'validation': 'Build only; no physical-device gameplay or save acceptance inferred.',
+}
+(out/'manifest.json').write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n')
+print(f"Built: {app}\nManifest: {out/'manifest.json'}")
+PY
+
+if [[ "$mode" == --unsigned ]]; then
+  print "Unsigned preparation complete. Open OmniPlay.xcodeproj and sign locally before installing."
+else
+  app=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["app_path"])' "$out/manifest.json")
+  bundle=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["bundle_id"])' "$out/manifest.json")
+  xcrun devicectl device install app --device "$2" "$app"
+  xcrun devicectl device process launch --device "$2" "$bundle"
+  print "OmniPlay launched on selected device. Run the personal-device acceptance walkthrough next."
+fi
