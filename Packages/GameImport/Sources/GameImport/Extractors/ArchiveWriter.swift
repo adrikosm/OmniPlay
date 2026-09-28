@@ -7,6 +7,7 @@ public enum ArchiveWriteError: Error, Sendable, Hashable {
     case open(String)
     case entry(path: String, message: String)
     case read(path: String)
+    case close(String)
 }
 
 /// Streams a directory into a ZIP (deflate) with libarchive: one entry at a time, 1 MiB blocks, so the footprint
@@ -33,7 +34,13 @@ public struct ArchiveWriter: Sendable {
         guard archive_write_open_filename(a, destination.path(percentEncoded: false)) == ARCHIVE_OK else {
             throw ArchiveWriteError.open(Self.errorString(a))
         }
-        defer { archive_write_close(a) }
+        // A half-written ZIP in Files looks like a finished export; remove it on any failure or cancellation.
+        var complete = false
+        defer {
+            if !complete {
+                try? FileManager.default.removeItem(at: destination)
+            }
+        }
         var count = 0
         var written: Int64 = 0
         for extra in extras {
@@ -67,6 +74,10 @@ public struct ArchiveWriter: Sendable {
             count += 1
             progress?(written, file.relativePath)
         }
+        // The ZIP central directory is written on close: a failure here (a full disk) leaves an unreadable archive.
+        // On the error paths above, `archive_write_free` closes the archive itself.
+        guard archive_write_close(a) == ARCHIVE_OK else { throw ArchiveWriteError.close(Self.errorString(a)) }
+        complete = true
         return count
     }
 

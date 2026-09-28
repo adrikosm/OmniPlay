@@ -158,11 +158,16 @@ public enum RescuedSaves {
             )
         let target = paths.rescuedSaves().appending(path: "\(titleHash.prefix(24))-\(stamp)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try FileManager.default.moveItem(at: location.root, to: target)
-        try AtomicFileWriter.write(
-            JSONEncoder().encode(Record(titleHash: titleHash, title: title, rescuedAt: .now)),
-            to: target.appending(path: "rescue.json")
-        )
+        // The record goes in before the move: written after it, a failed write left the saves moved out of the game
+        // with nothing that `find` could ever match them by.
+        let record = location.root.appending(path: "rescue.json")
+        try AtomicFileWriter.write(JSONEncoder().encode(Record(titleHash: titleHash, title: title, rescuedAt: .now)), to: record)
+        do {
+            try FileManager.default.moveItem(at: location.root, to: target)
+        } catch {
+            try? FileManager.default.removeItem(at: record)
+            throw error
+        }
         OPLog.log(.save, .info, "rescued saves of \(title) → \(target.lastPathComponent)")
         return target
     }
