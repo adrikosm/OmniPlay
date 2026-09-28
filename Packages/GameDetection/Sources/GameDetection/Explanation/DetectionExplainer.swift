@@ -97,6 +97,8 @@ public enum DetectionExplainer {
         case .html5Web: "Web build"
         case .rm2k3: "RPG Maker 2000 / 2003"
         case .godotPCK: "Godot"
+        case .scummvm: "ScummVM"
+        case .kirikiri: "KiriKiri"
         case .refusals: "Native engine"
         case .versionBuckets: "Runtime choice"
         case .media: "Media"

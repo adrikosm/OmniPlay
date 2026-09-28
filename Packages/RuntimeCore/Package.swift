@@ -16,9 +16,13 @@ let package = Package(
         .package(path: "../LocalGameServer"),
     ],
     targets: [
+        // Ogg Vorbis decoding for the web runtime. The symbols come from libvorbisfile, which the app links for mkxp-z;
+        // the headers under xiph/ are that build's (libogg, libvorbis; BSD).
+        .target(name: "COggVorbis", cSettings: [.headerSearchPath("xiph")]),
         .target(
             name: "RuntimeCore",
             dependencies: [
+                "COggVorbis",
                 .product(name: "GameCore", package: "GameCore"),
                 .product(name: "Diagnostics", package: "Diagnostics"),
                 .product(name: "InputKit", package: "InputKit"),
@@ -30,7 +34,6 @@ let package = Package(
             ],
             resources: [.copy("WebRuntimeAssets")]
         ),
-        .testTarget(name: "RuntimeCoreTests", dependencies: ["RuntimeCore", .product(name: "TestSupport", package: "GameCore")]),
     ],
     swiftLanguageModes: [.v6]
 )

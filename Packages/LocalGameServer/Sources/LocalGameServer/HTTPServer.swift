@@ -2,8 +2,9 @@ import Diagnostics
 import Foundation
 import Network
 
-/// Bounded loopback HTTP/1.1 server: GET/HEAD, keep-alive, at most `maxConnections` concurrent connections
-/// (extra get a 503), 30 s idle timeout, streamed file bodies. Binds `127.0.0.1` literally, never a LAN address.
+/// Bounded loopback HTTP/1.1 server: GET/HEAD, POST for the routes a router registers, keep-alive, at most
+/// `maxConnections` concurrent connections (extra get a 503), 30 s idle timeout, streamed file bodies. Binds
+/// `127.0.0.1` literally, never a LAN address.
 public actor HTTPServer {
     public static let maxConnections = 16
     public static let idleTimeout: Duration = .seconds(30)
@@ -149,7 +150,7 @@ final class HTTPConnection: Sendable {
             var buffer = Data()
             do {
                 while !Task.isCancelled {
-                    let request: HTTPRequest
+                    var request: HTTPRequest
                     let consumed: Int
                     do {
                         (request, consumed) = try HTTPRequestParser.parse(buffer)
@@ -162,13 +163,26 @@ final class HTTPConnection: Sendable {
                         continue
                     } catch HTTPParseError.headersTooLarge {
                         try await write(.text(431, "request header fields too large"), head: false); return
+                    } catch HTTPParseError.bodyTooLarge {
+                        try await write(.text(413, "request body too large"), head: false); return
                     } catch {
                         try await write(.text(400, "bad request"), head: false); return
                     }
                     buffer.removeFirst(consumed)
+                    if request.method == "POST" {
+                        let length = request.contentLength
+                        while buffer.count < length {
+                            guard let more = try await receive() else { return }
+                            buffer.append(more)
+                        }
+                        request.body = Data(buffer.prefix(length))
+                        buffer.removeFirst(length)
+                    }
                     var response: HTTPResponse
                     if request.method == "GET" || request.method == "HEAD" {
                         response = await router.route(request)
+                    } else if request.method == "POST" {
+                        response = await router.post(request)
                     } else {
                         response = .text(405, "method not allowed")
                         response.headers.append(("Allow", "GET, HEAD"))
@@ -207,17 +221,22 @@ final class HTTPConnection: Sendable {
     private func receive() async throws -> Data? {
         try await withThrowingTaskGroup(of: Data?.self) { group in
             group.addTask { [nw] in
-                try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data?, Error>) in
-                    nw.receive(minimumIncompleteLength: 1, maximumLength: 64 << 10) { data, _, complete, error in
-                        if let error {
-                            cont.resume(throwing: error)
-                        } else if complete,
-                                  data == nil {
-                            cont.resume(returning: nil)
-                        } else {
-                            cont.resume(returning: data ?? Data())
+                try await withTaskCancellationHandler {
+                    try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data?, Error>) in
+                        nw.receive(minimumIncompleteLength: 1, maximumLength: 64 << 10) { data, _, complete, error in
+                            if let error {
+                                cont.resume(throwing: error)
+                            } else if complete,
+                                      data == nil {
+                                cont.resume(returning: nil)
+                            } else {
+                                cont.resume(returning: data ?? Data())
+                            }
                         }
                     }
+                } onCancel: {
+                    // A task-group deadline still joins its children. Cancel the socket so receive actually returns.
+                    nw.cancel()
                 }
             }
             group.addTask {

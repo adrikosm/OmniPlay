@@ -11,6 +11,9 @@
         public private(set) var connectedControllers = 0
         public private(set) var connectedNames: [String] = []
         public var onControllerCountChanged: (@MainActor (Int) -> Void)?
+        /// Sees every button change first; returning true keeps it from the game (the Options button opening
+        /// OmniPlay's menu, or the mapping screen finding which button was pressed).
+        public var onButton: (@MainActor (ControllerButton, Bool) -> Bool)?
         private var stick = StickToArrows()
         private var observers: [any NSObjectProtocol] = []
 
@@ -109,6 +112,9 @@
                 pressed.insert(button)
             } else {
                 pressed.remove(button)
+            }
+            if onButton?(button, down) == true {
+                return
             }
             bus.send(.controllerButton(button, pressed: down))
             bus.send(mapping.translate(button, pressed: down))

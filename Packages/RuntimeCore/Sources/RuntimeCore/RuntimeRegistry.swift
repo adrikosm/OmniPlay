@@ -138,7 +138,22 @@ public actor RuntimeRegistry {
             flags: [.saves, .screenshot],
             availability: .notBuilt
         ),
-        .init(id: .scummvm, families: [.scummvm], generations: [], version: "2.9", flags: [.saves, .screenshot], availability: .notBuilt),
+        .init(
+            id: .scummvm,
+            families: [.scummvm],
+            generations: [],
+            version: "2026.3.0",
+            flags: [.saves, .screenshot],
+            availability: .notBuilt
+        ),
+        .init(
+            id: .godot(bucket: .v36),
+            families: [.godot],
+            generations: [.godot3x],
+            version: "3.6",
+            flags: [.saves, .screenshot],
+            availability: .notBuilt
+        ),
         .init(
             id: .godot(bucket: .v44),
             families: [.godot],

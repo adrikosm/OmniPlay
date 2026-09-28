@@ -18,8 +18,16 @@ public struct GodotPCKDetector: Detector {
         var source: Source?
         if let e = ctx.glob("*.pck", limit: 1).first, let url = ctx.url(e.realRel) {
             source = Source(url: url, offset: 0, name: e.realRel)
-        } else if case let .godotPCK(offset, _)? = ctx.pePayload?.kind, let exe = facts.exeNames.first, let url = ctx.url(exe) {
-            source = Source(url: url, offset: offset, name: exe)
+        } else {
+            // A self-contained export: the pack sits at the tail of the .exe, whether the .exe was the import itself or
+            // arrived inside a folder or zip (next to a console .exe, which has no pack).
+            for exe in facts.exeNames.prefix(4) {
+                guard let url = ctx.url(exe) else { continue }
+                if case let .godotPCK(offset, _)? = (ctx.pePayload ?? (try? PEOverlayScanner.scan(url)))?.kind {
+                    source = Source(url: url, offset: offset, name: exe)
+                    break
+                }
+            }
         }
         guard let source else { return r }
         let (url, offset, name) = (source.url, source.offset, source.name)
@@ -38,11 +46,11 @@ public struct GodotPCKDetector: Detector {
         r.claimFamily(.godot, 0.98)
         r.add(id, .magic(path: name, bytes: "GDPC v\(format)"), 0.98, .fileMagic, "Godot package format \(format), engine \(v.raw)")
         r.partial.version = v
-        if format == 1 || major < 4 {
+        if major < 3 {
             r.unsupported = "Godot \(v.raw) exports are not supported; a web export of the same game is"
             return r
         }
-        r.partial.generation = .godot4x
+        r.partial.generation = major == 3 ? .godot3x : .godot4x
         var flags: UInt32 = 0
         if format >= 2, head.count >= 28 {
             flags = u32(20)
@@ -72,7 +80,8 @@ public struct GodotPCKDetector: Detector {
             .isEmpty {
             r.partial.blockers.append(.csharpExport)
         }
-        let bucket: GodotBucket? = minor <= 4 ? .v44 : minor <= 7 ? .v47 : nil
+        // Godot 3 packs (format 1) run on the 3.6 engine: 3.x kept its pack and resource formats across minors.
+        let bucket: GodotBucket? = major == 3 ? .v36 : minor <= 4 ? .v44 : minor <= 7 ? .v47 : nil
         if let bucket {
             r.partial.runtimeCandidates = [RuntimeCandidate(
                 runtime: .godot(bucket: bucket),

@@ -8,6 +8,10 @@ import Synchronization
 /// guards the URL, one upload runs at a time, and the listener lives only while the screen is open.
 public actor UploadServer {
     public enum Event: Sendable, Equatable {
+        /// A browser opened the upload page.
+        case browserConnected
+        /// The size of the whole upload, as the browser states it before the first file. Display only.
+        case expecting(bytes: Int64)
         case fileReceived(relativePath: String, bytes: Int64)
         case sessionCompleted(directory: URL, files: Int, bytes: Int64)
         case failed(String)
@@ -126,10 +130,12 @@ public actor UploadServer {
             guard parts.first == token else { try await Self.write(nw, 404, "text/plain", Data("not found".utf8)); return }
             switch (head.method, parts.dropFirst().first ?? "") {
             case ("GET", ""):
+                continuation.yield(.browserConnected)
                 try await Self.write(nw, 200, "text/html; charset=utf-8", Data(Self.page(token: token).utf8))
             case ("POST", "file"):
                 try await receiveFile(head, initial: buffer[bodyStart...], nw: nw)
             case ("POST", "done"):
+                guard !busy else { try await Self.write(nw, 409, "text/plain", Data("an upload is still in progress".utf8)); return }
                 let (dir, n, total) = (sessionDirectory, files, bytes)
                 guard n > 0 else { try await Self.write(nw, 400, "text/plain", Data("nothing uploaded".utf8)); return }
                 sessionDirectory = stagingRoot.appending(path: "wifi-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -155,6 +161,9 @@ public actor UploadServer {
         }
         busy = true
         defer { busy = false }
+        if files == 0, let total = head.query["total"].flatMap(Int64.init), total > 0 {
+            continuation.yield(.expecting(bytes: total))
+        }
         let target = sessionDirectory.appending(path: safe)
         try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
         _ = FileManager.default.createFile(atPath: target.path(percentEncoded: false), contents: nil)
@@ -285,7 +294,7 @@ public actor UploadServer {
           const total = list.reduce((n, f) => n + f.size, 0); let done = 0;
           for (const f of list) {
             const rel = f.webkitRelativePath || f.name;
-            const url = base + "/file?path=" + encodeURIComponent(rel);
+            const url = base + "/file?path=" + encodeURIComponent(rel) + "&total=" + total;
             const r = await fetch(url, { method: "POST", body: f, headers: { "Content-Type": "application/octet-stream" } });
             if (!r.ok) { log("Failed: " + rel + " (" + r.status + ")"); return; }
             done += f.size;

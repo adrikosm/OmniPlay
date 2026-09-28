@@ -5,9 +5,13 @@
 source "$(dirname "$0")/common.sh"
 cd "$NATIVE_ROOT"
 typeset -A builders artefacts
-builders=(libarchive Scripts/build-libarchive.sh)
-artefacts=(libarchive Packages/GameImport/Native/libarchive.xcframework)
-components=(${1:-${(k)builders}})
+builders=(unrar Scripts/build-unrar.sh libarchive Scripts/build-libarchive.sh mkxp-z Scripts/native/build-mkxpz.sh rgss-assets Scripts/native/assemble-rgss-assets.sh
+          metalangle "Scripts/native/build-renpy.sh metalangle" renpy853 "Scripts/native/build-renpy.sh 8.5.3"
+          renpy837 "Scripts/native/build-renpy.sh 8.3.7" renpy787 "Scripts/native/build-renpy.sh 7.8.7" easyrpg Scripts/native/build-easyrpg.sh)
+artefacts=(unrar Packages/GameImport/Native/unrar.xcframework libarchive Packages/GameImport/Native/libarchive.xcframework mkxp-z Native/prebuilt/mkxp-z rgss-assets Native/prebuilt/rgss-assets
+           metalangle Native/prebuilt/renpy/metalangle renpy853 Native/prebuilt/renpy/8.5.3
+           renpy837 Native/prebuilt/renpy/8.3.7 renpy787 Native/prebuilt/renpy/7.8.7 easyrpg Native/prebuilt/easyrpg)
+if [[ -n "${1:-}" ]]; then components=("$1"); else components=(libarchive unrar mkxp-z rgss-assets metalangle renpy853 renpy837 renpy787 easyrpg); fi
 for component in $components; do
   artefact="${artefacts[$component]}"
   if Scripts/native/verify.sh "$component" >/dev/null 2>&1; then continue; fi
@@ -19,6 +23,6 @@ for component in $components; do
     echo "hydrate: cached $component did not verify; rebuilding"
   fi
   echo "hydrate: building $component (${builders[$component]})"
-  "${builders[$component]}"
+  ${(z)builders[$component]}
   Scripts/native/verify.sh "$component"
 done

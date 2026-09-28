@@ -1,0 +1,26 @@
+{
+  "arch": "arm64",
+  "artefact": "Native/prebuilt/godot3",
+  "built_at": "2026-09-28T08:22:24+00:00",
+  "component": "godot3",
+  "flags": {
+    "iphoneos_min": "27.0",
+    "macosx_min": "15.0"
+  },
+  "outputs": {
+    "Godot3.xcframework/Info.plist": "82c1800c2606b8c0bd1c21ce90d68db50746aae578efe6406103c60ae1626109",
+    "Godot3.xcframework/ios-arm64-simulator/Godot3.framework/Godot3": "67a2a3211458183b4202153f8be165c1d5a5d31e397086696ff7c735cc5fdb85",
+    "Godot3.xcframework/ios-arm64-simulator/Godot3.framework/Info.plist": "056165dd772291e2283fc88fce747ed3b56bb2b8c0e7eb9854d3c6d2ebd5f3d0",
+    "Godot3.xcframework/ios-arm64/Godot3.framework/Godot3": "37cd99645878de8df2cc553bdec3091dbf21656ff49b608f7d1d76492ee9470b",
+    "Godot3.xcframework/ios-arm64/Godot3.framework/Info.plist": "c6ff80cfcd1aada6dad86cf05d6d9e7e212567449d0fdf466473446d5aaee6e3"
+  },
+  "sdks": {
+    "iphoneos": "27.0",
+    "iphonesimulator": "27.0",
+    "macosx": "27.0"
+  },
+  "sources": {
+    "Native/godot3/src": "a3378686f7196db78d7b3cc7947f72a13bc4864c"
+  },
+  "toolchain": "Xcode 27.0 Build version 27A266a"
+}

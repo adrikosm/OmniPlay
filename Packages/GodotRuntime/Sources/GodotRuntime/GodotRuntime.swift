@@ -1,0 +1,197 @@
+#if canImport(UIKit)
+    import Diagnostics
+    import Foundation
+    import GameCore
+    import InputKit
+    import OverlayVFS
+    import RuntimeCore
+    import SaveKit
+    import UIKit
+
+    /// Imported Godot 4 games (their exported `.pck`) through the embedded Godot engine.
+    ///
+    /// Godot runs the pack with `--main-pack`; `user://`, where Godot games keep saves and settings, is the game's
+    /// `Saves/slots` (stock iOS Godot would use Documents). Godot's view controller sits in a window of its own that the
+    /// host places in its scene. Godot reads touches, controllers and keyboards itself, so host input is ignored. One
+    /// game per process: every stop is `.slotSpent`.
+    @MainActor
+    public final class GodotRuntime: GameRuntime {
+        public var onFailure: (@MainActor (String) -> Void)?
+
+        public enum Failure: Error, CustomStringConvertible {
+            case notPrepared
+            case engineMissing
+            case packMissing
+            case noFrames
+
+            public var description: String {
+                switch self {
+                case .notPrepared: "The session was not prepared."
+                case .engineMissing: "This build has no Godot engine."
+                case .packMissing: "The game's .pck file is missing."
+                case .noFrames: "Godot did not draw the game; see the session log."
+                }
+            }
+        }
+
+        private let bucket: GodotBucket
+        private var configuration: RuntimeConfiguration?
+        private var library: GodotEngineLibrary?
+        private var arguments: [String] = []
+        private weak var host: (any RuntimeHost)?
+        private var window: UIWindow?
+        private var observers: [NSObjectProtocol] = []
+
+        public init(bucket: GodotBucket) {
+            self.bucket = bucket
+        }
+
+        public func prepare(configuration: RuntimeConfiguration) async throws {
+            guard let library = GodotEngineLibrary.bundled(bucket == .v36 ? .godot3 : .godot4) else { throw Failure.engineMissing }
+            guard library.isAvailable else { throw GodotEngineLibrary.Failure.alreadySpent }
+            self.configuration = configuration
+            self.library = library
+            let game = configuration.layers.first { $0.tier == .original }?.root
+                ?? configuration.indexURL.deletingLastPathComponent().appending(path: "Original")
+            guard let entry = configuration.entryPoint,
+                  FileManager.default.fileExists(atPath: game.appending(path: entry).path(percentEncoded: false))
+            else { throw Failure.packMissing }
+            try SaveLocation(savesRoot: configuration.saveDirectory.deletingLastPathComponent()).ensure()
+            try FileManager.default.createDirectory(at: configuration.logDirectory, withIntermediateDirectories: true)
+
+            arguments = [
+                "--main-pack", game.appending(path: entry).path(percentEncoded: false),
+            ]
+            // Godot 3 has no --log-file.
+            if bucket != .v36 {
+                arguments += ["--log-file", configuration.logDirectory.appending(path: "godot.log").path(percentEncoded: false)]
+            }
+            // Godot 4's simulator build has only its OpenGL ES 3 (compatibility) renderer: Godot's Metal driver refuses
+            // the simulator's GPU. On the phone Metal is the default unless the player chose Compatibility.
+            #if targetEnvironment(simulator)
+                let opengl = true
+            #else
+                let opengl = configuration.profile.overrides["renderer"] == "opengl3"
+            #endif
+            if bucket != .v36, opengl {
+                arguments += ["--rendering-driver", "opengl3"]
+            }
+            if ProcessInfo.processInfo.environment["OMNIPLAY_MUTE"] != nil {
+                arguments += ["--audio-driver", "Dummy"]
+            }
+            OPLog.log(.runtime, .info, "godot \(bucket.rawValue) for \(entry)", session: configuration.sessionID)
+        }
+
+        public func start(in host: any RuntimeHost) async throws {
+            guard let configuration, let library else { throw Failure.notPrepared }
+            self.host = host
+            let cache = configuration.cacheDirectory.appending(path: "godot", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+            try library.setup(arguments: arguments, userDirectory: configuration.saveDirectory, cacheDirectory: cache)
+            guard let raw = library.surface() else { throw Failure.notPrepared }
+            // Godot in its own window, like the other native engines' windows.
+            let window: UIWindow
+            if library.engine == .godot4 {
+                guard let scene = host.containerView.window?.windowScene else { throw Failure.notPrepared }
+                window = UIWindow(windowScene: scene)
+                window.rootViewController = Unmanaged<UIViewController>.fromOpaque(raw).takeUnretainedValue()
+            } else {
+                window = Unmanaged<UIWindow>.fromOpaque(raw).takeUnretainedValue()
+                window.windowScene = host.containerView.window?.windowScene
+            }
+            window.makeKeyAndVisible()
+            self.window = window
+            host.adoptEngineWindow(window)
+
+            // Start-up (setup2, the main scene) happens over Godot's first display-link frames.
+            let deadline = ContinuousClock.now + .seconds(30)
+            while library.frames < 3, ContinuousClock.now < deadline {
+                try await Task.sleep(for: .milliseconds(100))
+            }
+            guard library.frames >= 3 else { throw Failure.noFrames }
+            observeLifecycle()
+            host.runtimeDidEmit(.gradeReached(.intro))
+            OPLog.log(.runtime, .info, "godot drawing", session: configuration.sessionID)
+        }
+
+        private func observeLifecycle() {
+            let center = NotificationCenter.default
+            let events: [(Notification.Name, Int32)] = [
+                (UIApplication.willResignActiveNotification, 0),
+                (UIApplication.didEnterBackgroundNotification, 1),
+                (UIApplication.willEnterForegroundNotification, 2),
+                (UIApplication.didBecomeActiveNotification, 3),
+                (UIApplication.didReceiveMemoryWarningNotification, 4),
+            ]
+            observers = events.map { name, event in
+                center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.library?.appEvent(event) }
+                }
+            }
+        }
+
+        public func pause() async {
+            let frame = snapshot()
+            library?.request(.pause)
+            host?.showFrozenFrame(frame)
+        }
+
+        public func resume() async {
+            host?.hideFrozenFrame()
+            library?.request(.run)
+        }
+
+        /// Keys from the host's touch controls; Godot reads touches and controllers itself.
+        public func send(_ input: GameInputEvent) {
+            switch input {
+            case let .keyDown(key): library?.key(key.godotName, pressed: true)
+            case let .keyUp(key): library?.key(key.godotName, pressed: false)
+            default: break
+            }
+        }
+
+        private func snapshot() -> CGImage? {
+            guard let view = window?.rootViewController?.view, view.bounds.width > 0 else { return nil }
+            return UIGraphicsImageRenderer(bounds: view.bounds).image { _ in
+                view.drawHierarchy(in: view.bounds, afterScreenUpdates: false)
+            }.cgImage
+        }
+
+        public func handleMemoryPressure(_ level: MemoryPressureLevel) {
+            OPLog.log(.memory, .default, "godot session under \(level.rawValue) memory pressure", session: configuration?.sessionID)
+            library?.appEvent(4)
+        }
+
+        public func stop(reason: RuntimeStopReason) async -> TeardownVerdict {
+            guard library != nil, library?.status != .idle else { return .clean }
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers = []
+            host?.hideFrozenFrame()
+            library?.request(.stop)
+            host?.releaseEngineWindow()
+            window?.isHidden = true
+            window = nil
+            OPLog.log(.runtime, .info, "godot stopped (\(reason)): slotSpent", session: configuration?.sessionID)
+            return .slotSpent
+        }
+    }
+
+    private extension GameKey {
+        /// Godot's key name (`find_keycode`): "ArrowUp" → "Up", "KeyZ" → "Z", "ShiftLeft" → "Shift".
+        var godotName: String {
+            if rawValue.hasPrefix("Arrow") {
+                return String(rawValue.dropFirst(5))
+            }
+            if rawValue.hasPrefix("Key") || rawValue.hasPrefix("Digit") {
+                return domKey.uppercased()
+            }
+            if rawValue == "Space" {
+                return "Space"
+            }
+            if rawValue.hasPrefix("Control") {
+                return "Ctrl"
+            }
+            return domKey
+        }
+    }
+#endif

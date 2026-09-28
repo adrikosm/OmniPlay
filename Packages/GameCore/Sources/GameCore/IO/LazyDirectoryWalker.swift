@@ -23,7 +23,11 @@ public enum LazyDirectoryWalker {
         if skipHidden {
             options.insert(.skipsHiddenFiles)
         }
-        guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys, options: options) else { return }
+        var failure: Error?
+        guard let enumerator = FileManager.default.enumerator(
+            at: root, includingPropertiesForKeys: keys, options: options,
+            errorHandler: { _, error in failure = error; return false }
+        ) else { throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: root.path]) }
         let rootPath = root.standardizedFileURL.path(percentEncoded: false)
         while let url = enumerator.nextObject() as? URL {
             // One pool per entry keeps the autoreleased NSURL / resource dictionaries from accumulating.
@@ -50,6 +54,9 @@ public enum LazyDirectoryWalker {
             if case .stop = directive {
                 return
             }
+        }
+        if let failure {
+            throw failure
         }
     }
 }

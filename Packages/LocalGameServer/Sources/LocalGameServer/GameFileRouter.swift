@@ -31,18 +31,43 @@ public struct HeaderPolicy: Sendable, Hashable {
     }
 }
 
+/// A file the host derives from a game file on request (`?omniplay=<name>`): the derived file and its MIME type,
+/// or nil to serve the original.
+public typealias FileTransform = @Sendable (URL) async -> (url: URL, mime: String)?
+
 /// Serves a game tree through the overlay resolver: case-insensitive, no directory listings, single-range 206,
-/// HEAD mirrors GET, pre-compressed `.br`/`.gz` siblings served with their encoding.
+/// HEAD mirrors GET, pre-compressed `.br`/`.gz` siblings served with their encoding. The host adds POST routes and
+/// file transforms for what WebKit cannot decode itself.
 public struct GameFileRouter: Router {
     public let resolver: OverlayResolver
     public let policy: HeaderPolicy
     /// Served for `/`.
     public let defaultDocument: String?
+    /// Exact paths (with the leading slash) that accept POST.
+    public var postRoutes: [String: @Sendable (HTTPRequest) async -> HTTPResponse] = [:]
+    /// Applied when the query names one: `x.ogg?omniplay=pcm` serves `transforms["pcm"]` of `x.ogg`.
+    public var transforms: [String: FileTransform] = [:]
+    /// Extensions to try, in order, when the requested file is missing: RPG Maker picks a movie or sound extension
+    /// from what it believes the browser plays, and a game often ships only the other one. The sibling is served with
+    /// its own MIME type.
+    public var siblingExtensions: [String: [String]] = [:]
+    /// Lower-cased logical paths served from another path: a file the host converted because WebKit cannot play it
+    /// (`intro.ogv` → `intro.mp4` in the Generated layer).
+    public var aliases: [String: String] = [:]
 
     public init(resolver: OverlayResolver, policy: HeaderPolicy = HeaderPolicy(), defaultDocument: String? = "index.html") {
         self.resolver = resolver
         self.policy = policy
         self.defaultDocument = defaultDocument
+    }
+
+    public func post(_ request: HTTPRequest) async -> HTTPResponse {
+        guard let handler = postRoutes[request.path] else {
+            var response = HTTPResponse.text(405, "method not allowed")
+            response.headers.append(("Allow", "GET, HEAD"))
+            return finish(response)
+        }
+        return await finish(handler(request))
     }
 
     public func route(_ request: HTTPRequest) async -> HTTPResponse {
@@ -54,13 +79,21 @@ public struct GameFileRouter: Router {
             guard let doc = defaultDocument else { return finish(.text(404, "not found")) }; logical = doc
         }
         guard PathPolicy.validateLogical(logical) != nil else { return finish(.text(400, "bad path")) }
-        guard let hit = resolver.resolve(logical) else { return finish(.text(404, "not found")) }
+        guard let (found, hit) = resolve(logical) else { return finish(.text(404, "not found")) }
+        logical = found
         if hit.isDirectory {
             return finish(.text(403, "directory listing disabled"))
         }
-        let size = hit.size > 0 ? hit.size : Int64((try? hit.url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        var file = hit.url
+        var size = hit.size > 0 ? hit.size : Int64((try? hit.url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        var (mime, encoding) = MIMEMap.type(for: logical)
+        if let name = request.query["omniplay"], let transform = transforms[name], let derived = await transform(hit.url) {
+            file = derived.url
+            mime = derived.mime
+            encoding = nil
+            size = Int64((try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        }
         var response = HTTPResponse(status: 200)
-        let (mime, encoding) = MIMEMap.type(for: logical)
         response.headers.append(("Content-Type", mime))
         if let encoding {
             response.headers.append(("Content-Encoding", encoding))
@@ -69,14 +102,33 @@ public struct GameFileRouter: Router {
         case let .satisfiable(range):
             response.status = 206
             response.headers.append(("Content-Range", "bytes \(range.lowerBound)-\(range.upperBound)/\(size)"))
-            response.body = .file(hit.url, range: range, totalSize: size)
+            response.body = .file(file, range: range, totalSize: size)
         case .unsatisfiable:
             response = .text(416, "range not satisfiable")
             response.headers.append(("Content-Range", "bytes */\(size)"))
         case .ignore:
-            response.body = .file(hit.url, range: nil, totalSize: size)
+            response.body = .file(file, range: nil, totalSize: size)
         }
         return finish(response)
+    }
+
+    /// The requested file, or the first sibling under another media extension.
+    private func resolve(_ logical: String) -> (String, Resolution)? {
+        if let alias = aliases[logical.lowercased()], let hit = resolver.resolve(alias), !hit.isDirectory {
+            return (alias, hit)
+        }
+        if let hit = resolver.resolve(logical) {
+            return (logical, hit)
+        }
+        guard let dot = logical.lastIndex(of: "."), !logical[dot...].contains("/") else { return nil }
+        let stem = logical[..<dot]
+        for ext in siblingExtensions[logical[logical.index(after: dot)...].lowercased()] ?? [] {
+            let sibling = stem + "." + ext
+            if let hit = resolver.resolve(sibling), !hit.isDirectory {
+                return (sibling, hit)
+            }
+        }
+        return nil
     }
 
     private func finish(_ response: HTTPResponse) -> HTTPResponse {

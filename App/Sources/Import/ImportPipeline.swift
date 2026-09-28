@@ -88,7 +88,7 @@ struct ImportPipeline: Sendable {
     // MARK: Materialize
 
     /// Copies a folder or extracts an archive (unwrapping one nested level) into staging.
-    private func materialize(
+    func materialize(
         kind: ContainerKind,
         source: ImportSource,
         staging: URL,
@@ -101,9 +101,12 @@ struct ImportPipeline: Sendable {
         switch kind {
         case .folder:
             totals = try await stage(from: source.url, to: stagedRoot, txn: txn)
-        case .zip, .sevenZip, .tar, .gzip, .xz, .zstd, .cab, .rar4, .rar5:
-            totals = try await extractArchive(source.url, to: stagedRoot, txn: txn, passphrase: passphrase)
+        case .cab:
+            totals = try await extractCab(source.url, to: stagedRoot, txn: txn)
             sourceBytes = fileSize(source.url)
+        case .zip, .sevenZip, .tar, .gzip, .xz, .zstd, .rar4, .rar5:
+            totals = try await extractArchive(source.url, to: stagedRoot, txn: txn, passphrase: passphrase)
+            sourceBytes = (kind == .rar4 || kind == .rar5) ? try RarExtractor.sourceBytes(source.url) : fileSize(source.url)
             var depth = 1
             while let inner = GameRootLocator.nestedArchive(in: stagedRoot) {
                 depth += 1
@@ -112,24 +115,19 @@ struct ImportPipeline: Sendable {
                 }
                 let next = staging.appending(path: "Original-\(depth)", directoryHint: .isDirectory)
                 totals = try await extractArchive(inner, to: next, txn: txn, passphrase: passphrase)
-                sourceBytes = fileSize(inner)
+                let innerKind = try ContainerSniffer.identify(inner)
+                sourceBytes = (innerKind == .rar4 || innerKind == .rar5) ? try RarExtractor.sourceBytes(inner) : fileSize(inner)
+                try FileManager.default.removeItem(at: stagedRoot)
+                stagedRoot = next
+            }
+            if let installer = Self.loneInstaller(in: stagedRoot) {
+                let next = staging.appending(path: "Original-installer", directoryHint: .isDirectory)
+                (totals, sourceBytes) = try await extractInstaller(installer, to: next, txn: txn, passphrase: passphrase)
                 try FileManager.default.removeItem(at: stagedRoot)
                 stagedRoot = next
             }
         case .pe:
-            guard let payload = try PEOverlayScanner.scan(source.url)
-            else { throw ImportFailure.unsupportedContainer(firstBytesHex: "malformed executable") }
-            switch payload.kind {
-            case let .appendedZip(offset), let .appendedSevenZip(offset):
-                totals = try await extractArchive(source.url, to: stagedRoot, txn: txn, offset: offset, passphrase: passphrase)
-                sourceBytes = fileSize(source.url).map { $0 - offset }
-            case .godotPCK: throw ImportFailure
-                .unsupportedContainer(firstBytesHex: "Godot executable: embedded PCK support arrives with the Godot epic")
-            case .enigmaVB: throw ImportFailure.unsupportedContainer(firstBytesHex: "Enigma Virtual Box executable is not supported yet")
-            case .appendedRar,
-                 .cab: throw ImportFailure.unsupportedContainer(firstBytesHex: "self-extracting RAR/CAB installers are not supported yet")
-            case .none: throw ImportFailure.unsupportedContainer(firstBytesHex: "a Windows program with no game data inside")
-            }
+            (totals, sourceBytes) = try await extractInstaller(source.url, to: stagedRoot, txn: txn, passphrase: passphrase)
         case .asar:
             totals = try await extractAsar(source.url, to: stagedRoot, txn: txn)
             sourceBytes = fileSize(source.url)
@@ -161,6 +159,68 @@ struct ImportPipeline: Sendable {
         return Materialized(root: stagedRoot, totals: totals, sourceBytes: sourceBytes)
     }
 
+    /// A Windows installer or self-extractor: the game data inside it, never the program itself (Godot packs excepted).
+    func extractInstaller(
+        _ url: URL,
+        to stagedRoot: URL,
+        txn: ImportTransaction,
+        passphrase: String?
+    ) async throws -> (RunningTotals, Int64?) {
+        var totals: RunningTotals
+        var sourceBytes: Int64?
+        guard let payload = try PEOverlayScanner.scan(url)
+        else { throw ImportFailure.unsupportedContainer(firstBytesHex: "malformed executable") }
+        switch payload.kind {
+        case .cab:
+            // libmspack finds the cabinet inside the installer itself.
+            totals = try await extractCab(url, to: stagedRoot, txn: txn)
+            sourceBytes = fileSize(url)
+        case let .appendedZip(offset), let .appendedSevenZip(offset):
+            totals = try await extractArchive(url, to: stagedRoot, txn: txn, offset: offset, passphrase: passphrase)
+            sourceBytes = fileSize(url).map { $0 - offset }
+        case .godotPCK:
+            // Godot opens its own self-contained executables (`--main-pack Game.exe` finds the pack from the tail),
+            // and a pack's offsets can be absolute within the .exe, so the file is kept whole rather than cut out.
+            let size = fileSize(url) ?? 0
+            try StorageBudget.require(.forCopy(bytes: size), at: paths.root)
+            await txn.transition(to: .staging(.init(completedBytes: 0, totalBytes: size)))
+            try FileManager.default.createDirectory(at: stagedRoot, withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: url, to: stagedRoot.appending(path: url.lastPathComponent))
+            totals = RunningTotals()
+            totals.entries = 1
+            totals.declaredBytes = size
+            totals.writtenBytes = size
+            sourceBytes = size
+        case .enigmaVB: throw ImportFailure.unsupportedContainer(firstBytesHex: "Enigma Virtual Box executable is not supported yet")
+        case .appendedRar:
+            totals = try await extractRar(url, to: stagedRoot, txn: txn, passphrase: passphrase)
+            sourceBytes = fileSize(url)
+        case .none: throw ImportFailure.unsupportedContainer(firstBytesHex: "a Windows program with no game data inside")
+        }
+        return (totals, sourceBytes)
+    }
+
+    /// The staged tree is one Windows installer and nothing else (macOS resource forks aside), as when a site zips up
+    /// `Game.exe`. Only installers with an embedded archive count; a bare game program is left alone.
+    static func loneInstaller(in root: URL) -> URL? {
+        var files: [URL] = []
+        try? LazyDirectoryWalker.walk(root: root) { entry in
+            if entry.isDirectory {
+                return entry.url.lastPathComponent == "__MACOSX" ? .skipDescendants : .continue
+            }
+            if !entry.url.lastPathComponent.hasPrefix(".") {
+                files.append(entry.url)
+            }
+            return files.count > 1 ? .stop : .continue
+        }
+        guard files.count == 1, (try? ContainerSniffer.identify(files[0])) == .pe,
+              let payload = try? PEOverlayScanner.scan(files[0]) else { return nil }
+        switch payload.kind {
+        case .cab, .appendedZip, .appendedSevenZip, .appendedRar: return files[0]
+        default: return nil
+        }
+    }
+
     /// `resources/app.asar` up to two levels below the staged root.
     static func electronArchive(in root: URL) -> URL? {
         var found: URL?
@@ -178,7 +238,7 @@ struct ImportPipeline: Sendable {
         return found
     }
 
-    private func extractAsar(_ url: URL, to stagedRoot: URL, txn: ImportTransaction) async throws -> RunningTotals {
+    func extractAsar(_ url: URL, to stagedRoot: URL, txn: ImportTransaction) async throws -> RunningTotals {
         await txn.transition(to: .extracting(.init(completedBytes: 0, totalBytes: fileSize(url))))
         do {
             return try AsarExtractor(limits: limits).extract(url, to: stagedRoot)
@@ -186,152 +246,10 @@ struct ImportPipeline: Sendable {
             throw ImportFailure.safetyViolation(v)
         }
     }
-
-    // MARK: Archives
-
-    private func extractArchive(
-        _ url: URL,
-        to stagedRoot: URL,
-        txn: ImportTransaction,
-        offset: Int64 = 0,
-        passphrase: String? = nil
-    ) async throws -> RunningTotals {
-        let extractor = LibArchiveExtractor(limits: limits)
-        let hdrcharset = offset == 0 ? try NameDecoder.charset(for: url, extractor: extractor) : nil
-        let pre = try extractor.preflight(url, hdrcharset: hdrcharset, offset: offset)
-        if pre.encrypted, passphrase == nil {
-            throw ImportFailure.passwordRequired
-        }
-        let hint = pre.sizesKnown ? pre.declaredBytes : (fileSize(url) ?? 0) * 4
-        try StorageBudget.require(.forArchive(uncompressedSizeHint: hint), at: paths.root)
-        let total: Int64? = pre.sizesKnown ? pre.declaredBytes : nil
-        await txn.transition(to: .extracting(.init(completedBytes: 0, totalBytes: total)))
-        let reporter = ProgressReporter(txn: txn, total: total)
-        do {
-            return try extractor
-                .extract(url, to: stagedRoot, passphrase: passphrase, hdrcharset: hdrcharset, offset: offset) { done, item in
-                    reporter.report(
-                        done,
-                        item
-                    )
-                }
-        } catch let v as SafetyViolation {
-            throw ImportFailure.safetyViolation(v)
-        } catch let e as ExtractionError {
-            switch e {
-            case let .open(m): throw ImportFailure.unreadableSource(m)
-            case let .entry(path, m), let .unsupportedCompression(path, m): throw ImportFailure.extractionFailed(entry: path, underlying: m)
-            case let .write(path, errno): throw ImportFailure.extractionFailed(entry: path, underlying: String(cString: strerror(errno)))
-            }
-        }
-    }
-
-    // MARK: Folders
-
-    private func stage(from source: URL, to stagedRoot: URL, txn: ImportTransaction) async throws -> RunningTotals {
-        var totalBytes: Int64 = 0
-        try LazyDirectoryWalker.walk(root: source, skipHidden: false) { totalBytes += $0.fileSize; return .continue }
-        try StorageBudget.require(.forCopy(bytes: totalBytes), at: paths.root)
-        await txn.transition(to: .staging(.init(completedBytes: 0, totalBytes: totalBytes)))
-        let validator = EntryValidator(limits: limits)
-        var totals = RunningTotals()
-        var copied: Int64 = 0
-        var lastReport = Date.distantPast
-        var pending: [(URL, String)] = []
-        var resume: String?
-        repeat {
-            let more = try walkSlice(
-                source: source,
-                stagedRoot: stagedRoot,
-                validator: validator,
-                resume: &resume,
-                totals: &totals,
-                pending: &pending
-            )
-            for (url, rel) in pending {
-                try Task.checkCancellation()
-                try await ChunkedCopier.copy(from: url, to: stagedRoot.appending(path: rel)) { _ in }
-                copied += fileSize(url) ?? 0
-                if Date.now.timeIntervalSince(lastReport) > 0.2 {
-                    lastReport = .now
-                    await txn.transition(to: .staging(.init(completedBytes: copied, totalBytes: totalBytes, currentItem: rel)))
-                }
-            }
-            pending.removeAll(keepingCapacity: true)
-            if !more {
-                break
-            }
-        } while true
-        totals.writtenBytes = copied
-        return totals
-    }
-
-    /// Walks up to 64 files past `resume`, validating each; returns true when more entries may follow.
-    private func walkSlice(
-        source: URL,
-        stagedRoot: URL,
-        validator: EntryValidator,
-        resume: inout String?,
-        totals: inout RunningTotals,
-        pending: inout [(URL, String)]
-    ) throws -> Bool {
-        var skipping = resume != nil
-        var stop: SafetyViolation?
-        var last = resume
-        try LazyDirectoryWalker.walk(root: source, skipHidden: false) { entry in
-            if skipping {
-                if entry.relativePath == resume {
-                    skipping = false
-                }; return .continue
-            }
-            let isLink = (try? entry.url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) ?? false
-            let kind: ArchiveEntryHeader.Kind = isLink ? .symlink : entry.isDirectory ? .directory : .file
-            switch validator.validate(.init(path: entry.relativePath, kind: kind, declaredSize: entry.fileSize), running: &totals) {
-            case let .reject(v): stop = v; return .stop
-            case .skip: return isLink ? .skipDescendants : .continue
-            case let .extract(rel):
-                if entry.isDirectory {
-                    try FileManager.default.createDirectory(at: stagedRoot.appending(path: rel), withIntermediateDirectories: true)
-                } else {
-                    pending.append((entry.url, rel))
-                }
-                last = entry.relativePath
-                return pending.count >= 64 ? .stop : .continue
-            }
-        }
-        if let stop {
-            throw ImportFailure.safetyViolation(stop)
-        }
-        resume = last
-        return pending.count >= 64
-    }
-
-    // MARK: Detection
-
-    private func detect(
-        root: URL,
-        located: LocatedRoot,
-        source: ImportSource,
-        title: String,
-        fingerprint: String
-    ) throws -> DetectionReport {
-        let payload = try? PEOverlayScanner.scan(source.url)
-        let ctx = try ScanContext(root: root, sidecars: located.sidecars, pePayload: payload)
-        defer { ctx.close() }
-        return DetectionPipeline.standard.run(ctx, title: title, identityHash: fingerprint, rootRelativePath: located.relativePath)
-    }
-
-    func fileSize(_ url: URL) -> Int64? { (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) }
-
-    static func title(from url: URL) -> String {
-        let raw = url.deletingPathExtension().lastPathComponent
-        let cleaned = raw.replacingOccurrences(of: "[_\\.]+", with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces)
-        return cleaned.isEmpty ? "Untitled game" : cleaned
-    }
 }
 
 /// Throttles extraction progress into transaction states (at most five updates a second).
-private final class ProgressReporter: Sendable {
+final class ProgressReporter: Sendable {
     private let txn: ImportTransaction
     private let total: Int64?
     private let last = Mutex<Date>(.distantPast)

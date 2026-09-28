@@ -36,7 +36,16 @@ enum CoverExtractor {
             ]
         case .rpgMaker2000, .rpgMaker2003: ["title/*.png", "title/*.bmp", "title/*.xyz"]
         case .godot, .godotWeb: ["icon.png", "*.png"]
-        default: ["icon.png", "favicon.png", "icon/icon.png", "*title*.png", "*cover*.png"]
+        // Tyrano keeps its title art in data/bgimage; a bare `*title*.png` would find its TITLE role button first.
+        default: [
+                "data/bgimage/title*.jpg",
+                "data/bgimage/title*.png",
+                "icon.png",
+                "favicon.png",
+                "icon/icon.png",
+                "*title*.png",
+                "*cover*.png",
+            ]
         }
     }
 

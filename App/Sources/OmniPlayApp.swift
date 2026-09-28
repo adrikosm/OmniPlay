@@ -12,7 +12,7 @@ struct OmniPlayApp: App {
             RootView()
                 .environment(model)
                 .preferredColorScheme(.dark)
-                .tint(Theme.lantern)
+                .tint(Theme.accent)
                 .task { await model.launch() }
                 // "Open in OmniPlay" from Files or a share sheet: the file lands in the import queue.
                 .onOpenURL { url in

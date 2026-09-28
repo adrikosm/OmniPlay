@@ -1,4 +1,4 @@
-// Console and error capture (isolated world): bounded message size and rate.
+// Console capture (isolated world): bounded message size and rate, for this world and, via events, the page's.
 (() => {
   const post = (body) => window.webkit?.messageHandlers?.["omniplay.console"]?.postMessage(body);
   const MAX = 4096; let count = 0, windowStart = Date.now(), dropped = 0;
@@ -13,6 +13,8 @@
     const orig = console[level];
     console[level] = (...args) => { send(level, args); try { orig.apply(console, args); } catch (_) {} };
   }
-  window.addEventListener("error", (e) => send("error", [e.message, e.filename + ":" + e.lineno]));
-  window.addEventListener("unhandledrejection", (e) => send("error", ["unhandledrejection", String(e.reason)]));
+  // The page's messages and errors, forwarded by omniplay-page-console.js under the same rate limit.
+  document.addEventListener("omniplay:console", (e) => {
+    try { const m = JSON.parse(e.detail); send(String(m.level), [String(m.message)]); } catch (_) {}
+  });
 })();

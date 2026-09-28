@@ -1,0 +1,27 @@
+{
+  "arch": "arm64",
+  "artefact": "Native/prebuilt/kirikiri",
+  "built_at": "2026-09-23T04:18:01+00:00",
+  "component": "kirikiri",
+  "flags": {
+    "iphoneos_min": "27.0",
+    "macosx_min": "15.0"
+  },
+  "outputs": {
+    "KrKr2Web/assets.zip": "9725ff566ae92bbb651f532546eb46e942d5d85c6dc97884f8c632e37732fd5c",
+    "KrKr2Web/index.html": "26160df50b58b92d6c89b46b424ae6aa055110ea2aec2e730f24b57b73f8ea3e",
+    "KrKr2Web/index.js": "12a456acd075e68f45345da381c8e5febc4f64752173ccdaca9c2496568b43ac",
+    "KrKr2Web/index.wasm": "2cb3dc7b0dcab7be555532d709e38b509a235a61661013cbd9f9758038a35bb2",
+    "KrKr2Web/sw.js": "7ba8a6a261236962e08e5707d8abb196ee0dd1287732b157431f33419030ee01",
+    "KrKr2Web/vlfs.js": "60d44bf41062d69e593f5930025aeaab7e48eddbb6b355a72e21783cfbc32e45"
+  },
+  "sdks": {
+    "iphoneos": "27.0",
+    "iphonesimulator": "27.0",
+    "macosx": "27.0"
+  },
+  "sources": {
+    "Native/kirikiri/src": "917a99e3fbe6af78c92bbb7c444c83e74616f194"
+  },
+  "toolchain": "Xcode 27.0 Build version 27A266a"
+}

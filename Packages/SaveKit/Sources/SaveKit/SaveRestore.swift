@@ -5,23 +5,32 @@ import GameCore
 /// `file%d.rpgsave`, `Save%02d.rvdata2`: reads the index out of a slot file name and builds the next one.
 public struct SlotPattern: Sendable, Hashable {
     public let format: String
-    private let regex: String
+    private let prefix: String
+    private let suffix: String
+    private let width: Int
 
     public init?(_ format: String) {
-        guard format.contains("%") else { return nil }
+        // A slot pattern is a filename with one decimal placeholder, never a C format program.
+        guard !format.contains("/"), !format.contains("\\"),
+              let match = format.wholeMatch(of: /([^%]*)%0?([0-9]*)d([^%]*)/),
+              let width = match.2.isEmpty ? 0 : Int(match.2), width <= 19 else { return nil }
         self.format = format
-        let escaped = NSRegularExpression.escapedPattern(for: format)
-        guard let range = escaped.range(of: #"%0?\d*d"#, options: .regularExpression) else { return nil }
-        regex = "^" + escaped.replacingCharacters(in: range, with: #"(\d+)"#) + "$"
+        prefix = String(match.1)
+        suffix = String(match.3)
+        self.width = width
     }
 
     public func index(of fileName: String) -> Int? {
-        guard let compiled = try? Regex(regex), let match = fileName.wholeMatch(of: compiled), match.output.count > 1,
-              let digits = match.output[1].substring else { return nil }
+        guard fileName.hasPrefix(prefix), fileName.hasSuffix(suffix), fileName.count > prefix.count + suffix.count else { return nil }
+        let digits = fileName.dropFirst(prefix.count).dropLast(suffix.count)
+        guard digits.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
         return Int(digits)
     }
 
-    public func name(index: Int) -> String { String(format: format, index) }
+    public func name(index: Int) -> String {
+        let digits = String(index)
+        return prefix + String(repeating: "0", count: max(0, width - digits.count)) + digits + suffix
+    }
 }
 
 public enum RestoreMode: Sendable, Hashable {
@@ -31,7 +40,7 @@ public enum RestoreMode: Sendable, Hashable {
     case stackIntoFreeSlots(slotPattern: String?)
 }
 
-public enum RestoreError: Error, Equatable { case noManifest, swapFailed(String) }
+public enum RestoreError: Error, Equatable { case noManifest, invalidSnapshot, noFreeSlot(String), swapFailed(String) }
 
 public extension SaveVault {
     /// Newest snapshots to keep; a per-game override between 1 and 10, default 3.
@@ -50,34 +59,38 @@ public extension SaveVault {
     ) async throws -> SaveSnapshot {
         let fm = FileManager.default
         guard fm.fileExists(atPath: dir.appending(path: "manifest.json").path(percentEncoded: false)) else { throw RestoreError.noManifest }
+        _ = try validatedSnapshot(at: dir)
         try location.ensure()
         let backup = try await snapshot(location: location, identityHash: identityHash, reason: .beforeEdit)
-        switch mode {
-        case .replace:
-            let staging = location.root.appending(path: ".restoring-\(UUID().uuidString)", directoryHint: .isDirectory)
-            defer { try? fm.removeItem(at: staging) }
-            for name in ["slots", "persistent"] {
-                try await cloneTree(from: dir.appending(path: name), to: staging.appending(path: name))
-            }
-            try swap(staging: staging, into: location)
-        case let .stackIntoFreeSlots(pattern):
-            let slot = pattern.flatMap(SlotPattern.init)
-            let existing = Set((try? fm.contentsOfDirectory(atPath: location.slots.path(percentEncoded: false))) ?? [])
-            var next = (existing.compactMap { slot?.index(of: $0) }.max() ?? 0) + 1
-            for file in (try? fm.contentsOfDirectory(at: dir.appending(path: "slots"), includingPropertiesForKeys: nil)) ?? []
-                where !file.lastPathComponent.hasPrefix(".") {
+        let staging = location.root.appending(path: ".restoring-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? fm.removeItem(at: staging) }
+        let source: URL = switch mode {
+        case .replace: dir
+        case .stackIntoFreeSlots: location.root
+        }
+        for name in ["slots", "persistent"] {
+            try await cloneTree(from: source.appending(path: name), to: staging.appending(path: name))
+        }
+        if case let .stackIntoFreeSlots(pattern) = mode {
+            let stagedSlots = staging.appending(path: "slots")
+            var occupied = try Set(fm.contentsOfDirectory(atPath: stagedSlots.path(percentEncoded: false)))
+            let files = try fm.contentsOfDirectory(at: dir.appending(path: "slots"), includingPropertiesForKeys: nil)
+                .filter { !$0.lastPathComponent.hasPrefix(".") }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+            // Reserve original incoming names too, so a renamed collision cannot overwrite the next incoming file.
+            let incoming = Set(files.map(\.lastPathComponent))
+            for file in files {
                 var name = file.lastPathComponent
-                if existing.contains(name) {
-                    guard let slot, slot.index(of: name) != nil else {
-                        OPLog.log(.save, .default, "stack restore skipped \(name): already present and not a numbered slot")
-                        continue
+                if occupied.contains(name) {
+                    guard let free = SlotNaming.duplicateName(for: name, existing: occupied.union(incoming), pattern: pattern) else {
+                        throw RestoreError.noFreeSlot(name)
                     }
-                    name = slot.name(index: next)
-                    next += 1
+                    name = free
                 }
-                try await APFSClone.clone(from: file, to: location.slots.appending(path: name))
+                try await APFSClone.clone(from: file, to: stagedSlots.appending(path: name))
+                occupied.insert(name)
             }
         }
+        try swap(staging: staging, into: location)
         OPLog.log(.save, .info, "restored \(dir.lastPathComponent) (\(mode))")
         return backup
     }

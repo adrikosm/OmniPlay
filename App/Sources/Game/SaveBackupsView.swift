@@ -7,119 +7,128 @@ import UniformTypeIdentifiers
 
 /// A game's saves and snapshots: back up now, restore any snapshot (replace, or add into free slots).
 struct SaveBackupsView: View {
-    @Environment(AppModel.self) private var model
+    @Environment(AppModel.self) var model
     let game: GameRecord
-    @State private var slots: [(key: String, bytes: Int64)] = []
-    @State private var snapshots: [(directory: URL, manifest: SaveSnapshot)] = []
-    @State private var pendingRestore: (URL, RestoreMode)?
-    @State private var message: String?
-    @State private var exportURL: URL?
-    @State private var showImporter = false
-    @State private var pendingImport: (URL, SaveTransfer.Collision)?
-    @State private var importWarnings: [String] = []
-    @State private var pickedImport: URL?
-    @State private var stores: [PersistentStoreInfo] = []
-    @State private var pendingReset: PersistentStoreInfo?
-    @State private var busy = false
+    @State var slots: [SaveSlotFile] = []
+    @State var previews: [String: SavePreview] = [:]
+    @State var details: SaveSlotFile?
+    @State var pendingDelete: SaveSlotFile?
+    @State var editing: SaveSlotFile?
+    @State var snapshots: [(directory: URL, manifest: SaveSnapshot)] = []
+    @State var pendingRestore: (URL, RestoreMode)?
+    @State var message: String?
+    @State var exportURL: URL?
+    @State var showImporter = false
+    @State var pendingImport: (URL, SaveTransfer.Collision)?
+    @State var importWarnings: [String] = []
+    @State var pickedImport: URL?
+    @State var stores: [PersistentStoreInfo] = []
+    @State var pendingReset: PersistentStoreInfo?
+    @State var busy = false
 
-    private var location: SaveLocation { SaveLocation.forGame(game.id, paths: model.paths) }
-    private var identityHash: String {
+    var location: SaveLocation { SaveLocation.forGame(game.id, paths: model.paths) }
+    var identityHash: String {
         AppModel.snapshot(for: game.id, paths: model.paths)?.report.descriptor.identityHash ?? game.id.description
     }
 
-    private var slotPattern: String? { SaveStrategy.forEngine(game.engine, generation: game.generation).slotPattern }
+    var slotPattern: String? { SaveStrategy.forEngine(game.engine, generation: game.generation).slotPattern }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: Theme.s6) {
-                VStack(alignment: .leading, spacing: Theme.s2) {
-                    Text("Saves").font(Theme.title(22)).foregroundStyle(Theme.textPrimary)
-                    if slots.isEmpty {
-                        Text("Nothing saved yet.").font(.footnote).foregroundStyle(Theme.textSecondary)
-                    } else {
-                        ForEach(slots, id: \.key) { slot in
-                            HStack {
-                                Text(SaveKey.decodeWebStorage(slot.key) ?? slot.key).font(.system(.footnote, design: .monospaced))
-                                Spacer()
-                                Text(slot.bytes.formatted(.byteCount(style: .file))).font(.caption)
+            Split(spacing: Theme.s6, leadingWidth: 430) {
+                VStack(alignment: .leading, spacing: Theme.s4) {
+                    GlassSection("Saves") {
+                        if slots.isEmpty {
+                            ListRow(title: "Nothing saved yet", dimmed: true)
+                        }
+                        ForEach(slots) { slot in
+                            Button { withTransaction(\.disablesAnimations, true) { details = slot } } label: {
+                                SaveSlotRow(slot: slot, preview: previews[slot.id])
                             }
-                            .foregroundStyle(Theme.textSecondary)
+                            .buttonStyle(.row)
+                            .contextMenu { slotMenu(slot).tint(Theme.textPrimary) }
                         }
                     }
+                    .rise(0)
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 10) { actions }
+                        VStack(alignment: .leading, spacing: 10) { actions }
+                    }
+                    .rise(1)
+                    if let message {
+                        Text(message).font(.footnote).foregroundStyle(Theme.textSecondary).padding(.horizontal, Theme.s1)
+                    }
                 }
-                .padding(Theme.s4)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .glassCard()
-
-                Button { Task { await backUpNow() } } label: { Label("Back up now", systemImage: "plus.circle").frame(maxWidth: .infinity) }
-                    .buttonStyle(LanternButtonStyle())
-                    .disabled(busy || slots.isEmpty)
-
-                HStack(spacing: Theme.s2) {
-                    if let exportURL {
-                        ShareLink(item: exportURL) { Label("Share export", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity) }
-                    } else {
-                        Button { Task { await exportSaves() } } label: {
-                            Label("Export saves", systemImage: "arrow.up.doc").frame(maxWidth: .infinity)
+            } trailing: {
+                VStack(alignment: .leading, spacing: Theme.s6) {
+                    GlassSection("Snapshots", footer: "Taken before every launch and every restore. Restoring never deletes a snapshot.") {
+                        if snapshots.isEmpty {
+                            ListRow(title: "No snapshots yet", dimmed: true)
                         }
-                        .disabled(busy || slots.isEmpty)
+                        ForEach(snapshots, id: \.manifest.id) { snap in
+                            snapshotRow(snap.directory, snap.manifest)
+                        }
                     }
-                    Button { showImporter = true } label: { Label("Import saves", systemImage: "arrow.down.doc").frame(maxWidth: .infinity)
-                    }
-                    .disabled(busy)
-                }
-                .foregroundStyle(Theme.textPrimary)
-                .frame(minHeight: 44)
-                .padding(.horizontal, Theme.s3)
-                .glassCard(radius: 14)
-
-                VStack(alignment: .leading, spacing: Theme.s3) {
-                    Text("Snapshots").font(Theme.title(22)).foregroundStyle(Theme.textPrimary)
-                    Text("Taken before every launch and before every restore. Restoring never deletes a snapshot.")
-                        .font(.footnote).foregroundStyle(Theme.textSecondary)
-                    if snapshots.isEmpty {
-                        Text("No snapshots yet.").font(.footnote).foregroundStyle(Theme.textSecondary)
-                    }
-                    ForEach(snapshots, id: \.manifest.id) { snap in
-                        snapshotRow(snap.directory, snap.manifest)
-                    }
-                }
-                .padding(Theme.s4)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .glassCard()
-
-                VStack(alignment: .leading, spacing: Theme.s3) {
-                    Text("Settings and progress data").font(Theme.title(22)).foregroundStyle(Theme.textPrimary)
-                    Text("Kept apart from the save slots. Resetting takes a snapshot first.").font(.footnote)
-                        .foregroundStyle(Theme.textSecondary)
-                    if stores.isEmpty {
-                        Text("This game keeps nothing outside its saves.").font(.footnote).foregroundStyle(Theme.textSecondary)
-                    }
-                    ForEach(stores) { store in
-                        HStack(alignment: .firstTextBaseline) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(store.kind.title).font(.subheadline).foregroundStyle(Theme.textPrimary)
-                                Text(Self.storeSummary(store))
-                                    .font(.caption).foregroundStyle(Theme.textSecondary)
+                    if !stores.isEmpty {
+                        GlassSection(
+                            "Settings and progress data",
+                            footer: "Kept apart from the save slots. Resetting takes a snapshot first."
+                        ) {
+                            ForEach(stores) { store in
+                                ListRow(title: store.kind.title, subtitle: Self.storeSummary(store)) {
+                                    Button("Reset", role: .destructive) { pendingReset = store }
+                                        .buttonStyle(.link)
+                                        .disabled(busy || !store.isPresent)
+                                }
+                                .accessibilityElement(children: .combine)
+                                .accessibilityIdentifier("persistentStore.\(store.kind.rawValue)")
                             }
-                            Spacer()
-                            Button("Reset") { pendingReset = store }
-                                .font(.subheadline.weight(.semibold)).foregroundStyle(Theme.danger).frame(minWidth: 44, minHeight: 44)
-                                .disabled(busy || !store.isPresent)
                         }
-                        .accessibilityElement(children: .combine)
-                        .accessibilityIdentifier("persistentStore.\(store.kind.rawValue)")
                     }
                 }
-                .padding(Theme.s4)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .glassCard()
-
-                if let message {
-                    Text(message).font(.footnote).foregroundStyle(Theme.textSecondary)
+                .rise(2)
+            }
+            .padding(.horizontal, Theme.s4)
+            .padding(.vertical, Theme.s3)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .sheet(item: $editing) { slot in
+            OfflineSaveEditor(game: game, slot: slot, identityHash: identityHash) {
+                message = "Save changed. The snapshot taken first keeps the old one."
+                Task { await reload() }
+            }
+        }
+        .centeredSheet(isPresented: Binding(get: { details != nil }, set: {
+            if !$0 {
+                details = nil
+            }
+        }), width: 560) { close in
+            if let slot = details {
+                SaveSlotDetails(
+                    slot: slot, preview: previews[slot.id], family: SaveStrategy.forEngine(game.engine, generation: game.generation).family,
+                    close: close,
+                    onEdit: slot.isOfflineEditable ? { close(); editing = slot } : nil,
+                    onDuplicate: duplicateName(for: slot) != nil ? { close(); Task { await duplicate(slot) } } : nil,
+                    onDelete: { close(); pendingDelete = slot }
+                )
+            }
+        }
+        .confirmationDialog(
+            "Delete \(pendingDelete.map { previews[$0.id]?.title ?? $0.displayName } ?? "this save")?",
+            isPresented: Binding(get: { pendingDelete != nil }, set: {
+                if !$0 {
+                    pendingDelete = nil
+                }
+            }),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let slot = pendingDelete {
+                    Task { await delete(slot) }
                 }
             }
-            .padding(Theme.s4)
+        } message: {
+            Text("A snapshot is taken first, so Restore can bring it back.")
         }
         .confirmationDialog(
             "Reset \(pendingReset?.kind.title ?? "this data")?",
@@ -140,7 +149,7 @@ struct SaveBackupsView: View {
         }
         .navigationTitle("Saves and backups")
         .navigationBarTitleDisplayMode(.inline)
-        .inkScreen()
+        .canvas()
         .task { await reload() }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.zip, .folder, .data]) { result in
             if case let .success(url) = result {
@@ -201,23 +210,47 @@ struct SaveBackupsView: View {
         }
     }
 
-    private func snapshotRow(_ dir: URL, _ snap: SaveSnapshot) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(snap.timestamp.formatted(date: .abbreviated, time: .shortened)).font(.subheadline).foregroundStyle(Theme.textPrimary)
-                Text("\(Self.label(snap.provenance.origin)) · \(snap.entries.count) files").font(.caption)
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            Spacer()
+    @ViewBuilder var actions: some View {
+        Button { Task { await backUpNow() } } label: { Text("Back up now") }
+            .buttonStyle(.primary)
+            .disabled(busy || slots.isEmpty)
+        if let exportURL {
+            ShareLink(item: exportURL) { Label("Share", systemImage: "square.and.arrow.up") }
+                .buttonStyle(.secondary)
+        } else {
+            Button { Task { await exportSaves() } } label: { Label("Export", systemImage: "square.and.arrow.up") }
+                .buttonStyle(.secondary)
+                .disabled(busy || slots.isEmpty)
+        }
+        Button { showImporter = true } label: { Label("Import", systemImage: "square.and.arrow.down") }
+            .buttonStyle(.secondary)
+            .disabled(busy)
+    }
+
+    @ViewBuilder func slotMenu(_ slot: SaveSlotFile) -> some View {
+        if slot.isOfflineEditable {
+            Button("Edit", systemImage: "slider.horizontal.3") { editing = slot }
+        }
+        if duplicateName(for: slot) != nil {
+            Button("Duplicate", systemImage: "plus.square.on.square") { Task { await duplicate(slot) } }
+        }
+        Button("Delete", systemImage: "trash", role: .destructive) { pendingDelete = slot }
+    }
+
+    func snapshotRow(_ dir: URL, _ snap: SaveSnapshot) -> some View {
+        ListRow(
+            title: snap.timestamp.dayAndTime,
+            subtitle: "\(Self.label(snap.provenance.origin)) · \(snap.entries.count) file\(snap.entries.count == 1 ? "" : "s")"
+        ) {
             Menu {
                 Button("Replace current saves", systemImage: "arrow.uturn.backward") { pendingRestore = (dir, .replace) }
-                Button("Add into free slots", systemImage: "square.stack.3d.up") { pendingRestore = (
-                    dir,
-                    .stackIntoFreeSlots(slotPattern: slotPattern)
-                ) }
+                Button("Add into free slots", systemImage: "square.stack.3d.up") {
+                    pendingRestore = (dir, .stackIntoFreeSlots(slotPattern: slotPattern))
+                }
             } label: {
-                Text("Restore").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.lantern).frame(minWidth: 44, minHeight: 44)
+                Text("Restore").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.accent).frame(minWidth: 44, minHeight: 44)
             }
+            .tint(Theme.textPrimary)
             .disabled(busy)
         }
     }
@@ -230,7 +263,7 @@ struct SaveBackupsView: View {
     static func label(_ origin: SaveProvenance.Origin) -> String {
         switch origin {
         case .beforeLaunch: "Before launch"
-        case .beforeEdit: "Before restore"
+        case .beforeEdit: "Before a change"
         case .manualSnapshot: "Manual"
         case .crash: "After crash"
         case .imported: "Imported"
@@ -238,114 +271,6 @@ struct SaveBackupsView: View {
         case .preModBackup: "Before mod"
         case .preCheatBackup: "Before cheat"
         }
-    }
-
-    private func reload() async {
-        let location = location
-        let kinds = SaveStrategy.forEngine(game.engine, generation: game.generation).persistentStores
-            .compactMap { PersistentStoreKind(rawValue: $0.rawValue) }
-        let (slotList, snapList, storeList) = await Task.detached {
-            (
-                SaveFileStore(location: location, fileExtension: "").keysAnyExtension(),
-                SaveVault.snapshots(location: location),
-                PersistentStoreRegistry.stores(location: location, kinds: kinds)
-            )
-        }.value
-        slots = slotList
-        snapshots = snapList
-        stores = storeList
-    }
-
-    private var transfer: SaveTransfer {
-        SaveTransfer(paths: model.paths, target: .init(
-            id: game.id, title: game.title, engine: game.engine,
-            family: SaveStrategy.forEngine(game.engine, generation: game.generation).family,
-            slotPattern: slotPattern, identityHash: identityHash
-        ))
-    }
-
-    private func exportSaves() async {
-        busy = true
-        defer { busy = false }
-        do {
-            exportURL = try await transfer.export()
-            message = "Exported to Files › OmniPlay › Saves-Export."
-        } catch {
-            message = "Export failed: \(error.localizedDescription)"
-        }
-    }
-
-    private func runImport(confirmed: Bool) async {
-        guard let (url, collision) = pendingImport else { return }
-        pickedImport = nil
-        importWarnings = []
-        busy = true
-        defer { busy = false }
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer {
-            if scoped {
-                url.stopAccessingSecurityScopedResource()
-            }
-        }
-        do {
-            switch try await transfer.importSaves(from: url, collision: collision, confirmed: confirmed) {
-            case let .installed(slots, persistent):
-                let slotText = "\(slots) save\(slots == 1 ? "" : "s")"
-                let settingsText = persistent > 0 ? " and \(persistent) settings file\(persistent == 1 ? "" : "s")" : ""
-                message = "Imported \(slotText)\(settingsText)."
-                pendingImport = nil
-                model.reindexSaves(game.id)
-                exportURL = nil
-            case let .needsConfirmation(warnings):
-                importWarnings = warnings
-            case let .nothingRecognised(reasons):
-                message = "Nothing imported. " + reasons.joined(separator: " ")
-                pendingImport = nil
-            }
-        } catch {
-            message = "Import failed, nothing was changed: \(error.localizedDescription)"
-            pendingImport = nil
-        }
-        await reload()
-    }
-
-    private func reset(_ store: PersistentStoreInfo) async {
-        busy = true
-        defer { busy = false }
-        pendingReset = nil
-        do {
-            try await PersistentStoreRegistry.reset(store, location: location, identityHash: identityHash)
-            message = "\(store.kind.title) reset."
-            model.reindexSaves(game.id)
-        } catch {
-            message = "Reset failed, nothing was changed: \(error.localizedDescription)"
-        }
-        await reload()
-    }
-
-    private func backUpNow() async {
-        busy = true
-        defer { busy = false }
-        do {
-            _ = try await SaveVault.snapshot(location: location, identityHash: identityHash, reason: .manualSnapshot)
-            message = "Snapshot saved."
-        } catch {
-            message = "Backup failed: \(error.localizedDescription)"
-        }
-        await reload()
-    }
-
-    private func restore(_ dir: URL, _ mode: RestoreMode) async {
-        busy = true
-        defer { busy = false }
-        pendingRestore = nil
-        do {
-            try await SaveVault.restore(snapshot: dir, into: location, identityHash: identityHash, mode: mode)
-            message = "Restored."
-        } catch {
-            message = "Restore failed, nothing was changed: \(error.localizedDescription)"
-        }
-        await reload()
     }
 }
 

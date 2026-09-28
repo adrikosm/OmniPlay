@@ -43,8 +43,31 @@ public final class GameStore: Sendable {
         try write("insert \(R.databaseTableName)") { try record.inserted($0) }
     }
 
+    public func update<R: AutoIDRecord>(_ record: R) throws {
+        try write("update \(R.databaseTableName)") { try record.update($0) }
+    }
+
     public func save<R: StoreRecord>(_ record: R) throws {
         try write("save \(R.databaseTableName)") { try record.save($0) }
+    }
+
+    /// A game is visible only when its detection, runtime and import history all commit together.
+    public func registerImport(
+        game: GameRecord, detection: DetectionResultRecord, runtime: RuntimeSelectionRecord?,
+        source: ImportRecord, replacing: Bool
+    ) throws {
+        try write("registerImport") { db in
+            if replacing {
+                try game.update(db)
+            } else {
+                try game.insert(db)
+            }
+            _ = try detection.inserted(db)
+            if let runtime {
+                _ = try runtime.inserted(db)
+            }
+            _ = try source.inserted(db)
+        }
     }
 
     public func fetchAll<R: FetchableRecord & TableRecord & Sendable>(
@@ -71,6 +94,82 @@ public extension GameStore {
     var imports: Imports { Imports(store: self) }
     var saves: Saves { Saves(store: self) }
     var persistentStores: PersistentStores { PersistentStores(store: self) }
+    var mods: Mods { Mods(store: self) }
+    var translations: Translations { Translations(store: self) }
+    var collections: Collections { Collections(store: self) }
+
+    /// The player's collections (UI-007). Names are unique regardless of case.
+    struct Collections: Sendable {
+        let store: GameStore
+
+        @discardableResult
+        public func create(name: String) throws -> String {
+            let id = UUID().uuidString
+            try store.write("collections.create") { db in
+                try db.execute(sql: "INSERT INTO collections (id, name, created_at) VALUES (?, ?, ?)", arguments: [id, name, Date()])
+            }
+            return id
+        }
+
+        public func delete(id: String) throws {
+            try store.write("collections.delete") { try $0.execute(sql: "DELETE FROM collections WHERE id = ?", arguments: [id]) }
+        }
+
+        public func set(_ game: GameID, in collection: String, member: Bool) throws {
+            try store.write("collections.set") { db in
+                if member {
+                    try db.execute(
+                        sql: "INSERT OR IGNORE INTO collection_games (collection_id, game_id) VALUES (?, ?)",
+                        arguments: [collection, game.description]
+                    )
+                } else {
+                    try db.execute(
+                        sql: "DELETE FROM collection_games WHERE collection_id = ? AND game_id = ?",
+                        arguments: [collection, game.description]
+                    )
+                }
+            }
+        }
+
+        /// The collections a game is in.
+        public func memberships(of game: GameID) throws -> Set<String> {
+            try store.read("collections.memberships") { db in
+                try Set(String.fetchAll(
+                    db,
+                    sql: "SELECT collection_id FROM collection_games WHERE game_id = ?",
+                    arguments: [game.description]
+                ))
+            }
+        }
+    }
+
+    /// Installed translation packs, one row per `Overrides/translations/<id>/` folder.
+    struct Translations: Sendable {
+        let store: GameStore
+        public func fetch(game: GameID) throws -> [TranslationPackRecord] {
+            try store.fetchAll(TranslationPackRecord.self, game: game).sorted { $0.priority > $1.priority }
+        }
+
+        public func save(_ pack: TranslationPackRecord) throws { try store.save(pack) }
+
+        public func delete(id: String) throws {
+            _ = try store.write("translations.delete") { try TranslationPackRecord.deleteOne($0, key: id) }
+        }
+    }
+
+    /// Installed mods, one row per `Overrides/mods/<id>/` folder.
+    struct Mods: Sendable {
+        let store: GameStore
+        public func fetch(game: GameID) throws -> [ModRecord] {
+            try store.fetchAll(ModRecord.self, game: game).sorted { $0.priority > $1.priority }
+        }
+
+        public func save(_ mod: ModRecord) throws { try store.save(mod) }
+
+        public func delete(id: String) throws {
+            _ = try store.write("mods.delete") { try ModRecord.deleteOne($0, key: id) }
+        }
+    }
 
     /// The `persistent_stores` index, rebuilt with the saves after every session.
     struct PersistentStores: Sendable {
@@ -127,12 +226,12 @@ public extension GameStore {
         /// FTS5 prefix search over titles: `"dra"` finds "Dragon Quest".
         public func search(_ query: String, limit: Int = 50) throws -> [GameRecord] {
             let tokens = query.split(whereSeparator: \.isWhitespace).map { "\"\($0.replacingOccurrences(of: "\"", with: ""))\"*" }
-            guard !tokens.isEmpty else { return try fetchAll(limit: limit) }
+            guard !tokens.isEmpty else { return [] }
             let match = tokens.joined(separator: " ")
             return try store.read("games.search") {
                 try GameRecord.fetchAll($0, sql: """
                 SELECT games.* FROM games JOIN games_fts ON games_fts.rowid = games.rowid
-                WHERE games_fts MATCH ? ORDER BY rank LIMIT ?
+                WHERE games_fts MATCH ? AND games.hidden = 0 ORDER BY rank LIMIT ?
                 """, arguments: [match, limit])
             }
         }

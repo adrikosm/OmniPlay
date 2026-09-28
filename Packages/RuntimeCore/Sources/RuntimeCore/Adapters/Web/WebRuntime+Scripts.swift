@@ -1,19 +1,55 @@
 #if canImport(WebKit) && canImport(UIKit)
     import Foundation
+    import WebKit
 
     extension WebRuntime {
+        /// User scripts run again after every navigation, including a WebContent crash reload. Refresh the
+        /// host snapshot first, otherwise document-start seeding can resurrect this session's older saves.
+        func installScripts(in controller: WKUserContentController) async throws {
+            let seed = try await saves?.seed() ?? "{}"
+            guard !stopping else { throw CancellationError() }
+            let page = try WebRuntimeBundle.pageScripts.map {
+                try WKUserScript(
+                    source: WebRuntimeBundle.source($0, profile: profile, saves: seed),
+                    injectionTime: .atDocumentStart,
+                    forMainFrameOnly: true
+                )
+            }
+            let isolated = try WebRuntimeBundle.isolatedScripts.map {
+                try WKUserScript(
+                    source: WebRuntimeBundle.source($0, profile: profile),
+                    injectionTime: .atDocumentStart,
+                    forMainFrameOnly: true,
+                    in: .world(name: "OmniPlay")
+                )
+            }
+            controller.removeAllUserScripts()
+            for script in page + isolated {
+                controller.addUserScript(script)
+            }
+        }
+
         /// Asks RPG Maker MV/MZ to write the engine's own autosave slot while the page is still alive.
         /// MZ has a real autosave slot (0); MV has none, so slot 99 stands in. Anything else is skipped.
+        /// A function body for `callAsyncJavaScript`: the `return` hands back the promise, so the host waits for MZ's
+        /// asynchronous save before tearing the page down (without it the result was always "unknown").
         static let autosaveScript = """
-        (async () => {
+        return (async () => {
           try {
-            if (typeof DataManager === "undefined" || typeof SceneManager === "undefined") return "no-engine";
-            if (typeof $gameMap === "undefined" || !$gameMap) return "no-engine";
-            if (!(SceneManager._scene instanceof Scene_Map)) return "not-on-map";
-            const slot = typeof StorageManager.saveZip === "function" ? 0 : 99;
-            if (typeof $gameSystem?.onBeforeSave === "function") $gameSystem.onBeforeSave();
-            await Promise.resolve(DataManager.saveGame(slot));
-            return "saved:" + slot;
+            let result = "flushed";
+            if (enabled && typeof DataManager !== "undefined" && typeof SceneManager !== "undefined" &&
+                typeof $gameMap !== "undefined" && $gameMap && typeof Scene_Map !== "undefined" &&
+                SceneManager._scene instanceof Scene_Map) {
+              const slot = typeof StorageManager.saveZip === "function" ? 0 : 99;
+              if (typeof $gameSystem?.onBeforeSave === "function") $gameSystem.onBeforeSave();
+              const saved = await Promise.resolve(DataManager.saveGame(slot));
+              if (saved === false) throw new Error("The engine refused the autosave");
+              if (typeof StorageManager.saveZip === "function") await DataManager.saveGlobalInfo();
+              result = "saved:" + slot;
+            }
+            if (typeof window.__omniplayFlushSaves !== "function") throw new Error("The save bridge is unavailable");
+            await window.__omniplayFlushSaves();
+            return result;
           } catch (e) { return "error:" + e; }
         })()
         """

@@ -1,0 +1,8 @@
+_op_godot_version
+_op_godot_setup
+_op_godot_view_controller
+_op_godot_request
+_op_godot_status
+_op_godot_frames
+_op_godot_app_event
+_op_godot_key

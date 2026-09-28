@@ -1,0 +1,15 @@
+_op_renpy_version
+_op_renpy_run
+_op_renpy_request
+_op_renpy_command
+_op_renpy_set_status
+_op_renpy_status
+_op_renpy_idle
+_op_renpy_window
+_op_renpy_app_event
+_op_renpy_set_session
+_op_renpy_session
+_op_renpy_state_request
+_op_renpy_state_take
+_op_renpy_state_reply
+_op_renpy_state_cancel

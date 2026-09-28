@@ -1,0 +1,76 @@
+diff --git a/src/display/movie.cpp b/src/display/movie.cpp
+index ca39f35..ebfd165 100644
+--- a/src/display/movie.cpp
++++ b/src/display/movie.cpp
+@@ -52,28 +52,30 @@ Movie::Movie(bool skippable_)
+ 
+ Movie::~Movie()
+ {
+-    if (hasAudio) {
+-        if (audioQueueTail) {
+-            THEORAPLAY_freeAudio(audioQueueTail->audio);
+-            audioQueueTail = nullptr;
+-        }
+-        if (audioQueueHead) {
+-            THEORAPLAY_freeAudio(audioQueueHead->audio);
+-            audioQueueHead = nullptr;
+-        }
+-        if (audioMutex) {
+-            SDL_DestroyMutex(audioMutex);
+-            audioMutex = nullptr;
+-        }
+-        audioThreadTermReq.set();
+-        if (audioThread) {
+-            SDL_WaitThread(audioThread, 0);
+-            audioThread = nullptr;
+-        }
+-        if (audioSource) {
+-            alSourceStop(audioSource);
+-            alDeleteSources(1, &audioSource);
+-        }
++    // The streaming thread reads the queue under the mutex; it has to be gone before either is touched.
++    audioThreadTermReq.set();
++    if (audioThread) {
++        SDL_WaitThread(audioThread, 0);
++        audioThread = nullptr;
++    }
++    // Each queued packet once: with one packet left, head and tail are the same item.
++    volatile AudioQueue *item = audioQueueHead;
++    while (item) {
++        volatile AudioQueue *next = item->next;
++        THEORAPLAY_freeAudio(item->audio);
++        free((void *) item);
++        item = next;
++    }
++    audioQueueHead = nullptr;
++    audioQueueTail = nullptr;
++    if (audioMutex) {
++        SDL_DestroyMutex(audioMutex);
++        audioMutex = nullptr;
++    }
++    if (audioSource) {
++        alSourceStop(audioSource);
++        alSourcei(audioSource, AL_BUFFER, 0);
++        alDeleteSources(1, &audioSource);
+         alDeleteBuffers(STREAM_BUFS, alBuffers);
+     }
+     if (video) THEORAPLAY_freeVideo(video);
+@@ -146,6 +148,7 @@ bool Movie::preparePlayback()
+ 
+     if (!hasVideo) {
+         THEORAPLAY_stopDecode(decoder);
++        decoder = nullptr; // the destructor would stop it a second time
+         return false;
+     }
+ 
+@@ -158,8 +161,8 @@ bool Movie::preparePlayback()
+         SDL_Delay(VIDEO_DELAY);
+     }
+ 
+-    audio = NULL;
+-    if (hasAudio) {
++    // Keep a packet the first wait already took; dropping it leaked it and lost the opening audio.
++    if (hasAudio && !audio) {
+         while ((audio = THEORAPLAY_getAudio(decoder)) == NULL && THEORAPLAY_availableVideo(decoder) < DEF_MAX_VIDEO_FRAMES) {
+             if (prepShouldAbort(prepStart)) break;
+             SDL_Delay(VIDEO_DELAY);

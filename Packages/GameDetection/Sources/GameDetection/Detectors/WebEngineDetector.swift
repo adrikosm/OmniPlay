@@ -77,6 +77,10 @@ public struct WebEngineDetector: Detector {
             sub == nil ? "Web page \(entry) with no known engine signature" : "\(name) web build, entry \(entry)"
         )
         r.partial.entryPoint = entry
+        // The page's own name (`<title>2048</title>`) instead of the folder's; Tyrano's Config.tjs title wins below.
+        if let m = index.firstMatch(of: /<title[^>]*>\s*([^<]{1,120}?)\s*<\/title>/.ignoresCase()) {
+            r.partial.title = String(m.1)
+        }
         for (k, v) in hints {
             r.partial.profileHints[k] = v
         }
@@ -86,6 +90,56 @@ public struct WebEngineDetector: Detector {
         r.partial.saveFamily = .webLocalStorage
         r.partial.exportPlatform = .web
         r.partial.runtimeCandidates = [RuntimeCandidate(runtime: .web, confidence: confidence, reason: "\(name) runs in WebKit")]
+        if sub?.name == "tyrano" {
+            tyrano(ctx, &r)
+        }
         return r
+    }
+
+    /// TyranoScript and TyranoBuilder: engine version from kag.js, title and screen shape from Config.tjs, and game
+    /// plugins that reach for Node or Electron, named the way MV/MZ plugins are.
+    func tyrano(_ ctx: ScanContext, _ r: inout DetectorReport) {
+        let kag = "tyrano/plugins/kag/kag.js"
+        // Latin-1 never fails, even on a UTF-8 character cut at the 4 KiB edge; the marker itself is ASCII.
+        if let head = ctx.header(kag, bytes: 4 << 10), let text = String(bytes: head, encoding: .isoLatin1),
+           let m = text.firstMatch(of: /version\s*:\s*(\d{3,4})\b/), let n = Int(m.1) {
+            let v = EngineVersion(major: n / 100, minor: n % 100, raw: String(format: "%d.%02d", n / 100, n % 100))
+            r.partial.version = v
+            r.add(id, .version(path: kag, value: v.raw), 0.9, .fileContent, "TyranoScript engine \(v.raw)")
+        }
+        let config = Self.tjsConfig(ctx.text("data/system/Config.tjs", max: 1 << 20) ?? "")
+        if let title = config["System.title"], !title.isEmpty {
+            r.partial.title = title
+        }
+        if let w = config["scWidth"].flatMap(Int.init), let h = config["scHeight"].flatMap(Int.init), w != h {
+            r.partial.profileHints["orientation"] = w > h ? "landscape" : "portrait"
+        }
+        // ponytail: `[iscript]` blocks inside .ks files are not scanned; add them if a real game hides Node calls there.
+        for plugin in ctx.glob("data/others/*.js", limit: 300) {
+            guard let text = ctx.text(plugin.realRel, max: 4 << 20) else { continue }
+            let hits = (MVMZPluginScanner.apis + ["studio_api"]).filter(text.contains)
+            guard !hits.isEmpty else { continue }
+            r.partial.warnings.append(.nodePlugin(file: plugin.realRel, apis: hits))
+            r.add(
+                id,
+                .text(path: plugin.realRel, excerpt: hits.joined(separator: " ")),
+                0.8,
+                .fileContent,
+                "Plugin \(plugin.realRel) uses \(hits.joined(separator: ", "))"
+            )
+            if let hard = MVMZPluginScanner.blocking.first(where: text.contains) {
+                r.partial.blockers.append(.nodePlugin(file: plugin.realRel, api: hard))
+            }
+        }
+    }
+
+    /// The `;key = value;` lines of a Tyrano Config.tjs, quotes and trailing `//` comments removed.
+    static func tjsConfig(_ text: String) -> [String: String] {
+        var out: [String: String] = [:]
+        for line in text.split(whereSeparator: \.isNewline) {
+            guard let m = line.firstMatch(of: /^\s*;\s*([\w.]+)\s*=\s*(.*?)\s*;?\s*(\/\/.*)?$/) else { continue }
+            out[String(m.1)] = String(m.2).trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        }
+        return out
     }
 }

@@ -4,7 +4,7 @@ public extension DetectionPipeline {
         DetectionPipeline(
             detectors: [
                 RefusalDetectors(), RGSSDetector(), RenPyDetector(), RPGMakerMVMZDetector(), MVMZPluginScanner(),
-                RM2kDetector(), GodotPCKDetector(), WebEngineDetector(),
+                RM2kDetector(), GodotPCKDetector(), KiriKiriDetector(), ScummVMDetector(), WebEngineDetector(),
             ],
             analyzers: [RuntimeBucketClassifier(), MediaRequirementAnalyzer(), SaveStrategyAnalyzer()]
         )

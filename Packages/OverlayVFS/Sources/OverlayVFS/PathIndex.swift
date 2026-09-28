@@ -86,6 +86,11 @@ public final class PathIndex: Sendable {
         }
     }
 
+    /// SQLite's backup API includes committed WAL pages and uses bounded page buffers.
+    public func backup(to destination: URL) throws {
+        try queue.backup(to: DatabaseQueue(path: destination.path(percentEncoded: false)))
+    }
+
     /// Direct children of `directoryKey` (`""` for the layer root), paged.
     public func children(layer: String, directoryKey: String, limit: Int = 500, offset: Int = 0) throws -> [IndexedEntry] {
         let prefix = directoryKey.isEmpty ? "" : directoryKey + "/"

@@ -33,31 +33,71 @@ extension ImportPipeline {
         } catch {
             try? OriginalGuard.unseal(originalRoot: paths.tier(.original, for: id))
             try? fm.removeItem(at: gameRoot)
+            try? fm.removeItem(at: paths.logs(game: id, session: UUID()).deletingLastPathComponent())
             throw error
         }
     }
 
-    /// Swaps an existing game's `Original/` for the new tree, keeping `.bak` until everything succeeded. Saves stay.
+    /// Keep the original tree and every affected sidecar until the database transaction succeeds. Saves stay.
     func replace(_ id: GameID, with plan: CommitPlan) async throws -> GameID {
         let fm = FileManager.default
         let original = paths.tier(.original, for: id)
-        let backup = paths.game(id).appending(path: "Original.bak", directoryHint: .isDirectory)
-        try? fm.removeItem(at: backup)
-        try? OriginalGuard.unseal(originalRoot: original)
-        try fm.moveItem(at: original, to: backup)
+        let root = paths.game(id)
+        let backup = root.appending(path: "ImportRollback", directoryHint: .isDirectory)
+        guard !fm.fileExists(atPath: backup.path(percentEncoded: false)) else {
+            throw ImportFailure
+                .internalError("A previous replacement needs recovery; its backup was preserved at \(backup.lastPathComponent).")
+        }
+        let metadata = ["game.json", "original.manifest", "sidecars.json"].map { root.appending(path: $0) }
+            + [paths.logs(game: id, session: UUID()).deletingLastPathComponent().appending(path: "detection.json")]
+        let index = root.appending(path: "index.sqlite")
+        try fm.createDirectory(at: backup, withIntermediateDirectories: true)
+        do {
+            for url in metadata where fm.fileExists(atPath: url.path(percentEncoded: false)) {
+                try fm.copyItem(at: url, to: backup.appending(path: url.lastPathComponent))
+            }
+            try PathIndex.open(at: index).backup(to: backup.appending(path: "index.sqlite"))
+            // Darwin requires write permission on a directory moved between parents; leave its contents sealed.
+            try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: original.path(percentEncoded: false))
+            try fm.moveItem(at: original, to: backup.appending(path: "Original"))
+        } catch {
+            try? fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: original.path(percentEncoded: false))
+            try? fm.removeItem(at: backup)
+            throw error
+        }
         do {
             try install(plan, into: id)
             try register(plan, id: id, replacing: true)
             attachCover(plan, id: id)
+            try? OriginalGuard.unseal(originalRoot: backup.appending(path: "Original"))
             try? fm.removeItem(at: backup)
             OPLog.log(.importer, .info, "replaced \(id) with \(plan.title)", session: session)
             return id
         } catch {
-            try? OriginalGuard.unseal(originalRoot: original)
-            try? fm.removeItem(at: original)
-            try? fm.moveItem(at: backup, to: original)
-            try? OriginalGuard.seal(originalRoot: original, manifest: paths.game(id).appending(path: "original.manifest"))
-            throw error
+            let failure = error
+            do {
+                if fm.fileExists(atPath: original.path(percentEncoded: false)) {
+                    try OriginalGuard.unseal(originalRoot: original)
+                    try fm.removeItem(at: original)
+                }
+                try fm.moveItem(at: backup.appending(path: "Original"), to: original)
+                try fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: original.path(percentEncoded: false))
+                try PathIndex.open(at: backup.appending(path: "index.sqlite")).backup(to: index)
+                for url in metadata {
+                    if fm.fileExists(atPath: url.path(percentEncoded: false)) {
+                        try fm.removeItem(at: url)
+                    }
+                    let saved = backup.appending(path: url.lastPathComponent)
+                    if fm.fileExists(atPath: saved.path(percentEncoded: false)) {
+                        try fm.copyItem(at: saved, to: url)
+                    }
+                }
+                try fm.removeItem(at: backup)
+            } catch {
+                throw ImportFailure
+                    .internalError("Replacement failed (\(failure)); recovery failed (\(error)). Preserved ImportRollback for recovery.")
+            }
+            throw failure
         }
     }
 
@@ -108,6 +148,8 @@ extension ImportPipeline {
         )
         if !plan.located.sidecars.files.isEmpty {
             try encoder.encode(plan.located.sidecars).write(to: gameRoot.appending(path: "sidecars.json"), options: .atomic)
+        } else if FileManager.default.fileExists(atPath: gameRoot.appending(path: "sidecars.json").path(percentEncoded: false)) {
+            try FileManager.default.removeItem(at: gameRoot.appending(path: "sidecars.json"))
         }
     }
 
@@ -125,37 +167,33 @@ extension ImportPipeline {
         record.compatibilityState = plan.report.outcome.isPlayableClass ? .loadable : .refused
         record.installBytes = plan.bytes
         record.compatProfileJson = d.profile
-        if replacing {
-            try store.games.update(record)
-        } else {
-            try store.games.insert(record)
-        }
-        _ = try store.detection.saveResult(.init(
+        let detection = DetectionResultRecord(
             gameId: id,
             outcome: Self.outcomeName(plan.report.outcome),
             confidence: plan.report.confidence,
             evidence: plan.report.evidence.map(\.record),
             detectorVersions: plan.report.detectorVersions.mapValues(String.init)
-        ))
-        if let runtime = plan.resolution.selectedRuntime {
-            _ = try store.runtime.saveSelection(.init(
+        )
+        let runtime = plan.resolution.selectedRuntime.map { runtime in
+            RuntimeSelectionRecord(
                 gameId: id,
                 selectedRuntime: runtime,
                 version: plan.resolution.selectedRuntimeVersion,
                 reason: plan.resolution.reason,
                 warnings: plan.resolution.warnings.map { "\($0)" },
                 fallbacks: plan.resolution.fallbacks.map(\.runtime)
-            ))
+            )
         }
         let container = (try? ContainerSniffer.identify(plan.source.url).rawValue) ?? "unknown"
-        _ = try store.imports.record(.init(
+        let source = ImportRecord(
             gameId: id,
             sourceName: plan.source.url.lastPathComponent,
             container: container,
             sourceSha256: plan.fingerprint,
             bytes: plan.bytes,
             outcome: replacing ? "replaced" : "ok"
-        ))
+        )
+        try store.registerImport(game: record, detection: detection, runtime: runtime, source: source, replacing: replacing)
     }
 
     /// Saves kept from a deleted copy of the same title come back automatically; the game is new, so nothing is overwritten.

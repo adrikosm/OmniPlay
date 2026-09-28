@@ -305,12 +305,205 @@ def electron(prefix):
     w(f"{prefix}/resources/app.asar.unpacked/data/big.bin", tree["data/big.bin"][1])
     w(f"{prefix}/Game.exe", PE)
 
+def zstring(text, end=True):
+    """Z-machine text (version 3): lower-case, space and the few punctuation marks the story uses, 5-bit Z-chars."""
+    a2 = "\n0123456789.,!?_#'\"/\\-:()"
+    chars = []
+    for ch in text:
+        if ch == " ":
+            chars.append(0)
+        elif "a" <= ch <= "z":
+            chars.append(ord(ch) - ord("a") + 6)
+        elif "A" <= ch <= "Z":
+            chars += [4, ord(ch) - ord("A") + 6]
+        elif ch in a2:
+            chars += [5, a2.index(ch) + 7]
+        else:
+            raise ValueError(ch)
+    while len(chars) % 3 or not chars:
+        chars.append(5)
+    out = b""
+    for i in range(0, len(chars), 3):
+        word = chars[i] << 10 | chars[i + 1] << 5 | chars[i + 2]
+        if end and i + 3 >= len(chars):
+            word |= 0x8000
+        out += struct.pack(">H", word)
+    return out
+
+
+def zword(text):
+    """A dictionary entry's 4 bytes: the first six Z-chars, padded with 5s."""
+    chars = [ord(c) - ord("a") + 6 for c in text[:6]] + [5] * (6 - len(text[:6]))
+    w1, w2 = chars[0] << 10 | chars[1] << 5 | chars[2], chars[3] << 10 | chars[4] << 5 | chars[5] | 0x8000
+    return struct.pack(">HH", w1, w2)
+
+
+def zcode_story():
+    """A version 3 Z-machine story ScummVM's Glk engine plays: a status line (object 1 is the room), and four
+    commands: `count` bumps a counter it prints (the state a save must bring back), `save`, `restore`, `quit`."""
+    TEXT, PARSE, DICT, CODE = 0x360, 0x390, 0x3B0, 0x400
+    G_WORD, G_COUNT = 0x20, 0x21  # globals 16 and 17
+    words = sorted(["count", "quit", "restore", "save"], key=zword)
+    # Infocom's three separators. A dictionary with none is legal, but ScummVM's tokeniser then reads 255 bytes of
+    # the dictionary as separators (its separator loop assumes at least one) and splits words on letters.
+    separators = b'.,"'
+    entry = {w: DICT + 1 + len(separators) + 3 + i * 7 for i, w in enumerate(words)}
+
+    def program(labels):
+        code, here = b"", CODE
+
+        def emit(b):
+            nonlocal code, here
+            code += b
+            here += len(b)
+
+        def branch_to(label):  # two-byte branch on true
+            offset = labels.get(label, here + 2) - (here + 2) + 2
+            return struct.pack(">H", 0x8000 | (offset & 0x3FFF))
+
+        def jump(label):  # jump: target = next instruction + offset - 2
+            offset = labels.get(label, here + 3) - (here + 3) + 2
+            return b"\x8c" + struct.pack(">h", offset)
+
+        def mark(name):
+            labels[name] = here
+
+        def je(word, label):
+            emit(b"\xc1\x8f" + bytes([G_WORD]) + struct.pack(">H", entry[word]))
+            emit(branch_to(label))
+
+        def say(text):
+            emit(b"\xb2" + zstring(text) + b"\xbb")
+
+        mark("start")
+        say("OmniPlay test story. Commands: count, save, restore, quit.")
+        mark("loop")
+        emit(b"\xe4\x0f" + struct.pack(">HH", TEXT, PARSE))            # sread
+        emit(b"\xcf\x1f" + struct.pack(">H", PARSE) + b"\x01" + bytes([G_WORD]))  # loadw parse 1 -> word
+        for w in ["count", "save", "restore", "quit"]:
+            je(w, w)
+        say("Unknown command.")
+        emit(jump("loop"))
+        mark("count")
+        emit(b"\x95" + bytes([G_COUNT]))                                  # inc counter
+        emit(b"\xb2" + zstring("Counter: "))
+        emit(b"\xe6\xbf" + bytes([G_COUNT]) + b"\xbb")                  # print_num counter; new_line
+        emit(jump("loop"))
+        mark("save")
+        emit(b"\xb5"); emit(branch_to("saved"))
+        say("Save failed.")
+        emit(jump("loop"))
+        mark("saved")
+        say("Saved.")
+        emit(jump("loop"))
+        mark("restore")
+        emit(b"\xb6"); emit(branch_to("loop"))
+        say("Restore failed.")
+        emit(jump("loop"))
+        mark("quit")
+        emit(b"\xba")
+        return code
+
+    labels = {}
+    program(labels)            # first pass: addresses
+    code = program(labels)     # second pass: resolved branches
+    mem = bytearray(CODE + len(code))
+    mem[CODE:] = code
+    mem[0] = 3
+    struct.pack_into(">HHHHHH", mem, 4, CODE, CODE, DICT, 0x100, 0x180, DICT)
+    mem[0x12:0x18] = b"260923"
+    struct.pack_into(">H", mem, 0x18, 0x40)
+    struct.pack_into(">H", mem, 2, 1)
+    # Object 1, the room the status line names; its property table holds only the name.
+    name = zstring("Test Room")
+    struct.pack_into(">BBBH", mem, 0x13E + 4, 0, 0, 0, 0x150)
+    mem[0x150] = len(name) // 2
+    mem[0x151:0x151 + len(name)] = name
+    struct.pack_into(">H", mem, 0x180, 1)            # global 0: the location
+    mem[TEXT], mem[PARSE] = 40, 4
+    head = bytes([len(separators)]) + separators + b"\x07" + struct.pack(">H", len(words))
+    mem[DICT:DICT + len(head)] = head
+    for w in words:
+        mem[entry[w]:entry[w] + 4] = zword(w)
+    if len(mem) % 2:
+        mem.append(0)
+    struct.pack_into(">H", mem, 0x1A, len(mem) // 2)
+    struct.pack_into(">H", mem, 0x1C, sum(mem[0x40:]) & 0xFFFF)
+    return bytes(mem)
+
+
 def rgss(prefix, ini_lib, archive, scripts, header_version):
     w(f"{prefix}/Game.ini", f"[Game]\r\nRTP=Standard\r\nLibrary={ini_lib}\r\nScripts=Data\\Scripts.{scripts.split('.')[-1]}\r\nTitle=Synthetic\r\n")
     w(f"{prefix}/Game.exe", PE)
     w(f"{prefix}/{archive}", b"RGSSAD\0" + bytes([header_version]) + b"\0" * 56)
     w(f"{prefix}/Graphics/Titles1/Title.png", TITLE_PNG)
     w(f"{prefix}/Data/{scripts}", b"\x04\x08[\x06[\x08i\x03" + b"# encoding: ruby 1.8 grammar sample: puts 'hi' if x and not y\n" + b"\0" * 32)
+
+# The one fixture that is not a stub. Everything else here only has to be recognised; this one has to RUN,
+# because a native engine cannot be proved by structure. It is a real RGSS1 script pack: a Marshal array of
+# [id, name, zlib(source)] exactly as RPG Maker XP writes it, holding a script that draws, reads Input and
+# writes a save. No encrypted archive: mkxp's RGSSAD reader trusts its header and corrupts the heap on the
+# 64-byte stub the other RGSS fixtures carry, so a playable fixture must ship its Data/ folder plainly.
+RGSS_SAMPLE_SCRIPT = """# OmniPlay synthetic RGSS1 game.
+bg = Sprite.new
+bg.bitmap = Bitmap.new(640, 480)
+bg.bitmap.fill_rect(0, 0, 640, 480, Color.new(16, 22, 40))
+bg.bitmap.font.size = 36
+bg.bitmap.draw_text(0, 48, 640, 48, "OmniPlay RGSS", 1)
+marker = Sprite.new
+marker.bitmap = Bitmap.new(48, 48)
+marker.bitmap.fill_rect(0, 0, 48, 48, Color.new(244, 180, 80))
+marker.x = 296
+marker.y = 216
+hud = Sprite.new
+hud.bitmap = Bitmap.new(640, 40)
+hud.y = 428
+hud.bitmap.font.size = 22
+saves = 0
+frames = 0
+loop do
+  Graphics.update
+  Input.update
+  frames += 1
+  marker.x += 4 if Input.press?(Input::RIGHT)
+  marker.x -= 4 if Input.press?(Input::LEFT)
+  marker.y += 4 if Input.press?(Input::DOWN)
+  marker.y -= 4 if Input.press?(Input::UP)
+  if Input.trigger?(Input::C)
+    saves += 1
+    state = {"frames" => frames, "x" => marker.x, "y" => marker.y, "saves" => saves}
+    File.open("Save01.rxdata", "wb") { |f| Marshal.dump(state, f) }
+  end
+  hud.bitmap.clear
+  hud.bitmap.draw_text(0, 0, 640, 40, "frames " + frames.to_s + "  saves " + saves.to_s, 1)
+end
+"""
+
+def marshal_long(n):
+    """Ruby Marshal's variable-length integer, used for array counts and string lengths."""
+    if n == 0: return b"\x00"
+    if 0 < n < 123: return bytes([n + 5])
+    if -124 < n < 0: return bytes([(n - 5) & 0xFF])
+    body = n.to_bytes(4, "little").rstrip(b"\x00")
+    return bytes([len(body)]) + body
+
+def rgss_script_pack(entries):
+    """Marshal 4.8 array of [Fixnum id, String name, String zlib(source)] — the RGSS script archive."""
+    out = b"\x04\x08[" + marshal_long(len(entries))
+    for index, (name, source) in enumerate(entries):
+        body = zlib.compress(source.encode("utf-8"), 9)
+        out += b"[" + marshal_long(3)
+        out += b"i" + marshal_long(index + 1)
+        out += b'"' + marshal_long(len(name)) + name.encode("utf-8")
+        out += b'"' + marshal_long(len(body)) + body
+    return out
+
+def rgss_playable(prefix):
+    w(f"{prefix}/Game.ini", "[Game]\r\nLibrary=RGSS104E.dll\r\nScripts=Data\\Scripts.rxdata\r\nTitle=OmniPlay RGSS Sample\r\n")
+    w(f"{prefix}/Game.exe", PE)
+    w(f"{prefix}/Data/Scripts.rxdata", rgss_script_pack([("Main", RGSS_SAMPLE_SCRIPT)]))
+    w(f"{prefix}/Graphics/Titles1/Title.png", TITLE_PNG)
+    w(f"{prefix}/Graphics/Characters/.keep", b"")
 
 def renpy(prefix, libs, version_file, version_text, extra=()):
     for d in libs:
@@ -354,6 +547,7 @@ def build():
     rgss("rgss-xp", "RGSS104E.dll", "Game.rgssad", "Scripts.rxdata", 1)
     rgss("rgss-vx", "RGSS202E.dll", "Game.rgss2a", "Scripts.rvdata", 1)
     rgss("rgss-vxace", "RGSS301.dll", "Game.rgss3a", "Scripts.rvdata2", 3)
+    rgss_playable("rgss-xp-playable")
     w("rgss-essentials-like/Game.ini", "[Game]\r\nLibrary=RGSS301.dll\r\nScripts=Data\\Scripts.rvdata2\r\nTitle=Essentials\r\n")
     w("rgss-essentials-like/Game.exe", PE)
     w("rgss-essentials-like/x64-msvcrt-ruby310.dll", PE)
@@ -361,14 +555,31 @@ def build():
     w("rgss-essentials-like/Data/Scripts.rvdata2", b"\x04\x08[\x00")
     w("rgss-essentials-like/Data/Map001.rvdata2", b"\x04\x08o:\x0cRPG::Map\x00")
     # ---- Ren'Py ----
+    # Version files as Ren'Py writes them: 7.0-7.4 keep a version_tuple literal in renpy/__init__.py (and this
+    # fixture has no script_version.txt to fall back on); 8.x writes vc_version.py with single quotes.
     renpy("renpy-7x", ["lib/py2-windows-x86_64", "lib/pythonlib2.7"], "renpy/__init__.py",
-          "version_tuple = (7, 8, 7, 24020701)\nversion_name = \"Synthetic\"\n", [("game/script_version.txt", "(7, 8, 7)\n")])
-    renpy("renpy-81", ["lib/py3-windows-x86_64", "lib/python3.9"], "renpy/vc_version.py", "version = \"8.1.3.23091805\"\nofficial = True\n")
-    renpy("renpy-85", ["lib/py3-windows-x86_64", "lib/python3.12"], "renpy/vc_version.py", "version = \"8.5.3.26050201\"\nofficial = True\n",
+          "version_tuple = (7, 8, 7, vc_version)\nversion_name = \"Synthetic\"\n")
+    renpy("renpy-81", ["lib/py3-windows-x86_64", "lib/python3.9"], "renpy/vc_version.py",
+          "branch = 'fix'\nnightly = False\nofficial = True\nversion = '8.1.3.23091805'\nversion_name = 'Synthetic'\n")
+    renpy("renpy-85", ["lib/py3-windows-x86_64", "lib/python3.12"], "renpy/vc_version.py",
+          "branch = 'fix'\nnightly = False\nofficial = True\nversion = '8.5.3.26050201'\nversion_name = 'Synthetic'\n",
           [("game/cache/bytecode-312.rpyb", b"\x80\x04\x95" + bytes(32))])
+    # ---- ScummVM: interactive fiction and AGS ----
+    w("zcode-min/omniplay.z3", zcode_story())
+    # AGS data appended to the executable ends with this tail; acsetup.cfg sits beside it.
+    w("ags-min/game.exe", PE + b"CLIB\x1a" + bytes(64) + b"CLIB\x01\x02\x03\x04SIGE")
+    w("ags-min/acsetup.cfg", "[misc]\r\ngamecolordepth=32\r\n")
     # ---- RPG Maker 2000/2003 ----
+    # The generation lives in the database's System chunk (0x16): field 0x0A (ldb_id) is 2003 for RPG Maker 2003 and
+    # absent for 2000. rm2k-min also carries RPG_RT.exe and PNG charsets, the layout that once read as 2003.
     w("rm2k3-min/RPG_RT.ini", "[RPG_RT]\r\nGameTitle=Synthetic 2003\r\nMapEditMode=0\r\nFullPackageFlag=1\r\n")
-    w("rm2k3-min/RPG_RT.ldb", b"\x0bLcfDataBase" + bytes(32))
+    w("rm2k3-min/RPG_RT.ldb", b"\x0bLcfDataBase" + b"\x16\x05" + b"\x0a\x02\x8f\x53" + b"\x00")
+    w("rm2k-min/RPG_RT.ini", "[RPG_RT]\r\nGameTitle=Synthetic 2000\r\nMapEditMode=0\r\nFullPackageFlag=1\r\n")
+    w("rm2k-min/RPG_RT.ldb", b"\x0bLcfDataBase" + b"\x0b\x02\x1d\x00" + b"\x16\x04" + b"\x0b\x01\x01" + b"\x00")
+    w("rm2k-min/RPG_RT.lmt", b"\x0aLcfMapTree" + bytes(32))
+    w("rm2k-min/Map0001.lmu", b"\x0aLcfMapUnit" + bytes(16))
+    w("rm2k-min/CharSet/hero.png", PNG)
+    w("rm2k-min/RPG_RT.exe", PE)
     w("rm2k3-min/RPG_RT.lmt", b"\x0aLcfMapTree" + bytes(32))
     w("rm2k3-min/Map0001.lmu", b"\x0aLcfMapUnit" + bytes(16))
     w("rm2k3-min/RPG_RT.exe", PE)

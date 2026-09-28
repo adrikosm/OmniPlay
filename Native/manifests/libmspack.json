@@ -1,0 +1,31 @@
+{
+  "arch": "arm64",
+  "artefact": "Packages/GameImport/Native/libmspack.xcframework",
+  "built_at": "2026-09-24T06:27:03+00:00",
+  "component": "libmspack",
+  "flags": {
+    "iphoneos_min": "27.0",
+    "macosx_min": "15.0"
+  },
+  "outputs": {
+    "Info.plist": "89c2264a165540494a721361973c6085b638caff4b11f93ab1587f18abd32b67",
+    "ios-arm64-simulator/Headers/CMspack/CMspack.h": "0c2a318cc179ece88af900035f3c99331dbd5b1d0eadb9cf1a6da9b52b9ba380",
+    "ios-arm64-simulator/Headers/CMspack/module.modulemap": "4e116c660becc2ffdc4829a00a471db152278805d9e5c82935a7b247b801ea47",
+    "ios-arm64-simulator/libmspack.a": "b7d71578cc2cb1d3e8c8e2a5b9f1c108d5564b02b438d79b8286e96a4d26118f",
+    "ios-arm64/Headers/CMspack/CMspack.h": "0c2a318cc179ece88af900035f3c99331dbd5b1d0eadb9cf1a6da9b52b9ba380",
+    "ios-arm64/Headers/CMspack/module.modulemap": "4e116c660becc2ffdc4829a00a471db152278805d9e5c82935a7b247b801ea47",
+    "ios-arm64/libmspack.a": "af5b403c747320bd71c2b0e707c5130ccd3652b5238b5502dc1db46ff0c7c24c",
+    "macos-arm64/Headers/CMspack/CMspack.h": "0c2a318cc179ece88af900035f3c99331dbd5b1d0eadb9cf1a6da9b52b9ba380",
+    "macos-arm64/Headers/CMspack/module.modulemap": "4e116c660becc2ffdc4829a00a471db152278805d9e5c82935a7b247b801ea47",
+    "macos-arm64/libmspack.a": "a2b21b5043b9414b537f0f954eeaa9e0f56666a963202b4785e639c19e9f8e76"
+  },
+  "sdks": {
+    "iphoneos": "27.0",
+    "iphonesimulator": "27.0",
+    "macosx": "27.0"
+  },
+  "sources": {
+    "Native/libmspack": "305907723a4e7ab2018e58040059ffb5e77db837"
+  },
+  "toolchain": "Xcode 27.0 Build version 27A266a"
+}

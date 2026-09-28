@@ -58,10 +58,6 @@ public struct RefusalDetectors: Detector {
             r.claimFamily(.wolfRPG, 0.9)
             r.unsupported = "Wolf RPG Editor games are not supported yet (tracked as post-MVP research)"
             r.add(id, .present(path: "Data/*.wolf"), 0.9, .fileName, "Wolf RPG Editor data files")
-        } else if let e = ctx.glob("*.xp3", limit: 1).first, ctx.header(e.realRel, bytes: 3)?.elementsEqual("XP3".utf8) == true {
-            r.claimFamily(.kirikiri, 0.9)
-            r.unsupported = "KiriKiri (XP3) games are not supported yet"
-            r.add(id, .magic(path: e.realRel, bytes: "XP3"), 0.9, .fileMagic, "KiriKiri XP3 archive")
         } else if !ctx.glob("*.ypf", limit: 1).isEmpty {
             apply(
                 &r,

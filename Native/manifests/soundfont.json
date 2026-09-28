@@ -1,0 +1,20 @@
+{
+  "arch": "arm64",
+  "artefact": "Native/prebuilt/soundfont",
+  "built_at": "2026-09-21T17:07:12+00:00",
+  "component": "soundfont",
+  "flags": {
+    "iphoneos_min": "27.0",
+    "macosx_min": "15.0"
+  },
+  "outputs": {
+    "GeneralUser-GS.sf2": "9575028c7a1f589f5770fccc8cff2734566af40cd26ed836944e9a5152688cfe"
+  },
+  "sdks": {
+    "iphoneos": "27.0",
+    "iphonesimulator": "27.0",
+    "macosx": "27.0"
+  },
+  "sources": {},
+  "toolchain": "Xcode 27.0 Build version 27A266a"
+}

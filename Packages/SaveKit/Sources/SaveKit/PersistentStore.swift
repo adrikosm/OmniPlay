@@ -22,10 +22,42 @@ public enum PersistentStoreKind: String, Sendable, Codable, CaseIterable, Hashab
     }
 }
 
+public extension PersistentStoreKind {
+    /// Where the engine keeps this store, relative to `Saves/`. Most live in `persistent/<folder>/`; Ren'Py writes its
+    /// `persistent` file beside its slots (and a copy for Ren'Py Sync under `sync/`).
+    func relativePaths(in location: SaveLocation) -> [String] {
+        switch self {
+        case .renpyPersistent:
+            return ["slots/persistent", "slots/sync/persistent"]
+                .filter { FileManager.default.fileExists(atPath: location.root.appending(path: $0).path(percentEncoded: false)) }
+        default:
+            let folder = location.persistent.appending(path: directoryName, directoryHint: .isDirectory)
+            var out: [String] = []
+            try? LazyDirectoryWalker.walk(root: folder) { entry in
+                if !entry.isDirectory {
+                    out.append("persistent/\(directoryName)/\(entry.relativePath)")
+                }
+                return .continue
+            }
+            return out
+        }
+    }
+
+    /// Whether a path relative to `Saves/` (or to a snapshot) belongs to this store.
+    func owns(_ relativePath: String) -> Bool {
+        switch self {
+        case .renpyPersistent: relativePath == "slots/persistent" || relativePath == "slots/sync/persistent"
+        default: relativePath.hasPrefix("persistent/\(directoryName)/")
+        }
+    }
+}
+
 public struct PersistentStoreInfo: Sendable, Hashable, Identifiable {
     public var id: PersistentStoreKind { kind }
     public let kind: PersistentStoreKind
     public let directory: URL
+    /// The store's files, relative to `Saves/`.
+    public let paths: [String]
     public let files: Int
     public let bytes: Int64
     public let modifiedAt: Date?
@@ -46,33 +78,23 @@ public enum PersistentStoreRegistry {
         return wanted.compactMap { kind in
             guard seenDirectories.insert(kind.directoryName).inserted else { return nil }
             let dir = location.persistent.appending(path: kind.directoryName, directoryHint: .isDirectory)
-            var files = 0
+            let paths = kind.relativePaths(in: location)
             var bytes: Int64 = 0
             var latest: Date?
-            try? LazyDirectoryWalker.walk(root: dir) { entry in
-                if !entry.isDirectory {
-                    files += 1
-                    bytes += entry.fileSize
-                    if let date = try? entry.url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
-                       latest.map({ date > $0 }) ?? true {
-                        latest = date
-                    }
+            for path in paths {
+                let values = try? location.root.appending(path: path).resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+                bytes += Int64(values?.fileSize ?? 0)
+                if let date = values?.contentModificationDate, latest.map({ date > $0 }) ?? true {
+                    latest = date
                 }
-                return .continue
             }
-            return PersistentStoreInfo(kind: kind, directory: dir, files: files, bytes: bytes, modifiedAt: latest)
+            return PersistentStoreInfo(kind: kind, directory: dir, paths: paths, files: paths.count, bytes: bytes, modifiedAt: latest)
         }
     }
 
     /// Empties one store after a snapshot; the game starts fresh next launch and the snapshot brings it back.
     public static func reset(_ store: PersistentStoreInfo, location: SaveLocation, identityHash: String) async throws {
-        var files: [URL] = []
-        try? LazyDirectoryWalker.walk(root: store.directory) { entry in
-            if !entry.isDirectory {
-                files.append(entry.url)
-            }
-            return .continue
-        }
+        let files = store.paths.map { location.root.appending(path: $0) }
         guard !files.isEmpty else { return }
         let targets = files
         let txn = SafePersistTransaction(location: location, identityHash: identityHash)
@@ -82,5 +104,31 @@ public enum PersistentStoreRegistry {
             }
         }
         OPLog.log(.save, .info, "reset \(store.kind.rawValue): \(files.count) files")
+    }
+
+    /// Puts one store back as it was in a snapshot, leaving slots and other stores alone: files the snapshot holds are
+    /// copied in, files it does not hold are removed. Snapshot first, staged, swapped; a failure changes nothing.
+    public static func restore(
+        _ store: PersistentStoreInfo,
+        from snapshot: URL,
+        location: SaveLocation,
+        identityHash: String
+    ) async throws {
+        let saved = try SaveVault.validatedSnapshot(at: snapshot).files.filter(store.kind.owns)
+        let paths = Array(Set(saved + store.paths))
+        guard !paths.isEmpty else { return }
+        let targets = paths.map { location.root.appending(path: $0) }
+        let savedSet = Set(saved)
+        try await SafePersistTransaction(location: location, identityHash: identityHash)
+            .run(targets: targets, reason: .beforeEdit) { staging in
+                for (path, target) in zip(paths, targets) {
+                    let staged = staging.url(for: target)
+                    try? FileManager.default.removeItem(at: staged)
+                    if savedSet.contains(path) {
+                        try FileManager.default.copyItem(at: snapshot.appending(path: path), to: staged)
+                    }
+                }
+            }
+        OPLog.log(.save, .info, "restored \(store.kind.rawValue) from \(snapshot.lastPathComponent): \(saved.count) files")
     }
 }

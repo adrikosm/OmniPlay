@@ -1,0 +1,7 @@
+#!/usr/bin/env python
+Import("env")
+Import("env_modules")
+
+env_omniplay = env_modules.Clone()
+env_omniplay.Append(CCFLAGS=["-fobjc-arc"])
+env_omniplay.add_source_files(env.modules_sources, ["register_types.cpp", "op_godot.mm"])

@@ -1,0 +1,162 @@
+diff --git a/scripts/preload/win32_wrap_encoding.rb b/scripts/preload/win32_wrap_encoding.rb
+index f1e519a..e808472 100644
+--- a/scripts/preload/win32_wrap_encoding.rb
++++ b/scripts/preload/win32_wrap_encoding.rb
+@@ -25,6 +25,19 @@
+ # branch in Win32API#call. RGSS1/2 games typically don't exercise
+ # UTF-16 paths anyway (they ran on Windows ANSI codepages).
+ 
++# The Ruby 1.9 build has no UTF-16/UTF-32 encodings. Windows-API scripts (Zeus Video Player) tag their UTF-16
++# buffers with force_encoding('UTF-16LE') and would stop the game with "unknown encoding name". An encoding this
++# Ruby lacks keeps the bytes, tagged binary, which is all those buffers are used for here.
++class String
++  alias_method :mkxp_force_encoding, :force_encoding unless method_defined?(:mkxp_force_encoding)
++  def force_encoding(encoding)
++    mkxp_force_encoding(encoding)
++  rescue ArgumentError => e
++    raise unless e.message.start_with?('unknown encoding name')
++    mkxp_force_encoding('ASCII-8BIT')
++  end
++end
++
+ module Win32API_Impl
+   module Kernel32
+     # Win32 codepage IDs we map directly to Ruby Encoding
+@@ -32,20 +45,38 @@ module Win32API_Impl
+     # replacement, which matches what Win32 does for
+     # unrepresentable characters and means the conversion
+     # always returns *something* the caller can parse.
++    # Names, not Encoding constants: on the Ruby 1.9 build a missing constant resolves to the const_missing
++    # stub, and force_encoding(stub) raises "unknown encoding name".
+     CODEPAGE_TO_ENCODING = {
+-      65_001 => Encoding::UTF_8,
+-      20_127 => Encoding::US_ASCII,
+-      1252 => Encoding::Windows_1252,
+-      932 => Encoding::Windows_31J, # Shift_JIS / CP932
+-      949 => Encoding::CP949,
+-      936 => Encoding::GBK,
+-      950 => Encoding::Big5,
+-      28_591 => Encoding::ISO_8859_1,
+-      28_605 => Encoding::ISO_8859_15
++      65_001 => 'UTF-8',
++      20_127 => 'US-ASCII',
++      1252 => 'Windows-1252',
++      932 => 'Windows-31J', # Shift_JIS / CP932
++      949 => 'CP949',
++      936 => 'GBK',
++      950 => 'Big5',
++      28_591 => 'ISO-8859-1',
++      28_605 => 'ISO-8859-15'
+     }.freeze
+ 
+     def self.codepage_to_encoding(cp)
+-      CODEPAGE_TO_ENCODING[cp] || Encoding::UTF_8
++      name = CODEPAGE_TO_ENCODING[cp] || 'UTF-8'
++      begin
++        Encoding.find(name)
++      rescue StandardError
++        'UTF-8'
++      end
++    end
++
++    def self.binary(str)
++      str.dup.force_encoding('ASCII-8BIT')
++    end
++
++    # Whether this Ruby can transcode UTF-16 at all; the 1.9 build cannot, so conversions go by hand there.
++    UTF16 = begin
++      Encoding.find('UTF-16LE') && true
++    rescue StandardError
++      false
+     end
+ 
+     # Take a String (assumed UTF-16LE bytes) and return either
+@@ -78,7 +109,7 @@ module Win32API_Impl
+       return '' unless buf.is_a?(String)
+ 
+       if cb == -1
+-        idx = buf.index("\0".b)
++        idx = buf.index("\0".force_encoding('ASCII-8BIT'))
+         idx ? buf.byteslice(0, idx) : buf.dup
+       else
+         cap = [cb, buf.bytesize].min
+@@ -104,12 +135,16 @@ module Win32API_Impl
+ 
+         wide = Win32API_Impl::Kernel32.wide_byte_slice(src_buf, src_cch)
+         target = Win32API_Impl::Kernel32.codepage_to_encoding(codepage)
+-        converted = begin
+-          wide.force_encoding(Encoding::UTF_16LE)
++        converted = if !Win32API_Impl::Kernel32::UTF16
++          Win32API_Impl::Kernel32.binary(wide.unpack('v*').pack('U*'))
++        else begin
++          wide.force_encoding('UTF-16LE')
+               .encode(target, :invalid => :replace, :undef => :replace)
+-              .force_encoding(Encoding::ASCII_8BIT)
++              .force_encoding('ASCII-8BIT')
+         rescue StandardError
+-          ''.b
++          # No transcoder in this Ruby: UTF-16LE to UTF-8 by hand, which is what MCI round-trips need.
++          Win32API_Impl::Kernel32.binary(wide.unpack('v*').pack('U*')) rescue ''.force_encoding('ASCII-8BIT')
++        end
+         end
+ 
+         # Length query: caller passes nil/0 for dst to ask
+@@ -142,12 +177,20 @@ module Win32API_Impl
+ 
+         narrow = Win32API_Impl::Kernel32.byte_slice(src_buf, src_cb)
+         source = Win32API_Impl::Kernel32.codepage_to_encoding(codepage)
+-        converted = begin
++        by_hand = lambda do
++          codes = (Win32API_Impl::Kernel32.binary(narrow).force_encoding('UTF-8').unpack('U*') rescue narrow.unpack('C*'))
++          Win32API_Impl::Kernel32.binary(codes.pack('v*'))
++        end
++        converted = if !Win32API_Impl::Kernel32::UTF16
++          by_hand.call
++        else begin
+           narrow.force_encoding(source)
+-                .encode(Encoding::UTF_16LE, :invalid => :replace, :undef => :replace)
+-                .force_encoding(Encoding::ASCII_8BIT)
++                .encode('UTF-16LE', :invalid => :replace, :undef => :replace)
++                .force_encoding('ASCII-8BIT')
+         rescue StandardError
+-          ''.b
++          # No transcoder in this Ruby: UTF-8 (or single-byte) to UTF-16LE by hand.
++          by_hand.call
++        end
+         end
+ 
+         if dst_buf.nil? || !dst_buf.is_a?(String) || dst_cch <= 0
+@@ -172,24 +215,23 @@ module Win32API_Impl
+     class MciSendString
+       private
+ 
++      # By hand rather than with Ruby's transcoders, which the Ruby 1.9 build lacks (its Encoding constants resolve
++      # to the const_missing stub); UTF-16LE and UTF-8 are all MCI strings need.
+       def decode_utf16(buf)
+         return '' unless buf.is_a?(String) && !buf.empty?
+ 
+-        bytes = buf.dup.force_encoding(Encoding::ASCII_8BIT)
+-        utf8 = begin
+-          bytes.force_encoding(Encoding::UTF_16LE)
+-               .encode(Encoding::UTF_8, :invalid => :replace, :undef => :replace)
+-        rescue StandardError
+-          ''
+-        end
+-        utf8.split("\0", 2).first || ''
++        codes = buf.unpack('v*')
++        cut = codes.index(0)
++        (cut ? codes[0, cut] : codes).pack('U*')
++      rescue StandardError
++        ''
+       end
+ 
+       def write_response(buf, text)
+         return unless buf.is_a?(String) && buf.bytesize >= 2
+ 
+-        utf16 = "#{text}\0".encode(Encoding::UTF_16LE)
+-                           .force_encoding(Encoding::ASCII_8BIT)
++        codes = (text.to_s.unpack('U*') rescue text.to_s.unpack('C*'))
++        utf16 = (codes + [0]).pack('v*')
+         limit = [utf16.bytesize, buf.bytesize].min
+         limit.times { |i| buf.setbyte(i, utf16.getbyte(i)) }
+         # Null-pad the remaining buffer so callers don't

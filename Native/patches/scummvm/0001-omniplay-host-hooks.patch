@@ -1,0 +1,162 @@
+diff --git a/backends/platform/ios7/ios7_misc.mm b/backends/platform/ios7/ios7_misc.mm
+index b6de58d24e6..f2e10844d13 100644
+--- a/backends/platform/ios7/ios7_misc.mm
++++ b/backends/platform/ios7/ios7_misc.mm
+@@ -29,6 +29,11 @@
+ #include "common/str.h"
+ 
+ Common::String iOS7_getDocumentsDir() {
++#ifdef OMNIPLAY_HOST
++	// The backend chroots ScummVM's filesystem here. OmniPlay keeps games and saves under Library, so the root is the
++	// app's home: still the sandbox, and paths are given relative to it.
++	return Common::String([NSHomeDirectory() fileSystemRepresentation]);
++#endif
+ #if TARGET_OS_IOS
+ 	NSURL *url = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] firstObject];
+ #else
+diff --git a/backends/platform/ios7/ios7_osys_events.cpp b/backends/platform/ios7/ios7_osys_events.cpp
+index 6263d2014a6..d6cdaa45d02 100644
+--- a/backends/platform/ios7/ios7_osys_events.cpp
++++ b/backends/platform/ios7/ios7_osys_events.cpp
+@@ -30,8 +30,18 @@
+ 
+ static const int kQueuedInputEventDelay = 50;
+ 
++#ifdef OMNIPLAY_HOST
++// Called on the engine thread every time the engine polls, which is at least once a frame: counts frames for the
++// host's watchdog and delivers host requests that must not be pushed from the main thread (leave the game).
++bool omniplay_poll(Common::Event &event);
++#endif
++
+ bool OSystem_iOS7::pollEvent(Common::Event &event) {
+ 	//printf("pollEvent()\n");
++#ifdef OMNIPLAY_HOST
++	if (omniplay_poll(event))
++		return true;
++#endif
+ 
+ 	long curTime = getMillis();
+ 
+diff --git a/backends/platform/ios7/ios7_osys_main.cpp b/backends/platform/ios7/ios7_osys_main.cpp
+index c09fc56eff0..a513b47c780 100644
+--- a/backends/platform/ios7/ios7_osys_main.cpp
++++ b/backends/platform/ios7/ios7_osys_main.cpp
+@@ -143,7 +143,14 @@ Common::Array<uint> OSystem_iOS7::getSupportedAntiAliasingLevels() const {
+ 
+ #if defined(USE_OPENGL) && defined(USE_GLAD)
+ void *OSystem_iOS7::getOpenGLProcAddress(const char *name) const {
++#ifdef OMNIPLAY_HOST
++	// Other engines in the same process bring ANGLE, which exports the same gl* names; RTLD_DEFAULT could bind to
++	// those. ScummVM draws into an EAGL context, so its functions come from Apple's OpenGL ES.
++	static void *gles = dlopen("/System/Library/Frameworks/OpenGLES.framework/OpenGLES", RTLD_LAZY | RTLD_LOCAL);
++	return dlsym(gles, name);
++#else
+ 	return dlsym(RTLD_DEFAULT, name);
++#endif
+ }
+ #endif
+ 
+diff --git a/backends/platform/ios7/ios7_osys_video.mm b/backends/platform/ios7/ios7_osys_video.mm
+index b1d5a0dee2b..b063e592f8c 100644
+--- a/backends/platform/ios7/ios7_osys_video.mm
++++ b/backends/platform/ios7/ios7_osys_video.mm
+@@ -59,8 +59,19 @@ static void displayAlert(void *ctx) {
+ 	}
+ }
+ 
++#ifdef OMNIPLAY_HOST
++// OmniPlay writes ScummVM's messages into the game session's log; stdout and stderr go nowhere on a phone.
++bool omniplay_log(const char *message);
++#endif
++
+ void OSystem_iOS7::logMessage(LogMessageType::Type type, const char *message) {
+ 	FILE *output = 0;
++#ifdef OMNIPLAY_HOST
++	if (type == LogMessageType::kError)
++		_lastErrorMessage = message;
++	if (omniplay_log(message))
++		return;
++#endif
+ 
+ 	if (type == LogMessageType::kInfo || type == LogMessageType::kDebug)
+ 		output = stdout;
+diff --git a/backends/platform/ios7/module.mk b/backends/platform/ios7/module.mk
+index 979543d63ef..18839ce8e43 100644
+--- a/backends/platform/ios7/module.mk
++++ b/backends/platform/ios7/module.mk
+@@ -7,17 +7,19 @@ MODULE_OBJS := \
+ 	ios7_osys_video.o \
+ 	ios7_osys_misc.o \
+ 	ios7_misc.o \
+-	ios7_main.o \
+ 	ios7_options.o \
+ 	ios7_video.o \
+ 	ios7_keyboard.o \
+ 	ios7_scummvm_view_controller.o \
+-	ios7_app_delegate.o \
+ 	ios7_game_controller.o \
+ 	ios7_touch_controller.o \
+ 	ios7_mouse_controller.o \
+-	ios7_gamepad_controller.o \
+-	ios7_scene_delegate.o
++	ios7_gamepad_controller.o
++ifdef OMNIPLAY_HOST
++MODULE_OBJS += op_scummvm.o
++else
++MODULE_OBJS += ios7_main.o ios7_app_delegate.o ios7_scene_delegate.o
++endif
+ 
+ # We don't use rules.mk but rather manually update OBJS and MODULE_DIRS.
+ MODULE_OBJS := $(addprefix $(MODULE)/, $(MODULE_OBJS))
+diff --git a/base/main.cpp b/base/main.cpp
+index ded510cde28..c9bbf2b1bd5 100644
+--- a/base/main.cpp
++++ b/base/main.cpp
+@@ -100,7 +100,19 @@
+ 
+ #include "gui/dump-all-dialogs.h"
+ 
++#ifdef OMNIPLAY_HOST
++// OmniPlay embeds ScummVM and has its own library: instead of ScummVM's launcher, the engine thread waits here for the
++// host's next game (it sets the active domain) or for the host to shut ScummVM down (returns with none set).
++bool omniplay_next_game();
++// How the last game ended (or why it never started); the host shows the message instead of ScummVM's dialog.
++void omniplay_game_result(const Common::Error &result);
++#endif
++
+ static bool launcherDialog() {
++#ifdef OMNIPLAY_HOST
++	ConfMan.getDomain(Common::ConfigManager::kTransientDomain)->clear();
++	return omniplay_next_game();
++#endif
+ 
+ 	// Discard any command line options. Those that affect the graphics
+ 	// mode and the others (like bootparam etc.) should not
+@@ -860,11 +872,15 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 			setupKeymapper(system);
+ #endif
+ 
++#ifdef OMNIPLAY_HOST
++			omniplay_game_result(result);
++#else
+ 			// Did an error occur ?
+ 			if (result.getCode() != Common::kNoError && result.getCode() != Common::kUserCanceled) {
+ 				// Shows an informative error dialog if starting the selected game failed.
+ 				GUI::displayErrorDialog(result, _("Error running game:"));
+ 			}
++#endif
+ 
+ 			// Quit unless an error occurred, or Return to launcher was requested
+ 			if (result.getCode() == Common::kNoError && !g_system->getEventManager()->shouldReturnToLauncher() &&
+@@ -912,7 +928,11 @@ extern "C" int scummvm_main(int argc, const char * const argv[]) {
+ 		} else {
+ 			DebugMan.removeAllDebugChannels();
+ 
++#ifdef OMNIPLAY_HOST
++			omniplay_game_result(result);
++#else
+ 			GUI::displayErrorDialog(result, _("Error running game:"));
++#endif
+ 
+ 			// Clear the active domain
+ 			ConfMan.setActiveDomain("");

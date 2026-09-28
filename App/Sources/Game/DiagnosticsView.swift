@@ -24,6 +24,8 @@ struct DiagnosticsView: View {
         var memory: MemorySummary?
         var consoleErrors: [String] = []
         var newestSession: URL?
+        /// Sessions whose log folder holds a MetricKit crash or hang report.
+        var crashReports: Set<UUID> = []
     }
 
     struct MemorySummary: Sendable {
@@ -31,134 +33,165 @@ struct DiagnosticsView: View {
         var first: UInt64 = 0
         var peak: UInt64 = 0
         var last: UInt64 = 0
+        /// The session in up to 14 equal slices, each its highest footprint, for the bar chart.
+        var bars: [UInt64] = []
+        var seconds: Double = 0
     }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: Theme.s4) {
-                section("Detection") {
-                    if let snapshot {
-                        line(DetectionExplainer.summary(snapshot.report))
-                        row("Confidence", snapshot.report.confidence.formatted(.percent.precision(.fractionLength(0))))
-                        row("Runtime", snapshot.resolution.selectedRuntime.map(DetectionExplainer.name) ?? "none")
-                        if !snapshot.report.descriptor.warnings.isEmpty {
-                            row("Warnings", "\(snapshot.report.descriptor.warnings.count)")
-                        }
-                    } else {
-                        line("No detection report on disk. Re-import the game to rebuild it.")
-                    }
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: Theme.s4) {
+                    detection.frame(minWidth: 240, maxWidth: .infinity)
+                    memory.frame(minWidth: 240, maxWidth: .infinity)
+                    checks.frame(minWidth: 240, maxWidth: .infinity)
                 }
-                section("Sessions") {
-                    if data.sessions.isEmpty {
-                        line("No sessions yet.")
-                    }
-                    ForEach(data.sessions.prefix(10)) { s in
-                        row(
-                            s.startedAt.formatted(date: .abbreviated, time: .shortened),
-                            "\(s.teardownVerdict ?? "running")\(s.peakFootprint.map { " · peak \(Self.mib($0))" } ?? "")"
-                        )
-                    }
-                }
-                section("Memory (newest session)") {
-                    if let m = data.memory {
-                        row("Samples", "\(m.samples)")
-                        row("Start", Self.mib(Int64(m.first)))
-                        row("Peak", Self.mib(Int64(m.peak)))
-                        row("End", Self.mib(Int64(m.last)))
-                    } else {
-                        line("No memory.jsonl yet.")
-                    }
-                }
-                section("Last WebContent termination") {
-                    if data.termination.isEmpty {
-                        line("None recorded.")
-                    }
-                    ForEach(data.termination.keys.sorted(), id: \.self) { key in row(key, data.termination[key] ?? "") }
-                }
-                section("Console errors (newest session)") {
-                    if data.consoleErrors.isEmpty {
-                        line("None.")
-                    }
-                    ForEach(data.consoleErrors, id: \.self) {
-                        Text($0).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.danger)
-                    }
-                }
-                section("Media") {
-                    if data.media.isEmpty {
-                        line("Nothing to convert.")
-                    }
-                    ForEach(data.media, id: \.id) { job in row(job.inputRel, "\(job.state) → \(job.targetCodec)") }
-                }
-                section("Saves index") {
-                    if data.saves.isEmpty {
-                        line("No slot files indexed.")
-                    }
-                    ForEach(data.saves, id: \.id) { save in row(
-                        save.slotKey,
-                        "\(save.bytes.formatted(.byteCount(style: .file))) · \(save.family)"
-                    ) }
-                }
-                section("Imports") {
-                    if data.imports.isEmpty {
-                        line("No import records.")
-                    }
-                    ForEach(data.imports, id: \.id) { imp in
-                        row(imp.sourceName, "\(imp.container) · \(imp.bytes.formatted(.byteCount(style: .file))) · \(imp.outcome)")
-                    }
-                }
-                if let newest = data.newestSession {
-                    NavigationLink { LogTailView(url: newest.appending(path: "host.log")) } label: {
-                        Label("Newest session log", systemImage: "doc.text.magnifyingglass").frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .foregroundStyle(Theme.textPrimary).frame(minHeight: 44).padding(.horizontal, Theme.s4).glassCard(radius: 14)
-                    HStack(spacing: Theme.s2) {
-                        if let bundleURL {
-                            ShareLink(item: bundleURL) {
-                                Label("Share bundle", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
-                            }
-                        } else {
-                            Button { Task { bundleURL = try? await SessionBundle.export(sessionDirectory: newest) } } label: {
-                                Label("Export bundle", systemImage: "archivebox").frame(maxWidth: .infinity)
-                            }
-                        }
-                        Button {
-                            UIPasteboard.general.string = summaryText
-                            copied = true
-                        } label: {
-                            Label(copied ? "Copied" : "Copy summary", systemImage: copied ? "checkmark" : "doc.on.doc")
-                                .frame(maxWidth: .infinity)
-                        }
-                    }
-                    .foregroundStyle(Theme.textPrimary).frame(minHeight: 44).padding(.horizontal, Theme.s3).glassCard(radius: 14)
+                VStack(alignment: .leading, spacing: Theme.s6) {
+                    detection
+                    memory
+                    checks
                 }
             }
-            .padding(Theme.s4)
+            .padding(.horizontal, Theme.s4)
+            .padding(.vertical, Theme.s3)
         }
+        .scrollBounceBehavior(.basedOnSize)
         .navigationTitle("Diagnostics")
         .navigationBarTitleDisplayMode(.inline)
-        .inkScreen()
+        .canvas()
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { shareMenu }
+        }
         .task { await load() }
     }
 
-    // MARK: Pieces
+    // MARK: Columns
 
-    private func section(_ title: String, @ViewBuilder _ content: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: Theme.s2) {
-            Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.textPrimary)
-            content()
+    private var detection: some View {
+        GlassSection("Detection") {
+            if let snapshot {
+                VStack(alignment: .leading, spacing: Theme.s2) {
+                    HStack(alignment: .firstTextBaseline, spacing: Theme.s2) {
+                        Text(snapshot.report.confidence.formatted(.percent.precision(.fractionLength(0)))).display(40)
+                            .contentTransition(.numericText())
+                        Text("confidence").font(.footnote).foregroundStyle(Theme.textSecondary)
+                    }
+                    Text(DetectionExplainer.summary(snapshot.report)).font(.subheadline).foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(Theme.s4)
+                ListRow(title: "Runtime") { RowValue(text: snapshot.resolution.selectedRuntime.map(DetectionExplainer.name) ?? "None") }
+                if !snapshot.report.descriptor.warnings.isEmpty {
+                    ListRow(title: "Warnings") { RowValue(text: "\(snapshot.report.descriptor.warnings.count)") }
+                }
+            } else {
+                ListRow(title: "No detection report on disk", subtitle: "Import the game again to rebuild it.", dimmed: true)
+            }
         }
-        .padding(Theme.s4).frame(maxWidth: .infinity, alignment: .leading).glassCard()
+        .rise(0)
     }
 
-    private func row(_ key: String, _ value: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(key).font(.footnote).foregroundStyle(Theme.textSecondary).lineLimit(1)
-            Spacer(minLength: Theme.s2)
-            Text(value).font(.footnote).foregroundStyle(Theme.textPrimary).multilineTextAlignment(.trailing)
+    private var memory: some View {
+        VStack(alignment: .leading, spacing: Theme.s6) {
+            GlassSection("Memory, newest session") {
+                if let m = data.memory {
+                    VStack(spacing: Theme.s2) {
+                        MemoryBars(bars: m.bars, peak: m.peak)
+                        HStack {
+                            Text("\(Int(m.seconds.rounded())) s").font(Theme.mono).foregroundStyle(Theme.textTertiary)
+                            Spacer()
+                            Text("Peak \(Self.mib(Int64(m.peak)))").font(.footnote).foregroundStyle(Theme.textSecondary)
+                        }
+                    }
+                    .padding(Theme.s4)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(
+                        "Memory: start \(Self.mib(Int64(m.first))), peak \(Self.mib(Int64(m.peak))), end \(Self.mib(Int64(m.last)))"
+                    )
+                } else {
+                    ListRow(title: "No memory samples yet", dimmed: true)
+                }
+            }
+            GlassSection("Sessions") {
+                if data.sessions.isEmpty {
+                    ListRow(title: "No sessions yet", dimmed: true)
+                }
+                ForEach(data.sessions.prefix(6)) { s in
+                    let crashed = s.teardownVerdict == "endedUnexpectedly" || (s.notes ?? "").hasPrefix("crash")
+                    ListRow(
+                        title: s.startedAt.dayAndTime,
+                        subtitle: s.peakFootprint.map { "Peak \(Self.mib($0))" }
+                            .map { data.crashReports.contains(s.id) ? $0 + " · crash report" : $0 }
+                    ) {
+                        Text(s.teardownVerdict == nil ? "Running" : crashed ? "Closed unexpectedly" : "Ended normally")
+                            .font(.footnote).foregroundStyle(crashed ? Theme.danger : Theme.textSecondary)
+                            .multilineTextAlignment(.trailing)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
         }
+        .rise(1)
     }
 
-    private func line(_ text: String) -> some View { Text(text).font(.footnote).foregroundStyle(Theme.textSecondary) }
+    private var checks: some View {
+        GlassSection("Checks") {
+            ListRow(title: "Console errors") {
+                Text(data.consoleErrors.isEmpty ? "None" : "\(data.consoleErrors.count)")
+                    .font(.footnote).foregroundStyle(data.consoleErrors.isEmpty ? Theme.textSecondary : Theme.danger)
+            }
+            ForEach(data.consoleErrors.prefix(4), id: \.self) { line in
+                Text(line.split(separator: "\t").last.map(String.init) ?? line)
+                    .font(Theme.mono).foregroundStyle(Color(hex: 0xFFB3AE)).lineLimit(2)
+                    .padding(.horizontal, Theme.s4).padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Theme.danger.opacity(0.12))
+            }
+            ListRow(title: "Media") {
+                RowValue(text: data.media.isEmpty ? "Nothing to convert" : "\(data.media.count) to convert")
+            }
+            ListRow(title: "Save index") {
+                RowValue(text: data.saves.isEmpty ? "No slots yet" : "\(data.saves.count) slot\(data.saves.count == 1 ? "" : "s")")
+            }
+            if let imp = data.imports.first {
+                ListRow(title: "Import") {
+                    RowValue(text: "\(imp.container.capitalizedFirst) · \(imp.bytes.formatted(.byteCount(style: .file)))")
+                }
+            }
+            if let reason = data.termination["reason"] ?? data.termination.values.first {
+                ListRow(title: "Web view ended", subtitle: reason)
+            }
+            if let newest = data.newestSession {
+                NavigationLink { LogTailView(url: newest.appending(path: "host.log")) } label: {
+                    ListRow(title: "Newest session log") { Chevron() }
+                }
+                .buttonStyle(.row)
+            }
+        }
+        .rise(2)
+    }
+
+    /// Export the newest session's bundle, or copy a plain-text summary.
+    private var shareMenu: some View {
+        Menu {
+            if let bundleURL {
+                ShareLink(item: bundleURL) { Label("Share session bundle", systemImage: "square.and.arrow.up") }
+            } else if let newest = data.newestSession {
+                Button("Export session bundle", systemImage: "archivebox") {
+                    Task { bundleURL = try? await SessionBundle.export(sessionDirectory: newest) }
+                }
+            }
+            Button(copied ? "Copied" : "Copy summary", systemImage: copied ? "checkmark" : "doc.on.doc") {
+                UIPasteboard.general.string = summaryText
+                copied = true
+            }
+        } label: {
+            Image(systemName: "square.and.arrow.up")
+        }
+        .tint(Theme.textPrimary)
+        .accessibilityLabel("Share")
+    }
 
     static func mib(_ bytes: Int64) -> String { "\(bytes >> 20) MiB" }
 
@@ -190,6 +223,11 @@ struct DiagnosticsView: View {
             out.imports = ((try? store.fetchAll(ImportRecord.self, game: id)) ?? []).sorted { $0.createdAt > $1.createdAt }
             out.media = (try? store.fetchAll(MediaJobRecord.self, game: id)) ?? []
             out.saves = (try? store.saves.fetch(game: id)) ?? []
+            out.crashReports = Set(out.sessions.prefix(10).map(\.id).filter { session in
+                let files = (try? FileManager.default
+                    .contentsOfDirectory(atPath: paths.logs(game: id, session: session).path(percentEncoded: false))) ?? []
+                return files.contains { $0.hasPrefix("metrickit-") }
+            })
             let gameLogs = paths.logs(game: id, session: UUID()).deletingLastPathComponent()
             let dirs = ((try? FileManager.default.contentsOfDirectory(
                 at: gameLogs,
@@ -216,9 +254,13 @@ struct DiagnosticsView: View {
     /// Streams the JSON lines; the newest 10 000 samples are all the recorder keeps anyway.
     nonisolated static func summarize(_ url: URL) -> MemorySummary? {
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        // The recorder writes ISO 8601 timestamps; the default decoder expects seconds and rejected every line.
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
         var summary = MemorySummary()
+        var points: [(Date, UInt64)] = []
         for line in text.split(separator: "\n") {
-            guard let data = line.data(using: .utf8), let sample = try? JSONDecoder().decode(MemorySample.self, from: data),
+            guard let data = line.data(using: .utf8), let sample = try? decoder.decode(MemorySample.self, from: data),
                   let footprint = sample.footprintBytes else { continue }
             if summary.samples == 0 {
                 summary.first = footprint
@@ -226,7 +268,40 @@ struct DiagnosticsView: View {
             summary.samples += 1
             summary.peak = max(summary.peak, footprint)
             summary.last = footprint
+            points.append((sample.timestamp, footprint))
         }
-        return summary.samples == 0 ? nil : summary
+        guard let start = points.first?.0, let end = points.last?.0 else { return nil }
+        summary.seconds = end.timeIntervalSince(start)
+        let slices = min(14, points.count)
+        summary.bars = (0 ..< slices).map { i in
+            points[(i * points.count / slices) ..< ((i + 1) * points.count / slices)].map(\.1).max() ?? 0
+        }
+        return summary
+    }
+}
+
+/// The newest session's memory as bars that grow up from the baseline, one after another. The peak is white; the
+/// rest stay dim so the eye goes straight to it.
+private struct MemoryBars: View {
+    let bars: [UInt64]
+    let peak: UInt64
+    @State private var grown = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let peakIndex = bars.firstIndex(of: peak)
+        HStack(alignment: .bottom, spacing: 5) {
+            ForEach(Array(bars.enumerated()), id: \.offset) { index, value in
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(index == peakIndex ? Theme.textPrimary : Theme.fillStrong)
+                    .frame(maxWidth: 14)
+                    .frame(height: max(4, 58 * CGFloat(value) / CGFloat(max(peak, 1))))
+                    .scaleEffect(y: grown || reduceMotion ? 1 : 0.02, anchor: .bottom)
+                    .animation(Theme.motion(Theme.wipe, reduce: reduceMotion).delay(0.2 + 0.04 * Double(index)), value: grown)
+            }
+        }
+        .frame(height: 58, alignment: .bottom)
+        .frame(maxWidth: .infinity)
+        .onAppear { grown = true }
     }
 }

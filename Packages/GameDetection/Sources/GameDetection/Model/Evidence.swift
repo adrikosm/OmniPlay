@@ -1,7 +1,7 @@
 import GameCore
 
 public enum DetectorID: String, Codable, Sendable, CaseIterable, Hashable {
-    case containerSniffer, structure, rgss, rpgMakerMVMZ, mvmzPlugins, renpy, html5Web, rm2k3, godotPCK, refusals
+    case containerSniffer, structure, rgss, rpgMakerMVMZ, mvmzPlugins, renpy, html5Web, rm2k3, godotPCK, scummvm, kirikiri, refusals
     case versionBuckets, media, saveFamily, aggregate
 }
 

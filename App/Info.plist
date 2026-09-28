@@ -66,6 +66,8 @@
 	<string>Unlocks the hidden shelf of your library.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Wi-Fi upload serves a page on your local network so a computer can send a game folder to this device.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Screenshots you take from the pause menu are saved to your photos.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -74,7 +76,10 @@
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>UILaunchScreen</key>
-	<dict/>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+	</dict>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

@@ -57,12 +57,16 @@ public actor SessionSlotLedger {
         active[slot] = nil
         switch verdict {
         case .slotSpent, .restartRequired:
-            states[slot] = .spent
+            // One engine boot may host several slots (the three Ruby lines); they are spent together.
+            for sibling in slot.diesWith {
+                states[sibling] = .spent
+            }
         case .clean:
             switch slot.sessionsPerProcess {
-            case .unlimited:
+            case .unlimited, .oneWithSoftRestart:
+                // A clean stop of a soft-restart engine means it parked, ready for any game of its own.
                 states[slot] = .fresh
-            case .one, .oneWithSoftRestart: // soft restart is treated as one-shot until proven on device
+            case .one:
                 if states[slot] != .spent {
                     states[slot] = .boundTo(game)
                 }

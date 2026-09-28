@@ -1,0 +1,139 @@
+diff --git a/platforms/web/shell.html b/platforms/web/shell.html
+index 474f73e..c441566 100644
+--- a/platforms/web/shell.html
++++ b/platforms/web/shell.html
+@@ -56,7 +56,7 @@
+                 var params = new URLSearchParams(window.location.search);
+                 // Auto-load mode (?xp3= / ?game=): hide the static landing content
+                 // before first paint; the loading overlay takes over instead.
+-                if (params.get('xp3') || params.get('game')) {
++                if (params.get('xp3') || params.get('game') || params.get('files')) {
+                     document.documentElement.classList.add('krkr2-autoload');
+                 }
+                 if (params.get('debugEarlyLogs') === '1') {
+@@ -980,6 +980,11 @@
+             // mainwindow.tjs checkSave），一并纳入 IDB 持久化
+             var isSavePath = path.startsWith('/savedata/') || path.startsWith('/save/') ||
+                 path.indexOf('/savedata/') >= 0;
++            if (omniplayHost && isSavePath) {
++                fetch('/omniplay-save?path=' + encodeURIComponent(path), { method: 'POST', body: data.slice() })
++                    .catch(function(e) { console.warn('[omniplay] save failed:', path, e); });
++                return;
++            }
+             if (!Module._hostDirHandle) {
+                 if (Module._saveSpaceId && isSavePath) idbSaveFile(path, data);
+                 return;
+@@ -1187,6 +1192,10 @@
+         var xp3Url = urlParams.get('xp3');
+         var gameZipUrl = urlParams.get('game');
+         var entryXp3 = urlParams.get('entry');
++        // OmniPlay: ?files=<manifest> registers a whole game tree (loose projects, several archives) as Range-read
++        // remote files; ?omniplay=1 keeps saves with the host (POST /omniplay-save, restored from /omniplay-saves).
++        var filesManifestUrl = urlParams.get('files');
++        var omniplayHost = urlParams.get('omniplay') === '1';
+         var rendererUrlParam = normalizeRendererUrlParam(urlParams.get('renderer'));
+         var localZipPickerEnabled = @KRKR2_LOCAL_ZIP_PICKER_DEFAULT_VISIBLE@ || urlParams.has('pickZip');
+ 
+@@ -1635,7 +1644,17 @@
+                 if (userFileDepAdded) Module.removeRunDependency('user-file');
+             }
+ 
+-            if (Module._saveSpaceId) {
++            if (omniplayHost) {
++                statusElement.textContent = 'Restoring saves...';
++                omniplayRestoreSaves().then(function() {
++                    applyRendererPreferenceFromUrl();
++                    releaseDep();
++                }).catch(function(e) {
++                    console.warn('[omniplay] Failed to restore saves:', e);
++                    applyRendererPreferenceFromUrl();
++                    releaseDep();
++                });
++            } else if (Module._saveSpaceId) {
+                 statusElement.textContent = 'Restoring saves...';
+                 idbRestoreSaves().then(function() {
+                     applyRendererPreferenceFromUrl();
+@@ -1808,6 +1827,36 @@
+             }
+         }
+ 
++        // The host's saves for this game: [{path, data (base64)}], installed before the engine starts.
++        async function omniplayRestoreSaves() {
++            var resp = await fetch('/omniplay-saves', { method: 'POST' });
++            if (!resp.ok) return;
++            var files = await resp.json();
++            if (!files.length) return;
++            await waitForFS();
++            for (var i = 0; i < files.length; i++) {
++                var bytes = Uint8Array.from(atob(files[i].data), function(c) { return c.charCodeAt(0); });
++                writeFileToFS(files[i].path, bytes);
++                VLFS.registerOverlayFile(files[i].path, bytes);
++            }
++            console.log('[omniplay] Restored ' + files.length + ' save file(s)');
++        }
++
++        // Every file of the game as a remote file read with Range requests: [{path, size}], paths rooted at the game.
++        async function omniplayLoadFiles(url) {
++            loadingOverlay.classList.remove('hidden');
++            statusElement.textContent = 'Reading game files...';
++            await vlfsReady;
++            var files = await (await fetch(url, { method: 'POST' })).json();
++            for (var i = 0; i < files.length; i++)
++                VLFS.registerRemote(files[i].path, encodeURI(files[i].path), files[i].size);
++            console.log('[omniplay] ' + files.length + ' game files registered');
++            // The archive or folder holding startup.tjs, as the host detected it.
++            var startup = urlParams.get('startup');
++            if (startup) Module._startupXp3Path = startup;
++            startGame();
++        }
++
+         async function autoSelectSpace() {
+             if (hasFileSystemAPI) return;
+             var lastSpace = localStorage.getItem('krkr2-last-space');
+@@ -1817,8 +1866,12 @@
+             }
+         }
+ 
+-        if (gameZipUrl) {
++        if (filesManifestUrl) {
++            omniplayLoadFiles(filesManifestUrl);
++        } else if (gameZipUrl) {
+             autoSelectSpace().then(function() { fetchAndExtractZip(gameZipUrl, entryXp3); });
++        } else if (xp3Url && omniplayHost) {
++            fetchXp3FromUrl(xp3Url);
+         } else if (xp3Url) {
+             autoSelectSpace().then(function() { fetchXp3FromUrl(xp3Url); });
+         }
+diff --git a/platforms/web/vlfs.js b/platforms/web/vlfs.js
+index 2025e76..9163761 100644
+--- a/platforms/web/vlfs.js
++++ b/platforms/web/vlfs.js
+@@ -347,6 +347,11 @@
+             return this._register(path, { kind: 'blob', size: blob.size, blob: blob });
+         },
+ 
++        // A file on the page's own server, read with Range requests (the shell's ?xp3= and OmniPlay's ?files=).
++        registerRemote(path, url, size) {
++            return this._register(path, { kind: 'remote', size: size, url: url });
++        },
++
+         registerFSAFile(path, fileHandle) {
+             // size 注册时未知（避免逐文件 getFile 的启动开销时可传 -1，首次访问补全）
+             return this._register(path, { kind: 'fsa', size: -1, handle: fileHandle, file: null });
+@@ -728,6 +733,16 @@
+                     var buf = await e.blob.slice(pos, pos + len).arrayBuffer();
+                     return new Uint8Array(buf);
+                 }
++                case 'remote': {
++                    if (len === 0) return new Uint8Array(0);
++                    var resp = await fetch(e.url, {
++                        headers: { Range: 'bytes=' + pos + '-' + (pos + len - 1) }, signal: signal });
++                    if (resp.status !== 206 && resp.status !== 200)
++                        throw new Error('vlfs: HTTP ' + resp.status + ' for ' + e.url);
++                    var rbuf = new Uint8Array(await resp.arrayBuffer());
++                    // A server that ignores Range sends the whole file.
++                    return resp.status === 200 ? rbuf.slice(pos, pos + len) : rbuf;
++                }
+                 case 'fsa': {
+                     if (!e.file) { e.file = await e.handle.getFile(); e.size = e.file.size; }
+                     var fbuf = await e.file.slice(pos, pos + len).arrayBuffer();

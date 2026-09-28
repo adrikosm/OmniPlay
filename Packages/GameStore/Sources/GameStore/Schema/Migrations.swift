@@ -163,6 +163,22 @@ enum Migrations {
                 t.column("title")
             }
         }
+        // v2 (UI-007): the player's own collections; a game can be in several, and leaves them when it is deleted.
+        m.registerMigration("v2") { db in
+            try db.execute(sql: """
+            CREATE TABLE collections (
+                id TEXT PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                created_at DATETIME NOT NULL
+            );
+            CREATE TABLE collection_games (
+                collection_id TEXT NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+                game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+                PRIMARY KEY (collection_id, game_id)
+            );
+            CREATE INDEX collection_games_game ON collection_games(game_id);
+            """)
+        }
         return m
     }
 }

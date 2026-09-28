@@ -31,6 +31,6 @@ public struct EngineVersion: Codable, Sendable, Hashable, Comparable, CustomStri
 public enum EngineGeneration: String, Codable, Sendable, CaseIterable, Hashable {
     case rgss1, rgss2, rgss3
     case renpyPy27, renpyPy39, renpyPy312
-    case godot4x
+    case godot3x, godot4x
     case mv, mz
 }

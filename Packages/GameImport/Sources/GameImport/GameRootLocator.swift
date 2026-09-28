@@ -74,8 +74,10 @@ public enum GameRootLocator {
 
         root = try unwrapAPK(root, sidecars: &sidecars, stripped: &stripped)
 
-        let candidates = try candidateRoots(under: root)
         let rootRel = rel(root, in: stagingRoot)
+        // Candidates are found under the unwrapped root but reported against the staging tree, like the root itself:
+        // `Game/{Game.exe, readme, gamedata/}` must give `Game/gamedata`, not `gamedata`.
+        let candidates = try candidateRoots(under: root).map { $0.isEmpty ? rootRel : rootRel.isEmpty ? $0 : rootRel + "/" + $0 }
         if hasMarker(root) || candidates.isEmpty {
             return LocatedRoot(relativePath: rootRel, sidecars: sidecars, strippedItems: stripped, candidates: candidates)
         }

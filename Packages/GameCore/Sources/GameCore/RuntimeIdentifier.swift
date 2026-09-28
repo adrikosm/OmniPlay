@@ -36,6 +36,6 @@ public enum RenPyEngine: String, Codable, Sendable, CaseIterable, Hashable {
 }
 
 public enum GodotBucket: String, Codable, Sendable, CaseIterable, Hashable {
-    case v44, v47
+    case v36, v44, v47
     public var slot: SessionSlot { SessionSlot(rawValue: "godot" + rawValue.dropFirst())! }
 }

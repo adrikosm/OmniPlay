@@ -1,0 +1,20 @@
+--- a/backends/platform/ios7/ios7_osys_video.mm
++++ b/backends/platform/ios7/ios7_osys_video.mm
+@@ -112,12 +112,12 @@
+ 	// Automatically open the keyboard when starting a game and in portrait mode.
+ 	// This is preferred for text input games and there's a lot of screen space to
+ 	// utilize for the keyboard anyway.
+-	if (_screenOrientation == kScreenOrientationPortrait ||
+-		_screenOrientation == kScreenOrientationFlippedPortrait) {
+-		execute_on_main_thread(^ {
++	execute_on_main_thread(^ {
++		// The host can attach/rotate the window before the engine drains its orientation event.
++		// Query UIKit here; the cached engine orientation can still describe the previous screen.
++		if (UIInterfaceOrientationIsPortrait([iOS7AppDelegate currentOrientation]))
+ 			[[iOS7AppDelegate iPhoneView] showKeyboard];
+-		});
+-	}
++	});
+ #endif
+ }
+ 

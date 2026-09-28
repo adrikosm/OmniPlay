@@ -48,12 +48,20 @@ public enum SaveValidator {
         expectedTitleHash: String? = nil,
         manifestTitleHash: String? = nil
     ) -> SaveValidation {
-        let head = (try? FileHandle(forReadingFrom: file))
-            .flatMap { h in defer { try? h.close() }; return try? h.read(upToCount: headBytes) } ?? Data()
+        let handle = try? FileHandle(forReadingFrom: file)
+        defer { try? handle?.close() }
+        let head = (try? handle?.read(upToCount: headBytes)) ?? Data()
+        // A ZIP names its members again in the central directory at its end. A desktop Ren'Py save stores its
+        // screenshot first, so `json` and `log` are often past the head; the bounded tail still lists them.
+        var tail = Data()
+        if head.starts(with: [0x50, 0x4B, 0x03, 0x04]), let handle, let size = try? handle.seekToEnd(), size > UInt64(headBytes) {
+            try? handle.seek(toOffset: max(UInt64(headBytes), size - UInt64(headBytes)))
+            tail = (try? handle.readToEnd()) ?? Data()
+        }
         let ext = file.pathExtension.lowercased()
         var warnings: [String] = []
         var version: String?
-        let format = sniff(head, ext: ext, version: &version, warnings: &warnings)
+        let format = sniff(head, tail: tail, ext: ext, version: &version, warnings: &warnings)
         let matches = format.family == family || (format == .webStorageText && family == .webIndexedDB)
         if format ==
             .unknown {
@@ -66,7 +74,7 @@ public enum SaveValidator {
         return SaveValidation(format: format, matchesFamily: matches, titleMatch: title, versionHint: version, warnings: warnings)
     }
 
-    static func sniff(_ head: Data, ext: String, version: inout String?, warnings: inout [String]) -> SaveFormat {
+    static func sniff(_ head: Data, tail: Data = Data(), ext: String, version: inout String?, warnings: inout [String]) -> SaveFormat {
         guard !head.isEmpty else { return .unknown }
         let bytes = [UInt8](head.prefix(16))
         if bytes.starts(with: [0x04, 0x08]), ["rxdata", "rvdata", "rvdata2"].contains(ext) {
@@ -79,7 +87,8 @@ public enum SaveValidator {
         }
         if bytes.starts(with: [0x50, 0x4B, 0x03, 0x04]) {
             if ext == "save" || ext.isEmpty {
-                let hasJSON = head.range(of: Data("json".utf8)) != nil, hasLog = head.range(of: Data("log".utf8)) != nil
+                let names = head + tail
+                let hasJSON = names.range(of: Data("json".utf8)) != nil, hasLog = names.range(of: Data("log".utf8)) != nil
                 if hasJSON, hasLog {
                     version = renpyVersion(in: head)
                     return .renpySave

@@ -1,0 +1,10 @@
+_op_easyrpg_version
+_op_easyrpg_run
+_op_easyrpg_request
+_op_easyrpg_status
+_op_easyrpg_frames
+_op_easyrpg_key
+_op_easyrpg_snapshot
+_op_easyrpg_window
+_op_easyrpg_app_event
+_op_easyrpg_rtp_detect

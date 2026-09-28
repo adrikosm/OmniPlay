@@ -1,0 +1,22 @@
+{
+  "arch": "arm64",
+  "artefact": "Native/prebuilt/fluidsynth",
+  "built_at": "2026-09-21T17:07:12+00:00",
+  "component": "fluidsynth",
+  "flags": {
+    "iphoneos_min": "27.0",
+    "macosx_min": "15.0"
+  },
+  "outputs": {
+    "libfluidsynth.xcframework/Info.plist": "0d0d32e8105d5fd141a16b7af5b021e5c767f8b10da8f79bec19d1685815f8f0",
+    "libfluidsynth.xcframework/ios-arm64-simulator/libfluidsynth.dylib": "005806b18813e7010b947e665ca4b35c718f56f603f8aa719643e08b8be4b78e",
+    "libfluidsynth.xcframework/ios-arm64/libfluidsynth.dylib": "7cb45be6c5a7759480dcbdfcd808f361c597619bf2183ce46fec93f76af74f51"
+  },
+  "sdks": {
+    "iphoneos": "27.0",
+    "iphonesimulator": "27.0",
+    "macosx": "27.0"
+  },
+  "sources": {},
+  "toolchain": "Xcode 27.0 Build version 27A266a"
+}

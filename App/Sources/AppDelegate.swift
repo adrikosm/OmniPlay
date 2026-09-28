@@ -1,5 +1,7 @@
 import Diagnostics
 import GameCore
+import MetricKit
+import RuntimeCore
 import UIKit
 
 /// Process-level hooks SwiftUI does not expose: storage layout, the host session log and the memory
@@ -10,7 +12,21 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         HostSession.shared.start()
+        #if DEBUG
+            // Scripted test runs: every engine plays silently. Each engine reads its own switch when it starts:
+            // SDL (EasyRPG, Ren'Py) a dummy audio driver, OpenAL (mkxp-z) its null backend, WebKit a page script.
+            if CommandLine.arguments.contains("--mute-audio") {
+                setenv("SDL_AUDIODRIVER", "dummy", 1)
+                setenv("ALSOFT_DRIVERS", "null", 1)
+                setenv("OMNIPLAY_MUTE", "1", 1)
+                OPLog.log(.runtime, .info, "all game audio muted for this run (--mute-audio)")
+            }
+        #endif
         return true
+    }
+
+    func application(_: UIApplication, supportedInterfaceOrientationsFor _: UIWindow?) -> UIInterfaceOrientationMask {
+        RuntimeHostViewController.sceneOrientations
     }
 }
 
@@ -23,6 +39,7 @@ final class HostSession {
     let sessionID = SessionID()
     private(set) var layoutError: Error?
     private var recorder: MemoryRecorder?
+    private var crashReports: CrashReports?
     private var pressureTask: Task<Void, Never>?
 
     var directory: URL { paths.logs(game: nil, session: sessionID.rawValue) }
@@ -39,6 +56,9 @@ final class HostSession {
         if let layoutError {
             OPLog.log(.filesystem, .fault, "storage layout failed: \(layoutError)", session: sessionID)
         }
+        let reports = CrashReports(logsRoot: paths.logsRoot(), fallback: directory)
+        MXMetricManager.shared.add(reports)
+        crashReports = reports
         let recorder = MemoryRecorder(fileURL: directory.appending(path: "memory.jsonl"))
         self.recorder = recorder
         Task { await recorder.record(MemoryProbe.sample(label: "launch"), force: true) }

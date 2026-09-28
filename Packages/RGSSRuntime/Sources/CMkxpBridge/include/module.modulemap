@@ -1,0 +1,5 @@
+module CMkxpBridge {
+    header "app_bridge.h"
+    header "omniplay_mkxp.h"
+    export *
+}

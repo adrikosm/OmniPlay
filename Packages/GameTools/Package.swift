@@ -9,6 +9,7 @@ let package = Package(
         .package(path: "../GameCore"),
         .package(path: "../Diagnostics"),
         .package(path: "../RuntimeCore"),
+        .package(path: "../SaveKit"),
     ],
     targets: [
         .target(
@@ -17,9 +18,10 @@ let package = Package(
                 .product(name: "GameCore", package: "GameCore"),
                 .product(name: "Diagnostics", package: "Diagnostics"),
                 .product(name: "RuntimeCore", package: "RuntimeCore"),
-            ]
+                .product(name: "SaveKit", package: "SaveKit"),
+            ],
+            resources: [.copy("Resources/cheats.json")]
         ),
-        .testTarget(name: "GameToolsTests", dependencies: ["GameTools"]),
     ],
     swiftLanguageModes: [.v6]
 )

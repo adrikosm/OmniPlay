@@ -13,7 +13,6 @@ let package = Package(
             dependencies: [
             ]
         ),
-        .testTarget(name: "InputKitTests", dependencies: ["InputKit"]),
     ],
     swiftLanguageModes: [.v6]
 )

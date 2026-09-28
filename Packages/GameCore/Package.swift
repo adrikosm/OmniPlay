@@ -17,7 +17,6 @@ let package = Package(
             ]
         ),
         .target(name: "TestSupport", dependencies: ["GameCore"]),
-        .testTarget(name: "GameCoreTests", dependencies: ["GameCore", "TestSupport"]),
     ],
     swiftLanguageModes: [.v6]
 )

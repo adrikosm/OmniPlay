@@ -12,37 +12,40 @@
     /// One WKWebView per game, fed by a loopback server over the overlay VFS, with an isolated script world,
     /// typed message handlers and a heartbeat watchdog. Everything is torn down in `stop`.
     @MainActor
-    public final class WebRuntime: NSObject, GameRuntime {
-        public static let runtimeID = RuntimeIdentifier.web
-        public let capabilities = RuntimeCapabilities(
-            canInspectState: false,
-            canMutateState: false,
-            pause: .backgroundVisible,
-            multiSession: true
-        )
-        public let renderSurface = RuntimeSurface.webView
-
+    public final class WebRuntime: NSObject, GameRuntime, FastForwardCapable, LiveTranslationHost {
         public enum Failure: Error { case notPrepared, navigation(String), injection(String) }
 
-        private var configuration: RuntimeConfiguration?
-        private var profile = WebProfile()
-        private var server: HTTPServer?
-        private var port: UInt16 = 0
-        private var webView: WKWebView?
-        private var handler: MessageBridge?
-        private var saves: SaveBridge?
-        private var pendingInput: [GameInputEvent] = []
-        private var lifecycleObservers: [any NSObjectProtocol] = []
-        private var consoleSink: FileLogSink?
-        private var terminations = 0
-        private var inputFlushScheduled = false
-        private var watchdog = WebProcessWatchdog(now: .now)
-        private var watchdogTask: Task<Void, Never>?
-        private weak var host: (any RuntimeHost)?
+        var configuration: RuntimeConfiguration?
+        var profile = WebProfile()
+        var server: HTTPServer?
+        var port: UInt16 = 0
+        var webView: WKWebView?
+        var handler: MessageBridge?
+        var saves: SaveBridge?
+        var saveTask: Task<String, Never>?
+        var pendingInput: [GameInputEvent] = []
+        var lifecycleObservers: [any NSObjectProtocol] = []
+        var lifecycleTask: Task<Void, Never>?
+        var userPaused = false
+        var backgrounded = false
+        var stopping = false
+        var consoleSink: FileLogSink?
+        var terminations = 0
+        var inputFlushScheduled = false
+        var watchdog = WebProcessWatchdog(now: .now)
+        var watchdogTask: Task<Void, Never>?
+        weak var host: (any RuntimeHost)?
         public var onFailure: (@MainActor (String) -> Void)?
         public var onNotice: (@MainActor (String) -> Void)?
+        public var onSaveFailure: (@MainActor (String) -> Void)?
+        public var onMissedText: (@MainActor (String) -> Void)?
 
         override public init() { super.init() }
+
+        /// The page the web view opens: the game's own entry, or the KrKr2 Web engine's for a KiriKiri game.
+        var entryPage: String {
+            profile.kirikiri ? KiriKiriWeb.entry(startup: configuration?.entryPoint) : configuration?.entryPoint ?? "index.html"
+        }
 
         /// Builds the resolver over the game's layers and starts the loopback server on the game's remembered port.
         public func prepare(configuration: RuntimeConfiguration) async throws {
@@ -59,12 +62,40 @@
             saves = SaveBridge(location: location, engine: configuration.descriptor.engine, session: configuration.sessionID)
             let index = try PathIndex.open(at: configuration.indexURL)
             let plan = MediaPlan(requirements: configuration.descriptor.mediaRequirements)
-            let resolver = OverlayResolver(layers: configuration.layers, index: index, aliases: plan.aliases)
+            var layers = configuration.layers
+            if profile.kirikiri {
+                guard let engine = KiriKiriWeb.engineRoot() else { throw Failure.navigation("this build has no KrKr2 Web engine") }
+                try index.rebuild(layer: KiriKiriWeb.layerName, root: engine)
+                layers.append(KiriKiriWeb.layer(root: engine))
+            }
+            let resolver = OverlayResolver(layers: layers, index: index, aliases: plan.aliases)
             if !plan.aliases.isEmpty {
                 OPLog.log(.media, .info, "\(plan.aliases.count) media aliases installed", session: configuration.sessionID)
             }
-            let entry = configuration.entryPoint ?? "index.html"
-            let router = GameFileRouter(resolver: resolver, policy: profile.headerPolicy, defaultDocument: entry)
+            var router = GameFileRouter(resolver: resolver, policy: profile.headerPolicy, defaultDocument: entryPage)
+            // WebKit decodes no Ogg Vorbis; omniplay-audio.js routes it here (see OggVorbisDecoder).
+            let vorbis = OggVorbisDecoder(cacheDirectory: configuration.cacheDirectory, session: configuration.sessionID)
+            router.postRoutes[OggVorbisDecoder.postPath] = { request in await vorbis.respond(to: request) }
+            router.transforms["pcm"] = { file in await vorbis.transform(file) }
+            router.siblingExtensions = WebProfile.mediaSiblings
+            if profile.kirikiri, let game = configuration.layers.first(where: { $0.tier == .original })?.root {
+                for (path, route) in KiriKiriWeb.routes(
+                    gameRoot: game,
+                    saves: configuration.saveDirectory,
+                    session: configuration.sessionID
+                ) {
+                    router.postRoutes[path] = route
+                }
+            }
+            // Files converted before launch because WebKit cannot play them (AppModel+Media).
+            if let json = configuration.profile.overrides["mediaRemap"]?.data(using: .utf8),
+               let remap = try? JSONDecoder().decode([String: String].self, from: json) {
+                router.aliases = remap
+            }
+            // The active MTool dictionary, from its pack's layer, for omniplay-translate.js.
+            if let dictionary = configuration.profile.overrides["translationDictionary"] {
+                router.aliases["omniplay-translation.json"] = dictionary
+            }
             let server = HTTPServer(router: router)
             let remembered = configuration.profile.overrides["loopbackPort"].flatMap(UInt16.init)
             port = try await server.start(port: remembered)
@@ -90,36 +121,27 @@
             config.preferences.isElementFullscreenEnabled = false
             config.defaultWebpagePreferences.allowsContentJavaScript = true
             let world = WKContentWorld.world(name: "OmniPlay")
-            let bridge = MessageBridge(session: configuration.sessionID) { [weak self] event in self?.handle(event) }
+            let bridge = MessageBridge(session: configuration.sessionID, saves: saves) { [weak self] event in self?.handle(event) }
+            bridge.prepareNavigation = { [weak self] webView in
+                guard let self, !stopping else { throw CancellationError() }
+                guard webView.url != nil else { return } // The initial seed is installed before the web view exists.
+                try await installScripts(in: webView.configuration.userContentController)
+            }
             handler = bridge
             for name in MessageBridge.handlers {
-                config.userContentController.add(bridge, contentWorld: world, name: name)
-            }
-            do {
-                let seed = saves?.seed() ?? "{}"
-                for name in WebRuntimeBundle.pageScripts {
-                    try config.userContentController.addUserScript(WKUserScript(
-                        source: WebRuntimeBundle.source(name, profile: profile, saves: seed),
-                        injectionTime: .atDocumentStart,
-                        forMainFrameOnly: true
-                    ))
+                if name == "omniplay.save" {
+                    config.userContentController.addScriptMessageHandler(bridge, contentWorld: world, name: name)
+                } else {
+                    config.userContentController.add(bridge, contentWorld: world, name: name)
                 }
-                for name in WebRuntimeBundle.isolatedScripts {
-                    try config.userContentController.addUserScript(WKUserScript(
-                        source: WebRuntimeBundle.source(name, profile: profile),
-                        injectionTime: .atDocumentStart,
-                        forMainFrameOnly: true,
-                        in: world
-                    ))
-                }
-            } catch {
-                throw Failure.injection(String(describing: error))
             }
+            try await installScripts(in: config.userContentController)
             let webView = WKWebView(frame: host.containerView.bounds, configuration: config)
             webView.translatesAutoresizingMaskIntoConstraints = false
             webView.isOpaque = false
             webView.backgroundColor = .black
-            webView.scrollView.isScrollEnabled = false
+            webView.scrollView.isScrollEnabled = profile.pageScroll
+            webView.scrollView.bounces = false
             webView.scrollView.contentInsetAdjustmentBehavior = .never
             webView.navigationDelegate = bridge
             webView.customUserAgent = Self.userAgent(profile.userAgent)
@@ -131,7 +153,7 @@
                 webView.trailingAnchor.constraint(equalTo: host.containerView.trailingAnchor),
             ])
             self.webView = webView
-            let entry = configuration.entryPoint ?? "index.html"
+            let entry = entryPage
             guard let url = URL(string: "http://127.0.0.1:\(port)/\(entry)") else { throw Failure.navigation("bad entry \(entry)") }
             OPLog.log(.web, .info, "loading \(url) bundle v\(WebRuntimeBundle.version)", session: configuration.sessionID)
             webView.load(URLRequest(url: url))
@@ -140,7 +162,7 @@
             watchdog = WebProcessWatchdog(now: .now)
             watchdogTask = Task { [weak self] in
                 while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(2))
+                    do { try await Task.sleep(for: .seconds(2)) } catch { return }
                     guard let self else { return }
                     act(watchdog.tick(now: .now))
                 }
@@ -148,73 +170,51 @@
         }
 
         public func pause() async {
-            _ = watchdog.handle(.paused, now: .now)
-            dispatch("omniplay:pause")
+            userPaused = true
+            updatePauseState()
         }
 
-        /// Suspension tears sockets down, so saves are flushed first and the listener is rebound on return.
-        private func observeLifecycle() {
-            let center = NotificationCenter.default
-            lifecycleObservers = [
-                center.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.hostWillResignActive() }
-                },
-                center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.hostDidBecomeActive() }
-                },
-            ]
-        }
-
-        private func hostWillResignActive() {
-            let task = UIApplication.shared.beginBackgroundTask(withName: "omniplay.autosave") {}
-            Task { @MainActor [weak self] in
-                await self?.autosave()
-                self?.dispatch("omniplay:pause")
-                _ = self?.watchdog.handle(.paused, now: .now)
-                UIApplication.shared.endBackgroundTask(task)
-            }
-        }
-
-        private func hostDidBecomeActive() {
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if let server {
-                    do {
-                        let restarted = try await server.restartIfNeeded()
-                        if restarted != port {
-                            port = restarted
-                            OPLog.log(
-                                .web,
-                                .default,
-                                "loopback port changed after background; reloading page",
-                                session: configuration?.sessionID
-                            )
-                            if let entry = configuration?.entryPoint ?? "index.html" as String?,
-                               let url = URL(string: "http://127.0.0.1:\(port)/\(entry)") {
-                                webView?.load(URLRequest(url: url))
-                            }
-                        }
-                    } catch {
-                        OPLog.log(.web, .error, "loopback restart failed: \(error)", session: configuration?.sessionID)
-                        onFailure?("The game's local server could not restart after returning from the background.")
-                        return
-                    }
-                }
-                _ = watchdog.handle(.resumed, now: .now)
-                dispatch("omniplay:resume")
-            }
+        func updatePauseState() {
+            guard !stopping else { return }
+            let paused = userPaused || backgrounded
+            _ = watchdog.handle(paused ? .paused : .resumed, now: .now)
+            dispatch(paused ? "omniplay:pause" : "omniplay:resume")
         }
 
         public func resume() async {
-            _ = watchdog.handle(.resumed, now: .now)
-            if let server {
-                _ = try? await server.start(port: port)
-            }
-            dispatch("omniplay:resume")
+            userPaused = false
+            updatePauseState()
+        }
+
+        // ponytail: a page reload (watchdog) drops back to 1x in the page while this still reports the old speed.
+        public private(set) var fastForward = 1
+
+        public func setFastForward(_ multiplier: Int) {
+            fastForward = max(1, min(8, multiplier))
+            webView?.callAsyncJavaScript(
+                "document.dispatchEvent(new CustomEvent('omniplay:speed', { detail: n }))",
+                arguments: ["n": fastForward],
+                in: nil,
+                in: .page
+            ) { _ in }
+        }
+
+        /// RPG Maker's scene loop can be sped up; other web games pace themselves, so they get no speed row.
+        public var speedChoices: SpeedChoices { profile.rpgMaker ? .multipliers : SpeedChoices(title: "", options: []) }
+
+        /// Translations for lines the page asked about; it shows them from the next time each line is drawn.
+        public func deliverTranslations(_ translations: [String: String]) {
+            guard !translations.isEmpty else { return }
+            webView?.callAsyncJavaScript(
+                "document.dispatchEvent(new CustomEvent('omniplay:translated', { detail: map }))",
+                arguments: ["map": translations],
+                in: nil,
+                in: .page
+            ) { _ in }
         }
 
         /// Fires a plain DOM event in the page world; the page scripts do the engine-specific work.
-        private func dispatch(_ name: String) {
+        func dispatch(_ name: String) {
             webView?.callAsyncJavaScript(
                 "document.dispatchEvent(new Event(name))",
                 arguments: ["name": name],
@@ -234,7 +234,7 @@
             }
         }
 
-        private func flushInput() {
+        func flushInput() {
             inputFlushScheduled = false
             guard !pendingInput.isEmpty, let webView else { pendingInput.removeAll(); return }
             let batch = WebInputEncoder.json(pendingInput)
@@ -247,38 +247,40 @@
             ) { _ in }
         }
 
-        public func inspect(_: StateInspectionRequest) async throws -> StateInspectionResult { throw Failure.notPrepared }
-        public func mutate(_: StateMutation) async throws -> StateMutationResult { throw Failure.notPrepared }
-        public func saveSnapshot() async throws -> SaveSnapshot {
-            guard let saves, let configuration else { throw Failure.notPrepared }
-            return try await SaveVault.snapshot(
-                location: saves.location,
-                identityHash: configuration.descriptor.identityHash,
-                reason: .manualSnapshot
-            )
-        }
-
-        private func autosave() async {
-            guard let webView, profile.autosaveOnExit else { return }
-            let box = OutcomeBox()
-            let result = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
-                let finish: @MainActor (String) -> Void = { outcome in
-                    guard !box.done else { return }
-                    box.done = true
-                    continuation.resume(returning: outcome)
-                }
-                webView.callAsyncJavaScript(Self.autosaveScript, in: nil, in: .page) { outcome in
-                    switch outcome {
-                    case let .success(value): finish(value as? String ?? "unknown")
-                    case let .failure(error): finish("error: \(error.localizedDescription)")
+        func autosave() async {
+            if let saveTask {
+                _ = await saveTask.value; return
+            }
+            guard let webView else { return }
+            let enabled = profile.autosaveOnExit
+            let task = Task { @MainActor in
+                let box = OutcomeBox()
+                return await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+                    let finish: @MainActor (String) -> Void = { outcome in
+                        guard !box.done else { return }
+                        box.done = true
+                        continuation.resume(returning: outcome)
+                    }
+                    webView.callAsyncJavaScript(Self.autosaveScript, arguments: ["enabled": enabled], in: nil, in: .page) { outcome in
+                        switch outcome {
+                        case let .success(value): finish(value as? String ?? "unknown")
+                        case let .failure(error): finish("error: \(error.localizedDescription)")
+                        }
+                    }
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(3))
+                        finish("timeout")
                     }
                 }
-                Task { @MainActor in
-                    try? await Task.sleep(for: .seconds(3))
-                    finish("timeout")
-                }
             }
+            saveTask = task
+            let result = await task.value
+            saveTask = nil
             OPLog.log(.save, .info, "autosave on exit: \(result)", session: configuration?.sessionID)
+            if result == "timeout" || result.hasPrefix("error:") {
+                // The reason (the host's or the page's) is in the log line above; the player gets the gist.
+                onSaveFailure?("The last save could not be confirmed, so recent progress may be missing.")
+            }
         }
 
         public func handleMemoryPressure(_ level: MemoryPressureLevel) {
@@ -286,13 +288,11 @@
             webView?.evaluateJavaScript("window.OmniPlay && OmniPlay.trimCaches()", in: nil, in: .world(name: "OmniPlay")) { _ in }
         }
 
-        public func handleThermalState(_ state: ProcessInfo.ThermalState) {
-            guard state == .serious || state == .critical else { return }
-            webView?.evaluateJavaScript("window.OmniPlay && OmniPlay.setFrameCap(30)", in: nil, in: .world(name: "OmniPlay")) { _ in }
-        }
-
         /// Removes handlers and scripts, blanks the page, detaches the view, stops the server.
         public func stop(reason: RuntimeStopReason) async -> TeardownVerdict {
+            stopping = true
+            lifecycleTask?.cancel()
+            lifecycleTask = nil
             watchdogTask?.cancel()
             watchdogTask = nil
             lifecycleObservers.forEach(NotificationCenter.default.removeObserver)
@@ -301,8 +301,19 @@
                 await consoleSink.close()
             }
             consoleSink = nil
-            if reason == .userExit || reason == .memoryPressure || reason == .switchingGame {
+            if reason == .userExit || reason == .memoryPressure || reason == .switchingGame || reason == .hostShutdown {
                 await autosave()
+            }
+            // The dictionary's hit and miss counts go in the session log, which Diagnostics shows (TRANS-003).
+            // Optional diagnostics must never hold teardown hostage to an unresponsive page.
+            let sessionID = configuration?.sessionID
+            webView?.callAsyncJavaScript(
+                "const s = window.__omniplayTranslation; return s && (s.entries || s.misses) ? JSON.stringify(s) : null",
+                in: nil, in: .page
+            ) { result in
+                if case let .success(stats as String) = result {
+                    OPLog.log(.web, .info, "translation this session: \(stats)", session: sessionID)
+                }
             }
             if let webView {
                 let controller = webView.configuration.userContentController
@@ -320,66 +331,13 @@
             }
             webView = nil
             handler = nil
+            saves = nil
+            pendingInput.removeAll()
+            onMissedText = nil
             await server?.stop()
             server = nil
             OPLog.log(.web, .info, "web runtime stopped (\(reason))", session: configuration?.sessionID)
             return .clean
         }
-
-        // MARK: Events
-
-        private func handle(_ event: MessageBridge.Event) {
-            switch event {
-            case .heartbeat: _ = watchdog.handle(.heartbeat, now: .now)
-            case .booted:
-                _ = watchdog.handle(.pageBooted, now: .now)
-                host?.runtimeDidEmit(.gradeReached(.intro))
-            case let .console(level, message):
-                host?.runtimeDidEmit(.log(.javascript, "[\(level)] \(message)"))
-                if let consoleSink {
-                    let stamp = Date.now
-                        .formatted(.iso8601.year().month().day().timeZone(separator: .omitted).time(includingFractionalSeconds: true))
-                    Task { await consoleSink.append("\(stamp)\t\(level)\t\(message)") }
-                }
-            case let .navigationFailed(detail):
-                onFailure?("The game page failed to load: \(detail)")
-            case .processTerminated:
-                terminations += 1
-                writeTermination()
-                act(watchdog.handle(.terminated, now: .now))
-            case let .save(op, kind, key, value):
-                saves?.handle(op: op, kind: kind, key: key, value: value)
-                host?.runtimeDidEmit(.log(.save, "\(op) \(kind) \(key) \(value?.count ?? 0) bytes"))
-            }
-        }
-
-        /// `termination.json`: why the page vanished, for the diagnostics bundle.
-        private func writeTermination() {
-            guard let configuration else { return }
-            let record: [String: Any] = [
-                "at": Date.now.formatted(.iso8601),
-                "count": terminations,
-                "hostFootprintBytes": ProcessFootprint.current.map(Int.init) ?? -1,
-                "thermalState": ProcessInfo.processInfo.thermalState.rawValue,
-                "lowPowerMode": ProcessInfo.processInfo.isLowPowerModeEnabled,
-                "reason": "WebContent process terminated",
-            ]
-            if let data = try? JSONSerialization.data(withJSONObject: record, options: [.prettyPrinted, .sortedKeys]) {
-                try? data.write(to: configuration.logDirectory.appending(path: "termination.json"), options: .atomic)
-            }
-        }
-
-        private func act(_ action: WebProcessWatchdog.Action) {
-            switch action {
-            case .none: break
-            case let .reloadAndAutoload(reason):
-                OPLog.log(.web, .error, "web process lost: \(reason); reloading", session: configuration?.sessionID)
-                onNotice?("The game was reloaded to free memory.")
-                webView?.reload()
-            case let .giveUp(reason):
-                onFailure?(reason)
-            }
-        }
     }
-
 #endif

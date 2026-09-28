@@ -4,101 +4,131 @@ import LocalAuthentication
 import SwiftUI
 
 struct LibraryView: View {
-    @Environment(AppModel.self) private var model
-    @State private var path: [GameRecord] = []
+    @Environment(AppModel.self) var model
+    @State var path: [GameRecord] = []
+    /// Set by Continue: the game page it opens starts playing straight away.
+    @State var autoplay: GameID?
+    @Namespace var zoom
 
     var body: some View {
         NavigationStack(path: $path) {
             Group {
                 if let store = model.store {
-                    LibraryContent(viewModel: LibraryViewModel(store: store, paths: model.paths), path: $path)
+                    LibraryContent(
+                        viewModel: LibraryViewModel(store: store, paths: model.paths),
+                        path: $path,
+                        autoplay: $autoplay,
+                        zoom: zoom
+                    )
                 } else {
-                    Color.clear
+                    Color.clear.canvas()
                 }
             }
-            .inkScreen()
-            .navigationTitle("Library")
-            .navigationDestination(for: GameRecord.self) { GameDetailView(game: $0) }
+            .toolbarVisibility(.hidden, for: .navigationBar)
+            .navigationDestination(for: GameRecord.self) {
+                // The cover grows into the page, and the page shrinks back into it.
+                GameDetailView(game: $0, autoplay: $0.id == autoplay).navigationTransition(.zoom(sourceID: $0.id, in: zoom))
+            }
+            .onChange(of: path) { _, path in
+                if path.isEmpty {
+                    autoplay = nil
+                }
+            }
         }
     }
 }
 
-private struct LibraryContent: View {
-    @Environment(AppModel.self) private var model
+/// Landscape: the featured game on the left (its title rolls when the shelf moves), the shelf of covers on the right.
+/// The cover at the shelf's leading edge is the featured one, marked by a thin accent line; Continue plays it.
+/// Portrait stacks the same parts. Favourites and Hidden are this screen, filtered.
+struct LibraryContent: View {
+    @Environment(AppModel.self) var model
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
+    @Environment(\.verticalSizeClass) var verticalSizeClass
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
+    @Environment(\.dynamicTypeSize) var typeSize
     @State var viewModel: LibraryViewModel
     @Binding var path: [GameRecord]
-    @State private var pendingDelete: GameRecord?
-    @State private var shelfError: String?
+    @Binding var autoplay: GameID?
+    let zoom: Namespace.ID
+    @State var featuredID: GameID?
+    /// Which way the featured title rolls: forward along the shelf rises from below.
+    @State var forward = true
+    @State var shelfWidth: CGFloat = 500
+    @State var pendingDelete: GameRecord?
+    /// Naming a new collection; `adding` is the game it starts with, if it came from a cover's menu.
+    @State var naming = false
+    @State var adding: GameRecord?
+    @State var newName = ""
+    @State var shelfError: String?
+    @Namespace var marker
 
-    private let columns = [GridItem(.adaptive(minimum: 108, maximum: 160), spacing: Theme.s3)]
+    var wide: Bool { Adaptive.wide(vertical: verticalSizeClass, horizontal: horizontalSizeClass, type: typeSize) }
+    var featured: GameRecord? { viewModel.games.first { $0.id == featuredID } ?? viewModel.games.first }
 
     var body: some View {
-        ScrollView {
-            if viewModel.games.isEmpty, viewModel.query.isEmpty {
-                EmptyLibrary { model.selectedTab = .importGames }
-            } else if viewModel.games.isEmpty {
-                ContentUnavailableView.search(text: viewModel.query).padding(.top, Theme.s8)
-            } else {
-                LazyVGrid(columns: columns, spacing: Theme.s4) {
-                    ForEach(viewModel.games) { game in
-                        NavigationLink(value: game) { GameTile(game: game, restartNeeded: restartNeeded(game)) }
-                            .buttonStyle(TileButtonStyle())
-                            .contextMenu {
-                                Button(
-                                    game.favorite ? "Remove from favourites" : "Add to favourites",
-                                    systemImage: game.favorite ? "heart.slash" : "heart"
-                                ) {
-                                    viewModel.setFavorite(game, !game.favorite)
-                                }
-                                Button(game.hidden ? "Show in library" : "Hide", systemImage: game.hidden ? "eye" : "eye.slash") {
-                                    viewModel.setHidden(game, !game.hidden)
-                                }
-                                Divider()
-                                Button("Delete game", systemImage: "trash", role: .destructive) { pendingDelete = game }
-                            }
+        Group {
+            if wide {
+                VStack(alignment: .leading, spacing: 22) {
+                    header
+                    if let featured {
+                        HStack(alignment: .top, spacing: 30) {
+                            featuredColumn(featured).frame(width: 300, alignment: .leading)
+                            shelf
+                        }
+                    } else {
+                        emptyState
                     }
+                    Spacer(minLength: 0)
                 }
-                .padding(.horizontal, Theme.s4)
-                .padding(.bottom, Theme.s8)
-            }
-            if let error = viewModel.error ?? shelfError {
-                Text(error).font(.footnote).foregroundStyle(Theme.danger).padding()
+                .padding(.top, Theme.s3)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: Theme.s6) {
+                        header
+                        if let featured {
+                            featuredColumn(featured)
+                            shelf
+                        } else {
+                            emptyState
+                        }
+                    }
+                    .padding(.top, Theme.s3)
+                    .padding(.bottom, 96)
+                }
+                .scrollBounceBehavior(.basedOnSize)
             }
         }
-        .searchable(text: $viewModel.query, prompt: "Search titles")
+        .padding(.horizontal, Theme.s4)
+        .canvas()
         #if DEBUG
             .onChange(of: viewModel.games.isEmpty) { _, empty in
-                if !empty, DebugLaunch.openFirstGame, path.isEmpty, let first = viewModel.games.first {
-                    path = [first]
+                if !empty, DebugLaunch.openFirstGame, path.isEmpty, let first = viewModel.games.max(by: { $0.importedAt < $1.importedAt }) {
+                    Task {
+                        await model.debugEditSave(first)
+                        await model.debugMods(first)
+                        // Opened once: a second push while the game plays takes its view off screen.
+                        if path.isEmpty {
+                            path = [first]
+                        }
+                    }
                 }
             }
         #endif
-            .onChange(of: viewModel.games.isEmpty, initial: true) { _, empty in
-                if !empty, let id = model.pendingOpen, let target = viewModel.games.first(where: { $0.id == id }) {
+            .onChange(of: model.pendingOpen) { _, id in
+                if let id, let target = viewModel.games.first(where: { $0.id == id }) {
                     path = [target]
                     model.clearPendingOpen()
                 }
             }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Picker("Sort", selection: $viewModel.sort) {
-                            Text("Recently added").tag(LibrarySort.recentlyImported)
-                            Text("Recently played").tag(LibrarySort.recentlyPlayed)
-                            Text("Title").tag(LibrarySort.title)
-                        }
-                        Divider()
-                        Picker("Show", selection: Binding(get: { viewModel.filter }, set: { choose(filter: $0) })) {
-                            Label("All games", systemImage: "square.grid.2x2").tag(LibraryFilter.all)
-                            Label("Favourites", systemImage: "heart").tag(LibraryFilter.favorites)
-                            Label("Hidden shelf", systemImage: "eye.slash").tag(LibraryFilter.hidden)
-                        }
-                    } label: {
-                        Label(
-                            "Sort and filter",
-                            systemImage: filterSymbol
-                        )
-                    }
+            .onChange(of: viewModel.games.map(\.id), initial: true) { _, ids in
+                if let id = model.pendingOpen, let target = viewModel.games.first(where: { $0.id == id }) {
+                    path = [target]
+                    model.clearPendingOpen()
+                }
+                // First load, or the featured game left this filter: feature the one last played.
+                if featuredID.map(ids.contains) != true {
+                    featuredID = recent?.id ?? ids.first
                 }
             }
             .confirmationDialog(
@@ -121,113 +151,12 @@ private struct LibraryContent: View {
             } message: {
                 Text("The game files are removed. Saves are kept and come back if you import the same game again.")
             }
-    }
-}
-
-private extension LibraryContent {
-    func restartNeeded(_ game: GameRecord) -> Bool { game.runtime.map { model.spentSlots.contains($0.slot) } ?? false }
-
-    var filterSymbol: String {
-        switch viewModel.filter {
-        case .favorites: "heart.fill"
-        case .hidden: "eye.slash.fill"
-        default: "arrow.up.arrow.down"
-        }
-    }
-
-    /// The hidden shelf opens only after the device owner authenticates; the other filters switch at once.
-    func choose(filter: LibraryFilter) {
-        guard filter == .hidden else { viewModel.filter = filter; return }
-        let context = LAContext()
-        var error: NSError?
-        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else {
-            // No passcode set: nothing to protect with, so the shelf simply opens.
-            viewModel.filter = .hidden
-            return
-        }
-        context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: "Show the hidden shelf") { ok, failure in
-            Task { @MainActor in
-                if ok {
-                    viewModel.filter = .hidden
-                } else if let failure {
-                    shelfError = failure.localizedDescription
-                }
+            .alert("New collection", isPresented: $naming) {
+                TextField("Name", text: $newName)
+                Button("Create") { viewModel.createCollection(named: newName, with: adding) }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(adding.map { "\"\($0.title)\" goes in it." } ?? "Add games from their cover's menu.")
             }
-        }
-    }
-}
-
-/// Cover tile: 3:4 art, serif title, engine and state chips. The whole tile is the target.
-struct GameTile: View {
-    let game: GameRecord
-    var restartNeeded = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Theme.s2) {
-            CoverImage(path: game.artworkPath, engine: game.engine)
-                .aspectRatio(Theme.coverAspect, contentMode: .fit)
-                .clipShape(.rect(cornerRadius: Theme.tileRadius))
-                .overlay(RoundedRectangle(cornerRadius: Theme.tileRadius).strokeBorder(Theme.hairline, lineWidth: 1))
-                .overlay(alignment: .topTrailing) {
-                    if restartNeeded {
-                        Chip(text: "Restart needed", tint: Theme.lantern).padding(Theme.s2)
-                    } else if game.compatibilityState != .loadable {
-                        Chip(text: game.compatibilityState.label, tint: game.compatibilityState.tint).padding(Theme.s2)
-                    }
-                }
-                .overlay(alignment: .topLeading) {
-                    if game.favorite {
-                        Image(systemName: "heart.fill").font(.caption).foregroundStyle(Theme.lantern).padding(Theme.s2)
-                            .accessibilityLabel("Favourite")
-                    }
-                }
-            Text(game.title)
-                .font(Theme.tileTitle)
-                .foregroundStyle(Theme.textPrimary)
-                .lineLimit(2, reservesSpace: true)
-                .multilineTextAlignment(.leading)
-            Text(game.engine.displayName)
-                .font(.caption2)
-                .foregroundStyle(Theme.textSecondary)
-                .lineLimit(1)
-        }
-        .frame(maxHeight: .infinity, alignment: .top)
-        .contentShape(.rect)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(game.title), \(game.engine.displayName), \(game.compatibilityState.label)")
-    }
-}
-
-/// Press feedback without moving layout bounds: a dim, not a scale.
-struct TileButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .opacity(configuration.isPressed ? 0.72 : 1)
-            .animation(Theme.quick, value: configuration.isPressed)
-    }
-}
-
-/// The first screen a new user sees: one invitation, no decoration competing with it.
-struct EmptyLibrary: View {
-    let importAction: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Theme.s4) {
-            Text("Your shelf is empty")
-                .font(Theme.title(30))
-                .foregroundStyle(Theme.textPrimary)
-            Text(
-                "Bring in a game from Files, a folder or a zip, and OmniPlay works out which engine it needs "
-                    + "and keeps saves, mods and settings in one place."
-            )
-            .foregroundStyle(Theme.textSecondary)
-            .frame(maxWidth: 420, alignment: .leading)
-            Button(action: importAction) { Label("Import a game", systemImage: "square.and.arrow.down") }
-                .buttonStyle(LanternButtonStyle())
-                .padding(.top, Theme.s2)
-        }
-        .padding(Theme.s6)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, Theme.s8)
     }
 }

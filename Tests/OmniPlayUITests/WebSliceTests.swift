@@ -29,18 +29,26 @@ final class WebSliceTests: XCTestCase {
         let confirm = app.buttons["Leave"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 10))
         confirm.tap()
-        XCTAssertTrue(app.buttons["Saves and backups"].firstMatch.waitForExistence(timeout: 15), "did not return to the game detail")
+        XCTAssertTrue(
+            app.buttons.matching(Self.labelContains("Game Tools")).firstMatch.waitForExistence(timeout: 15),
+            "did not return to the game detail"
+        )
     }
 
+    static func labelContains(_ text: String) -> NSPredicate { NSPredicate(format: "label CONTAINS %@", text) }
+
     func testImportPlaySaveRelaunchContinue() {
-        var app = launch(["--import", Self.fixture, "--play-first-game"])
+        var app = launch(["--reset-library", "--import", Self.fixture, "--play-first-game"])
         playAndLeave(app)
         app.terminate()
 
         app = launch(["--play-first-game"])
         playAndLeave(app)
 
-        app.buttons["Saves and backups"].firstMatch.tap()
+        app.buttons.matching(Self.labelContains("Game Tools")).firstMatch.tap()
+        let saves = app.buttons.matching(Self.labelContains("Saves and backups")).firstMatch
+        XCTAssertTrue(saves.waitForExistence(timeout: 10), "Game Tools has no Saves section")
+        saves.tap()
         let store = app.descendants(matching: .any)["persistentStore.webLocalStorage"].firstMatch
         XCTAssertTrue(store.waitForExistence(timeout: 10), "web storage store row missing")
         XCTAssertTrue(store.label.contains("1 file"), "expected the runs counter file, got: \(store.label)")

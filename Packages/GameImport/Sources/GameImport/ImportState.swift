@@ -63,6 +63,8 @@ public enum ImportFailure: Error, Sendable, Hashable {
     case storageInsufficient(required: Int64, available: Int64)
     case extractionFailed(entry: String, underlying: String)
     case passwordRequired
+    case passwordIncorrect
+    case missingVolume(String)
     case noGameRoot
     /// Several plausible game folders; the user picks one (relative paths inside the staged tree).
     case multipleRoots([String])

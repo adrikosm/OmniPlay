@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "cheats": [
+    {
+      "id": "gold.max", "name": "Max gold", "summary": "As much gold as the game allows.",
+      "category": "currency", "requires": ["gold"], "parameters": [], "persistence": "live",
+      "steps": [{ "target": { "kind": "gold" }, "op": "set", "value": 999999999 }]
+    },
+    {
+      "id": "gold.add", "name": "Add gold", "summary": "Adds the amount you choose.",
+      "category": "currency", "requires": ["gold"], "persistence": "live",
+      "parameters": [{ "key": "amount", "label": "Amount", "kind": "amount", "min": 1, "max": 9999999, "default": 1000 }],
+      "steps": [{ "target": { "kind": "gold" }, "op": "add", "value": "$amount" }]
+    },
+    {
+      "id": "items.add", "name": "Add item", "summary": "Adds items to the inventory.",
+      "category": "items", "requires": ["inventory"], "persistence": "live",
+      "parameters": [
+        { "key": "item", "label": "Item", "kind": "item" },
+        { "key": "count", "label": "How many", "kind": "amount", "min": 1, "max": 99, "default": 1 }
+      ],
+      "steps": [{ "target": { "kind": "item", "id": "$item" }, "op": "add", "value": "$count" }]
+    },
+    {
+      "id": "weapons.add", "name": "Add weapon", "summary": "Adds weapons to the inventory.",
+      "category": "items", "requires": ["inventory"], "persistence": "live",
+      "parameters": [
+        { "key": "item", "label": "Weapon", "kind": "weapon" },
+        { "key": "count", "label": "How many", "kind": "amount", "min": 1, "max": 99, "default": 1 }
+      ],
+      "steps": [{ "target": { "kind": "weapon", "id": "$item" }, "op": "add", "value": "$count" }]
+    },
+    {
+      "id": "armors.add", "name": "Add armor", "summary": "Adds armor to the inventory.",
+      "category": "items", "requires": ["inventory"], "persistence": "live",
+      "parameters": [
+        { "key": "item", "label": "Armor", "kind": "armor" },
+        { "key": "count", "label": "How many", "kind": "amount", "min": 1, "max": 99, "default": 1 }
+      ],
+      "steps": [{ "target": { "kind": "armor", "id": "$item" }, "op": "add", "value": "$count" }]
+    },
+    {
+      "id": "party.recover", "name": "Recover party", "summary": "Every party member back to full HP and MP.",
+      "category": "party", "requires": ["actors"], "parameters": [], "persistence": "live",
+      "steps": [
+        { "target": { "kind": "actor", "id": "$actor", "prop": "hp" }, "op": "set", "value": 9999999, "forEach": "partyMember" },
+        { "target": { "kind": "actor", "id": "$actor", "prop": "mp" }, "op": "set", "value": 9999999, "forEach": "partyMember" }
+      ]
+    },
+    {
+      "id": "party.levelUp", "name": "Level up party", "summary": "Every party member gains a level.",
+      "category": "party", "requires": ["actors"], "parameters": [], "persistence": "live",
+      "steps": [{ "target": { "kind": "actor", "id": "$actor", "prop": "level" }, "op": "add", "value": 1, "forEach": "partyMember" }]
+    },
+    {
+      "id": "party.add", "name": "Add party member", "summary": "Brings an actor into the party.",
+      "category": "party", "requires": ["party"], "persistence": "live",
+      "parameters": [{ "key": "actor", "label": "Actor", "kind": "actor" }],
+      "steps": [{ "target": { "kind": "partyMember", "id": "$actor" }, "op": "set", "value": true }]
+    },
+    {
+      "id": "progress.variable", "name": "Set variable", "summary": "Sets one of the game's variables.",
+      "category": "progress", "requires": ["variables"], "persistence": "live",
+      "parameters": [
+        { "key": "variable", "label": "Variable", "kind": "variable" },
+        { "key": "value", "label": "Value", "kind": "amount", "min": -99999999, "max": 99999999, "default": 0 }
+      ],
+      "steps": [{ "target": { "kind": "variable", "id": "$variable" }, "op": "set", "value": "$value" }]
+    },
+    {
+      "id": "progress.switch", "name": "Flip switch", "summary": "Turns one of the game's switches on or off.",
+      "category": "progress", "requires": ["switches"], "persistence": "live",
+      "parameters": [{ "key": "switch", "label": "Switch", "kind": "switch" }],
+      "steps": [{ "target": { "kind": "switch", "id": "$switch" }, "op": "toggle" }]
+    },
+    {
+      "id": "movement.noclip", "name": "Walk through walls", "summary": "The player passes through anything.",
+      "category": "movement", "requires": ["patches"], "parameters": [], "persistence": "live",
+      "warning": "You can walk into places the game never expects you to reach, and get stuck there. Save first.",
+      "steps": [{ "target": { "kind": "patch", "name": "noclip" }, "op": "toggle" }]
+    },
+    {
+      "id": "battle.godMode", "name": "God mode", "summary": "The party takes no damage and cannot be knocked out.",
+      "category": "battle", "requires": ["patches"], "parameters": [], "persistence": "live",
+      "steps": [{ "target": { "kind": "patch", "name": "godMode" }, "op": "toggle" }]
+    },
+    {
+      "id": "battle.noEncounters", "name": "No random encounters", "summary": "Random battles stop while this is on.",
+      "category": "battle", "requires": ["patches"], "parameters": [], "persistence": "persistsInSave",
+      "warning": "In RPG Maker VX and VX Ace this is a switch the game keeps in its saves: turn it off before saving if you want encounters back after loading.",
+      "steps": [{ "target": { "kind": "patch", "name": "noEncounters" }, "op": "toggle" }]
+    },
+    {
+      "id": "system.saveAnywhere", "name": "Save anywhere", "summary": "Turns saving back on where the game disabled it.",
+      "category": "system", "requires": ["systemFlags"], "parameters": [], "persistence": "live",
+      "steps": [{ "target": { "kind": "system", "flag": "saveEnabled" }, "op": "set", "value": true }]
+    },
+    {
+      "id": "system.debugMenu", "name": "Open the debug menu", "summary": "RPG Maker's own switch and variable editor, as in a test play.",
+      "category": "system", "requires": ["patches"], "parameters": [], "persistence": "live",
+      "warning": "The game's own debug screen changes anything without checks and cannot be undone from OmniPlay.",
+      "steps": [{ "target": { "kind": "patch", "name": "debugMenu" }, "op": "set", "value": true }]
+    }
+  ]
+}

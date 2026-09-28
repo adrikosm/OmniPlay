@@ -29,6 +29,12 @@ minisign.key
 *.minisign.key
 .env
 .env.*
+*.pem
+*.key
+.netrc
+# Per-machine overrides of any committed config
+*.local
+*.local.*
 
 # ---- Native artefacts (reproducible from Native/scripts) ----
 Native/**/prebuilt/
@@ -38,6 +44,8 @@ Native/**/third_party/
 *.a
 *.o
 *.dylib
+# Compiler dependency files embed absolute paths from this Mac
+*.d
 *.xcframework/
 *.framework/
 
@@ -84,12 +92,26 @@ mcp.json
 .clinerules
 .gemini/
 .copilot/
+.claude.json
+.agents/
+.kiro/
+.junie/
+.augment/
+.opencode/
+opencode.json
+.qwen/
+.coderabbit.yaml
+.coderabbit.yml
+llms.txt
 *.agent.md
 memory/
 scratchpad/
 tmp/
+# Throwaway XCUITest drivers used to steer the simulator by hand
+Scratch*.swift
 
 # ---- Logs, temp, editors ----
+__pycache__/
 *.log
 *.jsonl
 Logs/

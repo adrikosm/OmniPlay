@@ -11,9 +11,9 @@ public enum EngineFamily: String, Codable, Sendable, CaseIterable, Hashable {
         switch self {
         case .rpgMakerMV, .rpgMakerMZ, .rpgMakerXP, .rpgMakerVX, .rpgMakerVXAce, .renpy, .html5: .core
         case .rpgMaker2000, .rpgMaker2003, .scummvm, .love, .onscripter, .tic80, .flash, .unityWeb, .godotWeb: .breadth
-        case .godot: .opportunistic
+        case .godot, .kirikiri: .opportunistic
         case .unityNative, .unreal, .gameMaker, .clickteam, .bakin, .smileGameBuilder, .srpgStudio, .pixelGameMakerMV,
-             .wolfRPG, .kirikiri, .yuris, .artemis, .siglus, .unknown: .refused
+             .wolfRPG, .yuris, .artemis, .siglus, .unknown: .refused
         }
     }
 }

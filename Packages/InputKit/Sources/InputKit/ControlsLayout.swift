@@ -21,22 +21,28 @@ public struct ControlsLayout: Codable, Sendable, Hashable {
         public var label: String
         public var keys: [GameKey]
         public var anchor: Anchor
-        public init(id: String, label: String, keys: [GameKey], anchor: Anchor) {
+        /// A tap latches the key down until the next tap (Shift to dash, Ctrl to skip). Absent in older layouts.
+        public var hold: Bool?
+        public init(id: String, label: String, keys: [GameKey], anchor: Anchor, hold: Bool? = nil) {
             self.id = id
             self.label = label
             self.keys = keys
             self.anchor = anchor
+            self.hold = hold
         }
     }
 
     public var version: Int
     public var dpad: Anchor
     public var buttons: [Control]
+    /// The round plate the face buttons sit on, mirroring the D-pad. Absent in older layouts.
+    public var plate: Anchor?
 
-    public init(version: Int = ControlsLayout.currentVersion, dpad: Anchor, buttons: [Control]) {
+    public init(version: Int = ControlsLayout.currentVersion, dpad: Anchor, buttons: [Control], plate: Anchor? = nil) {
         self.version = version
         self.dpad = dpad
         self.buttons = buttons
+        self.plate = plate
     }
 
     public static func decode(_ data: Data) throws -> ControlsLayout {
@@ -50,28 +56,45 @@ public struct ControlsLayout: Codable, Sendable, Hashable {
 
     public func encoded() throws -> Data { try JSONEncoder().encode(self) }
 
-    /// Thumb zones: D-pad bottom-left, face buttons bottom-right, page keys above them.
-    public static let landscape = ControlsLayout(
-        dpad: Anchor(x: 0.14, y: 0.70, size: 168),
-        buttons: [
-            Control(id: "ok", label: "OK", keys: [.keyZ], anchor: Anchor(x: 0.90, y: 0.62, size: 68)),
-            Control(id: "cancel", label: "Cancel", keys: [.keyX], anchor: Anchor(x: 0.80, y: 0.80, size: 60)),
-            Control(id: "shift", label: "Dash", keys: [.shiftLeft], anchor: Anchor(x: 0.78, y: 0.50, size: 52)),
-            Control(id: "menu", label: "Menu", keys: [.escape], anchor: Anchor(x: 0.92, y: 0.88, size: 48)),
-            Control(id: "pageUp", label: "Q", keys: [.pageUp], anchor: Anchor(x: 0.74, y: 0.20, size: 44)),
-            Control(id: "pageDown", label: "W", keys: [.pageDown], anchor: Anchor(x: 0.90, y: 0.20, size: 44)),
-        ]
-    )
+    /// D-pad bottom-left; bottom-right, four face buttons in a diamond like a controller's: Y on top, X left, B right,
+    /// A at the bottom under the resting thumb. Buttons touch edge to edge, so the diamond is three buttons wide.
+    static func diamond(landscape: Bool, a: [GameKey], b: [GameKey], x: [GameKey], y: [GameKey]) -> ControlsLayout {
+        // Unit offsets of one 54 pt button in the safe area (about 832×419 pt landscape, 408×800 pt portrait).
+        let (cx, cy, dx, dy) = landscape ? (0.86, 0.68, 54.0 / 832, 54.0 / 419) : (0.76, 0.82, 54.0 / 408, 54.0 / 800)
+        func face(_ letter: String, _ keys: [GameKey], _ x: Double, _ y: Double) -> Control {
+            Control(id: "face.\(letter.lowercased())", label: letter, keys: keys, anchor: Anchor(x: x, y: y, size: 54))
+        }
+        return ControlsLayout(
+            dpad: landscape ? Anchor(x: 0.14, y: 0.70, size: 128) : Anchor(x: 0.24, y: 0.82, size: 128),
+            buttons: [face("Y", y, cx, cy - dy), face("X", x, cx - dx, cy), face("B", b, cx + dx, cy), face("A", a, cx, cy + dy)]
+        )
+    }
 
-    public static let portrait = ControlsLayout(
-        dpad: Anchor(x: 0.22, y: 0.82, size: 160),
-        buttons: [
-            Control(id: "ok", label: "OK", keys: [.keyZ], anchor: Anchor(x: 0.86, y: 0.78, size: 64)),
-            Control(id: "cancel", label: "Cancel", keys: [.keyX], anchor: Anchor(x: 0.70, y: 0.88, size: 56)),
-            Control(id: "shift", label: "Dash", keys: [.shiftLeft], anchor: Anchor(x: 0.68, y: 0.70, size: 50)),
-            Control(id: "menu", label: "Menu", keys: [.escape], anchor: Anchor(x: 0.88, y: 0.93, size: 46)),
-            Control(id: "pageUp", label: "Q", keys: [.pageUp], anchor: Anchor(x: 0.62, y: 0.60, size: 44)),
-            Control(id: "pageDown", label: "W", keys: [.pageDown], anchor: Anchor(x: 0.90, y: 0.60, size: 44)),
-        ]
-    )
+    /// RPG Maker: A is Z (confirm), B is Esc (cancel), X is X (menu), Y is Shift (dash), the keys the games are
+    /// played with. XP is the exception for A: it reads Z as its own A input and confirms with C, Space or Enter,
+    /// so there A sends Enter.
+    static func rpgMaker(landscape: Bool, xp: Bool = false) -> ControlsLayout {
+        diamond(landscape: landscape, a: [xp ? .enter : .keyZ], b: [.escape], x: [.keyX], y: [.shiftLeft])
+    }
+
+    /// Keyboard games on other engines (Godot, web): Enter accepts, Esc backs out, Space and Shift for action.
+    static func general(landscape: Bool) -> ControlsLayout {
+        diamond(landscape: landscape, a: [.enter], b: [.escape], x: [.space], y: [.shiftLeft])
+    }
+
+    public static let landscape = rpgMaker(landscape: true)
+    public static let portrait = rpgMaker(landscape: false)
+}
+
+public extension ControlsLayoutSet {
+    /// The built-in pad for a game's engine; a layout the player edited or a package brought wins over it.
+    static func defaults(rpgMaker: Bool, xp: Bool = false) -> ControlsLayoutSet {
+        rpgMaker
+            ? ControlsLayoutSet(
+                landscape: .rpgMaker(landscape: true, xp: xp),
+                portrait: .rpgMaker(landscape: false, xp: xp),
+                source: "builtin"
+            )
+            : ControlsLayoutSet(landscape: .general(landscape: true), portrait: .general(landscape: false), source: "builtin")
+    }
 }

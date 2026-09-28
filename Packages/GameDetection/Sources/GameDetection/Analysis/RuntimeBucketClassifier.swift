@@ -37,7 +37,7 @@ public struct RuntimeBucketClassifier: Analyzer {
             if newer, let v {
                 partial.warnings.append(.unknownVersion(v.raw))
             }
-        case .rpgMakerXP, .rpgMakerVX, .rpgMakerVXAce, .godot:
+        case .rpgMakerXP, .rpgMakerVX, .rpgMakerVXAce, .godot, .kirikiri:
             break // detectors set candidates from their own evidence
         case .rpgMakerMV, .rpgMakerMZ, .html5, .unityWeb, .godotWeb, .flash:
             if partial.runtimeCandidates.isEmpty {

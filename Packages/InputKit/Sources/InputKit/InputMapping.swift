@@ -10,15 +10,21 @@ public struct InputMapping: Codable, Sendable, Hashable {
         self.stickDeadzone = stickDeadzone
     }
 
-    /// RPG Maker MV/MZ defaults: Z ok, X cancel, Shift dash, Q/W page, Escape menu.
+    /// RPG Maker defaults: Enter ok (Z is XP's A button), X cancel, Shift dash, Q/W page, Escape menu.
     public static let rpgMaker = InputMapping(buttons: [
-        .a: [.keyZ], .b: [.keyX], .x: [.shiftLeft], .y: [.keyQ],
+        .a: [.enter], .b: [.keyX], .x: [.shiftLeft], .y: [.keyQ],
         .leftShoulder: [.keyQ], .rightShoulder: [.keyW],
         .dpadUp: [.arrowUp], .dpadDown: [.arrowDown], .dpadLeft: [.arrowLeft], .dpadRight: [.arrowRight],
         .menu: [.escape], .options: [.escape],
     ])
 
     public func keys(for button: ControllerButton) -> [GameKey] { buttons[button] ?? [] }
+
+    /// The buttons a player can map. Options opens OmniPlay's menu and Home belongs to the system.
+    public static let mappable: [ControllerButton] = [
+        .a, .b, .x, .y, .leftShoulder, .rightShoulder, .leftTrigger, .rightTrigger,
+        .dpadUp, .dpadDown, .dpadLeft, .dpadRight, .menu, .leftThumbstickButton, .rightThumbstickButton,
+    ]
 
     /// Key events for a button change; unmapped buttons give none.
     public func translate(_ button: ControllerButton, pressed: Bool) -> [GameInputEvent] {

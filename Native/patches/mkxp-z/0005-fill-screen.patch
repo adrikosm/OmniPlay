@@ -1,0 +1,51 @@
+--- a/src/config.h
++++ b/src/config.h
+@@ -55,6 +55,7 @@
+     bool winResizable;
+     bool fullscreen;
+     bool fixedAspectRatio;
++    bool fillScreen;
+     int smoothScaling;
+     int smoothScalingDown;
+     int bitmapSmoothScaling;
+--- a/src/config.cpp
++++ b/src/config.cpp
+@@ -168,6 +168,7 @@
+         {"winResizable", true},
+         {"fullscreen", false},
+         {"fixedAspectRatio", true},
++        {"fillScreen", false},
+         {"smoothScaling", 0},
+         {"smoothScalingDown", 0},
+         {"bitmapSmoothScaling", 0},
+@@ -364,6 +365,7 @@
+     SET_OPT(printFPS, boolean);
+     SET_OPT(fullscreen, boolean);
+     SET_OPT(fixedAspectRatio, boolean);
++    SET_OPT(fillScreen, boolean);
+     SET_OPT(smoothScaling, integer);
+     SET_OPT(smoothScalingDown, integer);
+     SET_OPT(bitmapSmoothScaling, integer);
+--- a/src/display/graphics.cpp
++++ b/src/display/graphics.cpp
+@@ -744,7 +744,19 @@
+                 mkxp_debugLog("RESIZE", "graphics.cpp [C++]", buf);
+             }
+ 
+-            if (fixedAspectRatio) {
++            if (fixedAspectRatio && threadData->config.fillScreen) {
++                // OmniPlay "Fill": cover the whole window, keeping the shape, and crop what overflows.
++                float resRatio = (float)scRes.x / scRes.y;
++                scSize.x = winSize.x;
++                scSize.y = (int)(scSize.x / resRatio);
++                if (scSize.y < winSize.y) {
++                    scSize.y = winSize.y;
++                    scSize.x = (int)(scSize.y * resRatio);
++                }
++                scOffset.x = (winSize.x - scSize.x) / 2;
++                scOffset.y = (winSize.y - scSize.y) / 2;
++                return;
++            } else if (fixedAspectRatio) {
+                 // Fit game within the safe area while preserving aspect ratio
+                 float resRatio = (float)scRes.x / scRes.y;
+                 scSize.x = availW;

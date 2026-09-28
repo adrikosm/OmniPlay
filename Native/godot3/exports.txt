@@ -1,0 +1,8 @@
+_op_godot3_version
+_op_godot3_setup
+_op_godot3_window
+_op_godot3_request
+_op_godot3_status
+_op_godot3_frames
+_op_godot3_app_event
+_op_godot3_key

@@ -1,0 +1,17 @@
+diff --git a/binding/binding-util.h b/binding/binding-util.h
+index e54bcc8..6e6593b 100644
+--- a/binding/binding-util.h
++++ b/binding/binding-util.h
+@@ -537,7 +537,11 @@ inline void rb_bool_arg(VALUE arg, bool *out, int argPos = 0) {
+             break;
+             
+         default:
+-            throw Exception(Exception::TypeError, "Argument %d: Expected bool", argPos);
++            // RGSS takes any object as true (Ruby truthiness); scripts such as MOG_Anti_Lag pass a count or an
++            // object to Sprite#visible= and would stop the game with a TypeError here.
++            (void)argPos;
++            *out = true;
++            break;
+     }
+ }
+ 

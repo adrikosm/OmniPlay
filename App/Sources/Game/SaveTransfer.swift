@@ -43,10 +43,6 @@ struct SaveTransfer: Sendable {
             .joined().trimmingCharacters(in: .whitespaces)
         let destination = paths.exportsRoot.appending(path: "\(safeTitle.isEmpty ? "saves" : safeTitle)-\(stamp).zip")
         try FileManager.default.createDirectory(at: paths.exportsRoot, withIntermediateDirectories: true)
-        let manifest = try SaveExportManifest(
-            engine: target.engine, family: target.family, gameID: target.id, titleHash: target.identityHash, title: target.title,
-            entries: SaveExportManifest.entries(for: location)
-        )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let staging = location.root.appending(path: ".export-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -56,9 +52,32 @@ struct SaveTransfer: Sendable {
             where FileManager.default.fileExists(atPath: location.root.appending(path: name).path(percentEncoded: false)) {
             try await APFSClone.clone(from: location.root.appending(path: name), to: staging.appending(path: name))
         }
+        let manifest = try SaveExportManifest(
+            engine: target.engine, family: target.family, gameID: target.id, titleHash: target.identityHash, title: target.title,
+            entries: SaveExportManifest.entries(for: SaveLocation(savesRoot: staging))
+        )
         try ArchiveWriter().zip(directory: staging, to: destination, extras: [(SaveExportManifest.fileName, encoder.encode(manifest))])
         OPLog.log(.save, .info, "exported saves of \(target.title) → \(destination.lastPathComponent)")
         return destination
+    }
+
+    /// The import's files under `staging/tree`: a folder copied, a ZIP extracted through the import's safety limits,
+    /// or a single file placed as a slot.
+    private static func stage(_ source: URL, into staging: URL) throws -> URL {
+        let fm = FileManager.default
+        let tree = staging.appending(path: "tree")
+        var isDir: ObjCBool = false
+        fm.fileExists(atPath: source.path(percentEncoded: false), isDirectory: &isDir)
+        if isDir.boolValue {
+            try fm.copyItem(at: source, to: tree)
+        } else if !saveExtensions.contains(source.pathExtension.lowercased()), (try? ContainerSniffer.identify(source)) == .zip {
+            // A Ren'Py `.save` is itself a ZIP; picked on its own it is one save, not an archive of them.
+            _ = try LibArchiveExtractor().extract(source, to: tree)
+        } else {
+            try fm.createDirectory(at: tree.appending(path: "slots"), withIntermediateDirectories: true)
+            try fm.copyItem(at: source, to: tree.appending(path: "slots/\(source.lastPathComponent)"))
+        }
+        return tree
     }
 
     /// Imports from a ZIP, a folder or a single save file. Nothing is written unless every file is recognised and,
@@ -68,24 +87,18 @@ struct SaveTransfer: Sendable {
         let staging = paths.tier(.importStaging, for: target.id).appending(path: "saves-\(UUID().uuidString)", directoryHint: .isDirectory)
         try fm.createDirectory(at: staging, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: staging) }
-        var isDir: ObjCBool = false
-        fm.fileExists(atPath: source.path(percentEncoded: false), isDirectory: &isDir)
-        if isDir.boolValue {
-            try fm.copyItem(at: source, to: staging.appending(path: "tree"))
-        } else if (try? ContainerSniffer.identify(source)) == .zip {
-            _ = try LibArchiveExtractor().extract(source, to: staging.appending(path: "tree"))
-        } else {
-            try fm.createDirectory(at: staging.appending(path: "tree/slots"), withIntermediateDirectories: true)
-            try fm.copyItem(at: source, to: staging.appending(path: "tree/slots/\(source.lastPathComponent)"))
-        }
-        let tree = staging.appending(path: "tree")
+        let tree = try Self.stage(source, into: staging)
         var manifest: SaveExportManifest?
         var slotFiles: [URL] = []
         var persistentFiles: [(URL, String)] = []
         try LazyDirectoryWalker.walk(root: tree) { entry in
             guard !entry.isDirectory else { return .continue }
             if entry.url.lastPathComponent == SaveExportManifest.fileName {
-                manifest = try? JSONDecoder().decode(SaveExportManifest.self, from: Data(contentsOf: entry.url))
+                // From an untrusted archive: read within the small-file bound, never whole.
+                manifest = (try? SmallFileGuard.read(entry.url, maxBytes: 1 << 20)).flatMap { try? JSONDecoder().decode(
+                    SaveExportManifest.self,
+                    from: $0
+                ) }
             } else if let range = entry.relativePath.range(of: "persistent/") {
                 persistentFiles.append((entry.url, String(entry.relativePath[range.upperBound...])))
             } else if Self.saveExtensions.contains(entry.url.pathExtension.lowercased()) || entry.relativePath.contains("slots/") {
@@ -127,17 +140,18 @@ struct SaveTransfer: Sendable {
             return .needsConfirmation(Array(Set(warnings)).sorted())
         }
 
-        let slotPattern = target.slotPattern.flatMap(SlotPattern.init)
         let existing = Set((try? fm.contentsOfDirectory(atPath: location.slots.path(percentEncoded: false))) ?? [])
-        var next = (existing.compactMap { slotPattern?.index(of: $0) }.max() ?? 0) + 1
+        var occupied = existing.union(slotFiles.map(\.lastPathComponent))
         var plan: [(URL, URL)] = []
         for file in slotFiles {
             var name = file.lastPathComponent
             if collision == .nextFreeSlot, existing.contains(name) || plan.contains(where: { $0.1.lastPathComponent == name }) {
-                guard let slotPattern, slotPattern.index(of: name) != nil else { continue }
-                name = slotPattern.name(index: next)
-                next += 1
+                guard let free = SlotNaming.duplicateName(for: name, existing: occupied, pattern: target.slotPattern) else {
+                    throw RestoreError.noFreeSlot(name)
+                }
+                name = free
             }
+            occupied.insert(name)
             plan.append((file, location.slots.appending(path: name)))
         }
         for (file, rel) in persistentFiles {

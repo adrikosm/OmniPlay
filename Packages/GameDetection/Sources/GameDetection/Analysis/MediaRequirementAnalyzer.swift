@@ -3,17 +3,21 @@ import GameCore
 import MediaCompat
 import OverlayVFS
 
-/// Plans what each media file needs before the chosen runtime can play it. WebKit: VP9 WebM needs an MP4 sibling
-/// or a transcode; Ren'Py wants WebM; mkxp-z and Godot want Theora; MIDI needs a soundfont.
+/// Reports what each media file needs before the chosen runtime can play it, by `MediaRules`: the conversions the
+/// app then runs before first launch (`MediaPreparation`), a playable sibling already shipped, or the MV `.ogg` shim.
+/// MIDI for RGSS and EasyRPG raises the soundfont warning.
 public struct MediaRequirementAnalyzer: Analyzer {
     public let id = DetectorID.media
-    public let version = 1
+    public let version = 2
     public static let fileCap = 2000
     public init() {}
 
     public func analyze(_ ctx: ScanContext, facts: StructureFacts, partial: inout PartialDescriptor, evidence: inout [DetectionEvidence]) {
         guard let runtime = partial.runtimeCandidates.first?.runtime else { return }
-        let patterns = ["movies/*", "www/movies/*", "audio/*/*", "www/audio/*/*", "game/*", "game/*/*", "audio/*", "movies/*/*"]
+        var patterns = ["movies/*", "www/movies/*", "audio/*/*", "www/audio/*/*", "game/*", "game/*/*", "audio/*", "movies/*/*"]
+        if case .rgss = runtime {
+            patterns += ["graphics/*/*.webp", "graphics/*/*.avif", "graphics/*/*.heic", "graphics/*/*.tif", "graphics/*/*.tiff"]
+        }
         var seen = Set<String>()
         var files: [IndexedEntry] = []
         for p in patterns where files.count < Self.fileCap {
@@ -29,7 +33,10 @@ public struct MediaRequirementAnalyzer: Analyzer {
         var midi = false
         for e in files {
             guard let url = ctx.url(e.realRel) else { continue }
-            let info = MediaProbe.probe(url, relativePath: e.realRel)
+            // Images are judged by name, but for WebP, whose header says whether it is animated.
+            let info = MediaRules.kind(of: e.realRel) == .image && MediaRules.pathExtension(e.realRel) != "webp"
+                ? MediaProbeResult(path: e.realRel, container: .unknown, video: nil, audio: nil)
+                : MediaProbe.probe(url, relativePath: e.realRel)
             if info.container == .midi {
                 midi = true
             }
@@ -71,37 +78,39 @@ public struct MediaRequirementAnalyzer: Analyzer {
         ))
     }
 
-    static func isMedia(_ key: String) -> Bool {
-        [".webm", ".mp4", ".m4v", ".ogg", ".ogv", ".m4a", ".mp3", ".wav", ".mid", ".midi", ".opus"].contains { key.hasSuffix($0) }
+    static func isMedia(_ key: String) -> Bool { MediaRules.kind(of: key) != nil }
+
+    static func engine(for runtime: RuntimeIdentifier) -> MediaEngine? {
+        switch runtime {
+        case .web: .webKit
+        case .rgss: .mkxp
+        case .renpy: .renpy
+        default: nil
+        }
     }
 
-    /// Nil means nothing to record for this file.
+    /// Nil means nothing to record for this file. The conversions themselves follow `MediaRules`, the same table the
+    /// app prepares media from before launch, so what detection reports is what preparation does.
     static func action(for info: MediaProbeResult, runtime: RuntimeIdentifier, ctx: ScanContext) -> MediaRequirement.Action? {
-        let stem = String(info.path.prefix(info.path.count - (info.path.split(separator: ".").last?.count ?? 0) - 1))
-        switch runtime {
-        case .web:
-            if info.container == .webm, info.video == .vp9 || info.video == .av1 || info.video == .unknown {
-                return ctx.exists(stem + ".mp4") ? .useSibling(stem + ".mp4") : .transcode(target: "mp4/h264/aac")
-            }
-            if info.container == .webm, info.video == .vp8 {
-                return .none
-            }
-            if info.container == .ogg, !ctx.exists(stem + ".m4a") {
-                return .shim("audioFileExtOgg")
-            }
-            return nil
-        case .renpy:
-            if info.container == .mp4, info.video == .h264 || info.video == .hevc {
-                return .transcode(target: "webm/vp8/opus")
-            }
-            return nil
-        case .rgss, .godot:
-            if info.video != nil, info.video != .theora {
-                return .transcode(target: "ogv/theora/vorbis")
-            }
-            return nil
-        default:
-            return nil
+        let ext = MediaRules.pathExtension(info.path)
+        let stem = ext.isEmpty ? info.path : String(info.path.dropLast(ext.count + 1))
+        // MV picks .ogg or .m4a by what it thinks WebKit plays; with no .m4a beside it, the shim keeps it on .ogg,
+        // which the web runtime decodes itself.
+        if case .web = runtime, ext == "ogg", info.audio != .opus, !ctx.exists(stem + ".m4a") {
+            return .shim("audioFileExtOgg")
         }
+        guard let engine = engine(for: runtime), let kind = MediaRules.kind(of: info.path),
+              let target = MediaRules.conversion(for: info.path, engine: engine, probe: info) else { return nil }
+        // A sibling counts when it is a different file the engine plays as it is (x.webm beside x.mp4, not an Opus
+        // x.ogg beside x.opus for mkxp-z).
+        for ext in MediaRules.playableSiblings(for: kind, engine: engine) {
+            let sibling = stem + "." + ext
+            guard sibling.lowercased() != info.path.lowercased(), let url = ctx.url(sibling) else { continue }
+            let probe = MediaRules.needsProbe(sibling, engine: engine) ? MediaProbe.probe(url, relativePath: sibling) : nil
+            if MediaRules.conversion(for: sibling, engine: engine, probe: probe) == nil {
+                return .useSibling(sibling)
+            }
+        }
+        return .transcode(target: target.rawValue)
     }
 }

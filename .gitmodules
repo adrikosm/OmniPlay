@@ -7,3 +7,30 @@
 [submodule "Native/zstd"]
 	path = Native/zstd
 	url = https://github.com/facebook/zstd.git
+[submodule "Native/mkxp-z"]
+	path = Native/mkxp-z
+	url = https://github.com/mateo-m/mkxp-z-apple-mobile
+[submodule "Native/unrar"]
+	path = Native/unrar
+	url = https://github.com/pmachapman/unrar.git
+[submodule "Native/easyrpg/player"]
+	path = Native/easyrpg/player
+	url = https://github.com/EasyRPG/Player.git
+[submodule "Native/easyrpg/liblcf"]
+	path = Native/easyrpg/liblcf
+	url = https://github.com/EasyRPG/liblcf.git
+[submodule "Native/scummvm/src"]
+	path = Native/scummvm/src
+	url = https://github.com/scummvm/scummvm.git
+[submodule "Native/godot/src"]
+	path = Native/godot/src
+	url = https://github.com/godotengine/godot.git
+[submodule "Native/godot3/src"]
+	path = Native/godot3/src
+	url = https://github.com/godotengine/godot.git
+[submodule "Native/kirikiri/src"]
+	path = Native/kirikiri/src
+	url = https://github.com/retrom-project/kirikiroid2-web.git
+[submodule "Native/libmspack"]
+	path = Native/libmspack
+	url = https://github.com/kyz/libmspack.git

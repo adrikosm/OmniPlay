@@ -52,7 +52,7 @@ public enum AtomicFileWriter {
         guard let items = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return 0 }
         var n = 0
         for item in items
-            where item.lastPathComponent.contains(".part-") {
+            where item.lastPathComponent.hasPrefix(".") && item.lastPathComponent.contains(".part-") {
             if (try? FileManager.default.removeItem(at: item)) != nil {
                 n += 1
             }
@@ -123,14 +123,18 @@ public struct SaveFileStore: Sendable {
     }
 
     public func remove(key: String) throws {
-        try? FileManager.default.removeItem(at: try url(for: key))
+        do {
+            try FileManager.default.removeItem(at: url(for: key))
+        } catch let error as CocoaError where error.code == .fileNoSuchFile || error.code == .fileReadNoSuchFile {
+            return
+        }
     }
 
     /// Every stored key with its file size, sorted.
-    public func keys() -> [(key: String, bytes: Int64)] {
-        let items = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.fileSizeKey])) ?? []
-        return items.filter { $0.pathExtension == fileExtension && !$0.lastPathComponent.hasPrefix(".") }
-            .map { ($0.deletingPathExtension().lastPathComponent, Int64((try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)) }
+    public func keys() throws -> [(key: String, bytes: Int64)] {
+        let items = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.fileSizeKey])
+        return try items.filter { $0.pathExtension == fileExtension && !$0.lastPathComponent.hasPrefix(".") }
+            .map { try ($0.deletingPathExtension().lastPathComponent, Int64($0.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)) }
             .sorted { $0.0 < $1.0 }
     }
 }
@@ -155,7 +159,15 @@ public enum SaveVault {
     /// True when there is anything worth snapshotting.
     public static func hasContent(_ location: SaveLocation) -> Bool {
         [location.slots, location.persistent]
-            .contains { !((try? FileManager.default.contentsOfDirectory(atPath: $0.path(percentEncoded: false))) ?? []).isEmpty }
+            .contains { directory in
+                do {
+                    return try !FileManager.default.contentsOfDirectory(atPath: directory.path(percentEncoded: false)).isEmpty
+                } catch let error as CocoaError where error.code == .fileNoSuchFile || error.code == .fileReadNoSuchFile {
+                    return false
+                } catch {
+                    return true // Unreadable saves must still be rescued before deleting the game.
+                }
+            }
     }
 
     public static func snapshot(location: SaveLocation, identityHash: String, reason: SaveProvenance.Origin) async throws -> SaveSnapshot {
@@ -165,6 +177,12 @@ public enum SaveVault {
             .replacingOccurrences(of: ":", with: "") + "-" + id.uuidString.prefix(4)
         let target = location.backups.appending(path: stamp, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        var complete = false
+        defer {
+            if !complete {
+                try? FileManager.default.removeItem(at: target)
+            }
+        }
         var entries: [SaveEntry] = []
         for (source, name) in [(location.slots, "slots"), (location.persistent, "persistent")]
             where FileManager.default.fileExists(atPath: source.path(percentEncoded: false)) {
@@ -177,9 +195,11 @@ public enum SaveVault {
             }
             for file in files {
                 let rel = "\(name)/\(file.relativePath)"
-                let digest = try StreamingHasher.sha256(of: file.url).hex
-                try await APFSClone.clone(from: file.url, to: target.appending(path: rel))
-                entries.append(SaveEntry(relativePath: rel, bytes: file.fileSize, sha256: digest))
+                let saved = target.appending(path: rel)
+                try await APFSClone.clone(from: file.url, to: saved)
+                let digest = try StreamingHasher.sha256(of: saved).hex
+                let bytes = try saved.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+                entries.append(SaveEntry(relativePath: rel, bytes: Int64(bytes), sha256: digest))
             }
         }
         entries.sort { $0.relativePath < $1.relativePath }
@@ -191,8 +211,20 @@ public enum SaveVault {
             checksum: checksum
         )
         try AtomicFileWriter.write(JSONEncoder().encode(snapshot), to: target.appending(path: "manifest.json"))
+        complete = true
         OPLog.log(.save, .info, "snapshot \(stamp): \(entries.count) files (\(reason.rawValue))")
         return snapshot
+    }
+
+    /// A damaged or incomplete backup must never become an instruction to delete live saves.
+    static func validatedSnapshot(at directory: URL) throws -> SaveSnapshot {
+        let manifest = try JSONDecoder().decode(SaveSnapshot.self, from: SmallFileGuard.read(directory.appending(path: "manifest.json")))
+        let entries = try SaveExportManifest.entries(for: SaveLocation(savesRoot: directory))
+        guard entries == manifest.entries.sorted(by: { $0.relativePath < $1.relativePath }),
+              SHA256.hash(data: Data(entries.map(\.sha256).joined().utf8)).hex == manifest.checksum else {
+            throw RestoreError.invalidSnapshot
+        }
+        return manifest
     }
 
     /// Manifests of every snapshot, newest first.

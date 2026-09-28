@@ -119,3 +119,15 @@ public enum ControllerAxis: String, Sendable, Codable, Hashable, CaseIterable {
     case rightX, rightY
     case leftTrigger, rightTrigger
 }
+
+/// How touches reach a game that reads a mouse. Direct: a tap clicks where it lands. Touchpad: a finger moves a cursor
+/// by its travel, a tap clicks at the cursor, two fingers right-click, and press-and-hold then move drags. Off: touches
+/// are not a mouse at all. Stored per game as the `mouseMode` profile key; `mouseSpeed` scales touchpad travel.
+public enum MouseMode: String, Sendable, CaseIterable {
+    case off, direct, touchpad
+
+    public init?(profile value: String?) {
+        guard let value, let mode = MouseMode(rawValue: value) else { return nil }
+        self = mode
+    }
+}

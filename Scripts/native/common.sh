@@ -9,4 +9,5 @@ ARCH=arm64
 sdk_path() { xcrun --sdk "$1" --show-sdk-path; }
 sdk_version() { xcrun --sdk "$1" --show-sdk-version; }
 require_tools() { for tool in "$@"; do command -v "$tool" >/dev/null || { echo "$tool missing: run Scripts/bootstrap-mac.sh" >&2; exit 1; }; done; }
-require_xcode() { xcodebuild -version | head -1 | grep -q "Xcode 27" || { echo "Xcode 27 required (xcode-select -s)" >&2; exit 1; }; }
+# No pipe: under pipefail, head closing early can kill xcodebuild with SIGPIPE and fail the check on Xcode 27 itself.
+require_xcode() { [[ "$(xcodebuild -version)" == "Xcode 27"* ]] || { echo "Xcode 27 required (xcode-select -s)" >&2; exit 1; }; }

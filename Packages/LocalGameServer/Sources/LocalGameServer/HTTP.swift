@@ -6,12 +6,29 @@ public struct HTTPRequest: Sendable, Hashable {
     public let version: String
     /// Header names lower-cased.
     public let headers: [String: String]
+    /// Present only for POST, which only registered routes accept (`Router.post`).
+    public var body: Data
 
-    public init(method: String, target: String, version: String = "HTTP/1.1", headers: [String: String] = [:]) {
+    public init(method: String, target: String, version: String = "HTTP/1.1", headers: [String: String] = [:], body: Data = Data()) {
         self.method = method
         self.target = target
         self.version = version
         self.headers = headers
+        self.body = body
+    }
+
+    public var contentLength: Int { Int(headers["content-length"] ?? "") ?? 0 }
+
+    /// Query parameters, percent-decoded; the last one wins on repeats.
+    public var query: [String: String] {
+        guard let raw = target.split(separator: "?", maxSplits: 1).dropFirst().first else { return [:] }
+        var result: [String: String] = [:]
+        for pair in raw.split(separator: "&") {
+            let kv = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            let key = String(kv[0]).removingPercentEncoding ?? String(kv[0])
+            result[key] = kv.count > 1 ? (String(kv[1]).removingPercentEncoding ?? String(kv[1])) : ""
+        }
+        return result
     }
 
     /// Percent-decoded path without the query string.
@@ -67,6 +84,7 @@ public struct HTTPResponse: Sendable {
         case 403: "Forbidden"
         case 404: "Not Found"
         case 405: "Method Not Allowed"
+        case 413: "Content Too Large"
         case 416: "Range Not Satisfiable"
         case 431: "Request Header Fields Too Large"
         case 503: "Service Unavailable"
@@ -77,17 +95,30 @@ public struct HTTPResponse: Sendable {
 
 public protocol Router: Sendable {
     func route(_ request: HTTPRequest) async -> HTTPResponse
+    /// POST, with the body read in full. Refused unless a router registers the path.
+    func post(_ request: HTTPRequest) async -> HTTPResponse
+}
+
+public extension Router {
+    func post(_: HTTPRequest) async -> HTTPResponse {
+        var response = HTTPResponse.text(405, "method not allowed")
+        response.headers.append(("Allow", "GET, HEAD"))
+        return response
+    }
 }
 
 public enum HTTPParseError: Error, Equatable, Sendable {
     case headersTooLarge
+    case bodyTooLarge
     case malformed(String)
     case incomplete
 }
 
-/// Incremental HTTP/1.1 request-head parser. Bodies are not accepted: GET and HEAD only.
+/// Incremental HTTP/1.1 request-head parser. Only POST may carry a body, with a `Content-Length` up to `bodyCap`
+/// (no chunked uploads); the connection reads it after the head.
 public enum HTTPRequestParser {
     public static let headerCap = 8 << 10
+    public static let bodyCap = 64 << 20
 
     /// Returns the request and the number of bytes consumed, or `.incomplete` when more bytes are needed.
     public static func parse(_ buffer: Data) throws -> (HTTPRequest, Int) {
@@ -115,11 +146,17 @@ public enum HTTPRequestParser {
             else { throw HTTPParseError.malformed("header name") }
             headers[name] = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
         }
-        if let length = headers["content-length"], Int(length) ?? 0 > 0 {
-            throw HTTPParseError.malformed("request body not accepted")
-        }
         if headers["transfer-encoding"] != nil {
             throw HTTPParseError.malformed("request body not accepted")
+        }
+        if let raw = headers["content-length"] {
+            guard let length = Int(raw), length >= 0 else { throw HTTPParseError.malformed("content-length") }
+            if length > 0, requestLine[0] != "POST" {
+                throw HTTPParseError.malformed("request body not accepted")
+            }
+            if length > bodyCap {
+                throw HTTPParseError.bodyTooLarge
+            }
         }
         let request = HTTPRequest(
             method: String(requestLine[0]),

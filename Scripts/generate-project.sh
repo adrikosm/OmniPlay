@@ -4,5 +4,6 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [[ -f Signing.xcconfig ]] || { cp Signing.xcconfig.example Signing.xcconfig; echo "Signing.xcconfig created from the example: set DEVELOPMENT_TEAM before a device build."; }
+Scripts/native/hydrate.sh
 xcodegen generate --quiet
 echo "generated OmniPlay.xcodeproj"

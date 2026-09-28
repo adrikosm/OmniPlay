@@ -1,0 +1,13 @@
+_op_scummvm_version
+_op_scummvm_start
+_op_scummvm_status
+_op_scummvm_detect
+_op_scummvm_play
+_op_scummvm_last_result
+_op_scummvm_request
+_op_scummvm_frames
+_op_scummvm_key
+_op_scummvm_main_menu
+_op_scummvm_window
+_op_scummvm_app_event
+_op_scummvm_log

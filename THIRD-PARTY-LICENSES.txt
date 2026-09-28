@@ -22,3 +22,74 @@ zstd 1.5.7 — BSD-3-Clause (dual GPLv2, BSD chosen) — LICENSES/zstd.txt
     https://github.com/facebook/zstd
 
 zlib, bzip2, iconv — provided by the Apple SDK and linked from the system.
+
+mkxp-z (Apple mobile fork, mateo-m/mkxp-z-apple-mobile, tag engine-2026-09-11)
+  Licence: GNU General Public License v2.0 or later (with OpenSSL linked, effectively GPLv3). Full text: LICENSES/mkxp-z.txt
+  Use: RGSS engine core and Ruby bindings (RPG Maker XP, VX, VX Ace), vendored as the Native/mkxp-z submodule, built by
+  Scripts/native/build-mkxpz.sh into a static library and three merged Ruby binding objects. OmniPlay's own fixes to
+  the fork are patches under Native/patches/mkxp-z, applied by that script before it compiles. The fork's own dependency
+  release (SDL2, ANGLE, openal-soft, physfs, pixman, freetype, uchardet, theora, OpenSSL, Ruby 1.8/1.9/3.1) carries its
+  own licences, listed in the release's notices once hydrated.
+
+UnRAR 7.2.7 (RAR 7.23) — UnRAR licence — LICENSES/unrar.txt
+    RAR4/RAR5 decompression only; source pinned under Native/unrar.
+    https://www.rarlab.com/rar_add.htm (mirror: https://github.com/pmachapman/unrar)
+    The RAR4 test fixture comes from the pinned libarchive test corpus (BSD-2-Clause).
+
+libmspack 0.11alpha (cabextract 1.11 tag v1.11) — LGPL-2.1 — LICENSES/libmspack.txt
+    Microsoft cabinet decompression only (cabd, LZX, MSZIP, Quantum); source pinned under Native/libmspack,
+    built as a static library by Scripts/build-libmspack.sh. https://github.com/kyz/libmspack
+
+Ren'Py 8.5.3, 8.3.7 and 7.8.7 — MIT, with LGPL-2.1 parts — LICENSES/renpy.txt
+  Three embedded engines, one framework each (RenPy853, RenPy837, RenPy787), linked by Scripts/native/build-renpy.sh
+  from Ren'Py's own per-release iOS packages (renpy-<v>-renios.zip: the static libraries renpy-build produced) and
+  SDKs (engine tree, Python standard library), downloaded from renpy.org and pinned by sha256. Each framework bundles
+  CPython 3.12 / 3.9 / 2.7 (Python License), SDL2 and SDL2_image (Zlib), FFmpeg 4.3.1 (LGPL-2.1, no GPL parts),
+  FreeType, HarfBuzz, FriBidi (LGPL), libpng, libjpeg-turbo, libwebp, libavif and aom, brotli, libffi, OpenSSL, xz,
+  bzip2, zlib and, in 8.5.3, assimp; the full list and licence texts are in LICENSES/renpy.txt. The static libraries
+  and the link recipe stay with the build script, so an engine can be relinked against modified LGPL parts.
+  https://www.renpy.org/  https://github.com/renpy/renpy-build
+
+MetalANGLE (from the Ren'Py 8.5.3 iOS package) — BSD-3-Clause — covered by LICENSES/renpy.txt (ANGLE, MetalAngle)
+  OpenGL ES over Metal; the one GLES implementation all three Ren'Py engines link.
+  https://github.com/kakashidinho/metalangle
+
+EasyRPG Player 0.8.1.1 — GPL-3.0-or-later — LICENSES/easyrpg.txt
+  RPG Maker 2000/2003 engine, one framework (EasyRPG) built by Scripts/native/build-easyrpg.sh from the Native/easyrpg/player
+  and Native/easyrpg/liblcf submodules (liblcf 0.8.1, MIT) behind Native/EasyRPG/op_easyrpg.h. Linked in: fmt 12.1.0 (MIT),
+  inih r62 (BSD-3-Clause), mpg123 1.33.4 (LGPL-2.1), speexdsp 1.2.1 (BSD-3-Clause), pinned by sha256; SDL2, pixman, libpng,
+  FreeType and Ogg/Vorbis from the mkxp-z dependency release; ICU 78.1 headers (Unicode-3.0) against the system libicucore.
+  The static libraries and the link recipe stay with the build script, so the framework can be relinked against modified
+  LGPL parts. https://easyrpg.org/  https://github.com/EasyRPG/Player
+
+ScummVM 2026.3.0 — GPL-3.0-or-later — LICENSES/scummvm.txt
+  Adventure-game and interactive-fiction engines (SCUMM, SCI, AGI, AGOS, AGS, Glk, Wintermute and others), one
+  framework (ScummVM) built by Scripts/native/build-scummvm.sh from the Native/scummvm/src submodule with OmniPlay's
+  patch under Native/patches/scummvm, behind Native/scummvm/op_scummvm.h. Linked in: libjpeg-turbo 3.2.0 (IJG and
+  BSD-3-Clause) and libmad 0.15.1b (GPL-2.0-or-later), pinned by sha256; libpng, FreeType, Ogg/Vorbis and Theora from the
+  mkxp-z dependency release; FluidSynth as the app's shared dylib. ScummVM's engine data, themes and fonts ship inside
+  the framework. https://www.scummvm.org/  https://github.com/scummvm/scummvm
+
+Godot Engine 4.7.2 and 3.6.3 — MIT — LICENSES/godot.txt
+  Imported Godot 4 and Godot 3 games (.pck exports). Two frameworks (Godot, Godot3) built by Scripts/native/build-godot.sh
+  and build-godot3.sh from the Native/godot/src and Native/godot3/src submodules (release export templates), each with
+  OmniPlay's host shim compiled in as a module (Native/godot/modules/omniplay, Native/godot3/modules/omniplay). Their
+  bundled third-party components (FreeType, HarfBuzz, libpng, zstd, mbedTLS, and others) are listed in each release's
+  COPYRIGHT.txt, reproduced in the same file. https://godotengine.org/  https://github.com/godotengine/godot
+
+FFmpeg 9.0.1 — LGPL-2.1-or-later (configured --disable-gpl --disable-nonfree) — LICENSES/ffmpeg.txt
+  Converts a game's media before it runs (MediaTranscode) into what its engine decodes: H.264 through VideoToolbox
+  with AAC for WebKit, Theora with Vorbis for mkxp-z and Ren'Py, Vorbis and PCM for audio. Built by
+  Scripts/native/build-ffmpeg.sh from ffmpeg.org sources pinned by sha256 and linked statically; the script is the
+  link recipe, so the app can be relinked against a modified FFmpeg. dav1d 1.5.4 (BSD-2-Clause, text in the same
+  file) decodes AV1. libogg, libvorbis and libtheora (BSD-3-Clause) are the ones the mkxp-z dependency release
+  already puts in the app. https://ffmpeg.org/  https://code.videolan.org/videolan/dav1d
+
+FluidSynth 2.6.1 — LGPL-2.1-or-later — LICENSES/fluidsynth.txt
+  MIDI synthesis for mkxp-z, which opens it at run time as @rpath/libfluidsynth.dylib; RPG Maker XP, VX and VX Ace
+  games are silent without it. Built by Scripts/native/build-fluidsynth.sh from sources pinned by sha256 into a
+  dynamic library in an xcframework, so it can be replaced with a modified build. https://www.fluidsynth.org/
+
+GeneralUser GS 2.0.3 — GeneralUser GS licence (free use, commercial included) — LICENSES/generaluser-gs.txt
+  The soundfont FluidSynth renders those games' MIDI with, bundled as Native/prebuilt/soundfont/GeneralUser-GS.sf2.
+  https://www.schristiancollins.com/generaluser.php

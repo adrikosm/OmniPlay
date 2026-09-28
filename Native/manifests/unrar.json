@@ -1,0 +1,31 @@
+{
+  "arch": "arm64",
+  "artefact": "Packages/GameImport/Native/unrar.xcframework",
+  "built_at": "2026-09-20T19:53:48+00:00",
+  "component": "unrar",
+  "flags": {
+    "iphoneos_min": "27.0",
+    "macosx_min": "15.0"
+  },
+  "outputs": {
+    "Info.plist": "06ac8ed267c0816a4afa5c2af32b25bd2aadc86342524a333b0e92fb6f333548",
+    "ios-arm64-simulator/Headers/CUnrar/CUnrar.h": "8ac244130c1d4dece7a77065d2645756787a9af60645a98788ca97842fdd1cc4",
+    "ios-arm64-simulator/Headers/CUnrar/module.modulemap": "71f4f499cc633bb6a54caef22147fe205471b02bda7e0187b7b519cc096eac2d",
+    "ios-arm64-simulator/libunrar.a": "59e354dee6ce7211a9a70cb60f87202e33fd2c79ffc71ba18f8726806ce12fa6",
+    "ios-arm64/Headers/CUnrar/CUnrar.h": "8ac244130c1d4dece7a77065d2645756787a9af60645a98788ca97842fdd1cc4",
+    "ios-arm64/Headers/CUnrar/module.modulemap": "71f4f499cc633bb6a54caef22147fe205471b02bda7e0187b7b519cc096eac2d",
+    "ios-arm64/libunrar.a": "897f2d48c3dab2261509c42ac199317fb265f47bd5c370bcf5353af5d8d0a8d7",
+    "macos-arm64/Headers/CUnrar/CUnrar.h": "8ac244130c1d4dece7a77065d2645756787a9af60645a98788ca97842fdd1cc4",
+    "macos-arm64/Headers/CUnrar/module.modulemap": "71f4f499cc633bb6a54caef22147fe205471b02bda7e0187b7b519cc096eac2d",
+    "macos-arm64/libunrar.a": "84ed7fe21ae55b206ac35aa1aeedfa1a28d096e1e620bfcfee5dfe18e155d15c"
+  },
+  "sdks": {
+    "iphoneos": "27.0",
+    "iphonesimulator": "27.0",
+    "macosx": "27.0"
+  },
+  "sources": {
+    "Native/unrar": "d8612461815f7feffcf7f1bf9c5942125b25c1b4"
+  },
+  "toolchain": "Xcode 27.0 Build version 27A266a"
+}

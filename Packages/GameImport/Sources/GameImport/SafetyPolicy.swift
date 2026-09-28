@@ -85,14 +85,15 @@ public struct EntryValidator: Sendable {
             if size < 0 {
                 return .reject(.init(rule: .declaredSize, entryPath: entry.path, detail: "negative size"))
             }
-            running.declaredBytes += size
-            if running.declaredBytes > Int64(limits.maxUncompressedBytes) {
+            if UInt64(size) > limits.maxUncompressedBytes || running.declaredBytes > Int64.max - size ||
+                UInt64(running.declaredBytes) + UInt64(size) > limits.maxUncompressedBytes {
                 return .reject(.init(
                     rule: .declaredSize,
                     entryPath: entry.path,
                     detail: "declared total exceeds \(limits.maxUncompressedBytes) bytes"
                 ))
             }
+            running.declaredBytes += size
             let ratioApplies = size > limits.minBytesForRatioCheck
             if let c = entry.compressedSize, c > 0, ratioApplies, Double(size) / Double(c) > limits.maxEntryCompressionRatio {
                 return .reject(.init(
@@ -115,7 +116,7 @@ public struct EntryValidator: Sendable {
 
     /// Running check for extractors that learn sizes only while writing (headers lie, or are absent).
     public func checkWritten(_ totals: RunningTotals, sourceBytes: Int64?) -> SafetyViolation? {
-        if totals.writtenBytes > Int64(limits.maxUncompressedBytes) {
+        if totals.writtenBytes < 0 || UInt64(totals.writtenBytes) > limits.maxUncompressedBytes {
             return .init(rule: .declaredSize, detail: "written \(totals.writtenBytes) bytes exceeds \(limits.maxUncompressedBytes)")
         }
         let ratioApplies = totals.writtenBytes > limits.minBytesForRatioCheck

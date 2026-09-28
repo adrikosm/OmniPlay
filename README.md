@@ -7,8 +7,9 @@ through EasyRPG), Ren'Py, plain HTML5 titles ScummVM, Godot, Wolf RPG, KiriKiri 
 availability is still being implemented. Unity/Unite is best-effort coverage. Saves, controls, mods and diagnostics stay owned by the host. It runs what it can
 identify and explains what it cannot; it does not claim universal compatibility.
 
-**Status:** pre-alpha. The web slice has simulator acceptance and RGSS integration is in progress.
-Other required native runtimes are not yet available. Physical-device compatibility remains unverified.
+**Status:** pre-alpha. The web slice has simulator acceptance, RGSS integration is in progress, and the
+three Ren'Py engines (8.5.3, 8.3.7, 7.8.7) play imported games on the simulator. Other required native
+runtimes are not yet available. Physical-device compatibility remains unverified.
 
 ## Requirements
 
@@ -23,6 +24,7 @@ Other required native runtimes are not yet available. Physical-device compatibil
 ```bash
 Scripts/bootstrap-mac.sh       # verify Xcode/Swift, install missing Homebrew tools, install git hooks
 Scripts/build-libarchive.sh    # static libarchive + liblzma + libzstd XCFramework (device, simulator, Mac)
+Scripts/native/build-renpy.sh  # the three Ren'Py engine frameworks from Ren'Py's own iOS packages (~800 MB download)
 Scripts/generate-project.sh    # xcodegen: project.yml -> OmniPlay.xcodeproj
 Scripts/build-sim.sh           # build, install and launch on the iPhone 17 Pro Max (iOS 27.0) simulator
 Scripts/build-device.sh --unsigned  # prepare iphoneos app and build manifest without signing

@@ -41,8 +41,14 @@ packages:
   GameDetection:   { path: Packages/GameDetection }
   RuntimeCore:     { path: Packages/RuntimeCore }
   SaveKit:         { path: Packages/SaveKit }
+  RGSSRuntime:     { path: Packages/RGSSRuntime }
+  RenPyRuntime:    { path: Packages/RenPyRuntime }
+  EasyRPGRuntime:  { path: Packages/EasyRPGRuntime }
+  ScummVMRuntime:  { path: Packages/ScummVMRuntime }
+  GodotRuntime:    { path: Packages/GodotRuntime }
   InputKit:        { path: Packages/InputKit }
   MediaCompat:     { path: Packages/MediaCompat }
+  MediaTranscode:  { path: Packages/MediaTranscode }
   LocalGameServer: { path: Packages/LocalGameServer }
   GameTools:       { path: Packages/GameTools }
 
@@ -58,6 +64,22 @@ targets:
       - path: LICENSES
         buildPhase: resources
         type: folder
+      # Engine runtime files, hydrated by Scripts/native. Both names are the engine's own: it reads shaders,
+      # fonts and preload/postload Ruby from <bundle>/Assets.bundle and the Ruby stdlib from <bundle>/Ruby.
+      - path: Native/prebuilt/rgss-assets/Assets.bundle
+        buildPhase: resources
+        type: folder
+      - path: Native/prebuilt/rgss-assets/Ruby
+        buildPhase: resources
+        type: folder
+      # KiriKiri: the KrKr2 Web engine page and WebAssembly (Scripts/native/build-kirikiri.sh), served as a layer.
+      - path: Native/prebuilt/kirikiri/KrKr2Web
+        buildPhase: resources
+        type: folder
+        optional: true
+      # MIDI for RPG Maker XP/VX: the default soundfont (Scripts/native/build-fluidsynth.sh).
+      - path: Native/prebuilt/soundfont/GeneralUser-GS.sf2
+        buildPhase: resources
     configFiles:
       Debug: Signing.xcconfig
       Release: Signing.xcconfig
@@ -70,13 +92,55 @@ targets:
       - package: GameDetection
       - package: RuntimeCore
       - package: SaveKit
+      - package: RGSSRuntime
+      - package: RenPyRuntime
+      - package: EasyRPGRuntime
+      - package: ScummVMRuntime
+      - package: GodotRuntime
       - package: InputKit
       - package: MediaCompat
+      - package: MediaTranscode
       - package: LocalGameServer
       - package: GameTools
+      # Ren'Py engines are embedded, never linked: RenPyEngineLibrary opens each on the first launch that needs
+      # it. MetalANGLE is the GLES layer all three link through @rpath.
+      - framework: Native/prebuilt/renpy/metalangle/MetalANGLE.xcframework
+        embed: true
+        link: false
+      - framework: Native/prebuilt/renpy/8.5.3/RenPy853.xcframework
+        embed: true
+        link: false
+      - framework: Native/prebuilt/renpy/8.3.7/RenPy837.xcframework
+        embed: true
+        link: false
+      - framework: Native/prebuilt/renpy/7.8.7/RenPy787.xcframework
+        embed: true
+        link: false
+      # EasyRPG Player (RPG Maker 2000/2003), embedded the same way and opened on the first 2000/2003 launch.
+      - framework: Native/prebuilt/easyrpg/EasyRPG.xcframework
+        embed: true
+        link: false
+      # ScummVM (adventure games, interactive fiction), embedded the same way, with its engine data inside.
+      - framework: Native/prebuilt/scummvm/ScummVM.xcframework
+        embed: true
+        link: false
+      # Godot 4 (imported .pck exports), embedded the same way.
+      - framework: Native/prebuilt/godot/Godot.xcframework
+        embed: true
+        link: false
+      - framework: Native/prebuilt/godot3/Godot3.xcframework
+        embed: true
+        link: false
+      # mkxp-z opens @rpath/libfluidsynth.dylib itself on the first MIDI it plays.
+      - framework: Native/prebuilt/fluidsynth/libfluidsynth.xcframework
+        embed: true
+        link: false
     preBuildScripts:
       - name: Check no UI imports in packages
         script: "\"$SRCROOT/Scripts/check-no-ui-imports.sh\""
+        basedOnDependencyAnalysis: false
+      - name: Check no engine checks in Game Tools views
+        script: "\"$SRCROOT/Scripts/check-no-engine-checks-in-views.sh\""
         basedOnDependencyAnalysis: false
       - name: Hydrate native deps
         script: "\"$SRCROOT/Scripts/native/hydrate.sh\""
@@ -92,13 +156,15 @@ targets:
         GCSupportsControllerUserInteraction: true
         ITSAppUsesNonExemptEncryption: false
         NSFaceIDUsageDescription: Unlocks the hidden shelf of your library.
+        NSPhotoLibraryAddUsageDescription: Screenshots you take from the pause menu are saved to your photos.
         NSLocalNetworkUsageDescription: Wi-Fi upload serves a page on your local network so a computer can send a game folder to this device.
         NSBonjourServices:
           - _omniplay._tcp
         # Scene lifecycle (mandatory with the iOS 27 SDK); SwiftUI App owns the scenes.
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
-        UILaunchScreen: {}
+        UILaunchScreen:
+          UIColorName: LaunchBackground
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationPortraitUpsideDown
@@ -155,6 +221,162 @@ targets:
     # The existing entitlements plist is opt-in through OMNIPLAY_ENTITLEMENTS_FILE.
     settings:
       base:
+        OTHER_LDFLAGS[sdk=iphonesimulator*]:
+          - -Wl,-force_load,$(SRCROOT)/Native/prebuilt/mkxp-z/iphonesimulator-arm64/libmkxpz-core.a
+          - $(SRCROOT)/Native/prebuilt/mkxp-z/iphonesimulator-arm64/mkxp18-merged.o
+          - $(SRCROOT)/Native/prebuilt/mkxp-z/iphonesimulator-arm64/mkxp19-merged.o
+          - $(SRCROOT)/Native/prebuilt/mkxp-z/iphonesimulator-arm64/mkxp31-merged.o
+          - -lSDL2
+          - -lSDL2_image
+          - -lSDL2_sound
+          - -lSDL2_ttf
+          - -lfreetype
+          - -lpixman-1
+          - -lpng16
+          - -logg
+          - -lvorbis
+          - -lvorbisfile
+          - -ltheora
+          - -ltheoradec
+          # FFmpeg for media preparation (Scripts/native/build-ffmpeg.sh) and the Theora/Vorbis encoders it uses.
+          - -lavformat
+          - -lavcodec
+          - -lswscale
+          - -lswresample
+          - -lavutil
+          - -ldav1d
+          - -ltheoraenc
+          - -lvorbisenc
+          - -lphysfs
+          - -luchardet
+          - -lopenal
+          - -lssl
+          - -lcrypto
+          - -lz
+          - -lbz2
+          - -liconv
+          - -lANGLE_static
+          - -lEGL_static
+          - -lGLESv2_static
+          - -framework
+          - Foundation
+          - -framework
+          - UIKit
+          - -framework
+          - CoreFoundation
+          - -framework
+          - CoreGraphics
+          - -framework
+          - CoreVideo
+          - -framework
+          - CoreAudio
+          - -framework
+          - AudioToolbox
+          - -framework
+          - VideoToolbox
+          - -framework
+          - CoreMedia
+          - -framework
+          - AVFoundation
+          - -framework
+          - Metal
+          - -framework
+          - QuartzCore
+          - -framework
+          - GameController
+          - -framework
+          - CoreMotion
+          - -framework
+          - IOSurface
+          - -weak_framework
+          - CoreBluetooth
+          - -weak_framework
+          - CoreHaptics
+          - -weak_framework
+          - OpenGLES
+        OTHER_LDFLAGS[sdk=iphoneos*]:
+          - -Wl,-force_load,$(SRCROOT)/Native/prebuilt/mkxp-z/iphoneos-arm64/libmkxpz-core.a
+          - $(SRCROOT)/Native/prebuilt/mkxp-z/iphoneos-arm64/mkxp18-merged.o
+          - $(SRCROOT)/Native/prebuilt/mkxp-z/iphoneos-arm64/mkxp19-merged.o
+          - $(SRCROOT)/Native/prebuilt/mkxp-z/iphoneos-arm64/mkxp31-merged.o
+          - -lSDL2
+          - -lSDL2_image
+          - -lSDL2_sound
+          - -lSDL2_ttf
+          - -lfreetype
+          - -lpixman-1
+          - -lpng16
+          - -logg
+          - -lvorbis
+          - -lvorbisfile
+          - -ltheora
+          - -ltheoradec
+          # FFmpeg for media preparation (Scripts/native/build-ffmpeg.sh) and the Theora/Vorbis encoders it uses.
+          - -lavformat
+          - -lavcodec
+          - -lswscale
+          - -lswresample
+          - -lavutil
+          - -ldav1d
+          - -ltheoraenc
+          - -lvorbisenc
+          - -lphysfs
+          - -luchardet
+          - -lopenal
+          - -lssl
+          - -lcrypto
+          - -lz
+          - -lbz2
+          - -liconv
+          - -lANGLE_static
+          - -lEGL_static
+          - -lGLESv2_static
+          - -framework
+          - Foundation
+          - -framework
+          - UIKit
+          - -framework
+          - CoreFoundation
+          - -framework
+          - CoreGraphics
+          - -framework
+          - CoreVideo
+          - -framework
+          - CoreAudio
+          - -framework
+          - AudioToolbox
+          - -framework
+          - VideoToolbox
+          - -framework
+          - CoreMedia
+          - -framework
+          - AVFoundation
+          - -framework
+          - Metal
+          - -framework
+          - QuartzCore
+          - -framework
+          - GameController
+          - -framework
+          - CoreMotion
+          - -framework
+          - IOSurface
+          - -weak_framework
+          - CoreBluetooth
+          - -weak_framework
+          - CoreHaptics
+          - -weak_framework
+          - OpenGLES
+        LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]:
+          - $(inherited)
+          - $(SRCROOT)/Native/prebuilt/ffmpeg/iphonesimulator/lib
+          - $(SRCROOT)/Native/prebuilt/mkxp-z/iphonesimulator-arm64/deps/lib
+          - $(SRCROOT)/Native/prebuilt/mkxp-z/iphonesimulator-arm64/deps/angle-lib
+        LIBRARY_SEARCH_PATHS[sdk=iphoneos*]:
+          - $(inherited)
+          - $(SRCROOT)/Native/prebuilt/ffmpeg/iphoneos/lib
+          - $(SRCROOT)/Native/prebuilt/mkxp-z/iphoneos-arm64/deps/lib
+          - $(SRCROOT)/Native/prebuilt/mkxp-z/iphoneos-arm64/deps/angle-lib
         PRODUCT_BUNDLE_IDENTIFIER: $(OMNIPLAY_BUNDLE_IDENTIFIER)
         CODE_SIGN_ENTITLEMENTS: $(OMNIPLAY_ENTITLEMENTS_FILE)
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -169,6 +391,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.omniplay.app.tests
+        GENERATE_INFOPLIST_FILE: YES
 
   OmniPlayUITests:
     type: bundle.ui-testing
@@ -179,6 +402,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.omniplay.app.uitests
+        GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: OmniPlay
 
 schemes:

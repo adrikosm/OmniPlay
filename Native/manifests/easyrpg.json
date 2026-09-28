@@ -1,0 +1,27 @@
+{
+  "arch": "arm64",
+  "artefact": "Native/prebuilt/easyrpg",
+  "built_at": "2026-09-22T20:01:31+00:00",
+  "component": "easyrpg",
+  "flags": {
+    "iphoneos_min": "27.0",
+    "macosx_min": "15.0"
+  },
+  "outputs": {
+    "EasyRPG.xcframework/Info.plist": "3d8d77ba00836f84508208cc22c7170404cd70ceb390c550142c8e928a716de0",
+    "EasyRPG.xcframework/ios-arm64-simulator/EasyRPG.framework/EasyRPG": "e5c48a48a3c8b238e118eb37a19f3f2ebc0a871e75f96f9abfc12f10ce899311",
+    "EasyRPG.xcframework/ios-arm64-simulator/EasyRPG.framework/Info.plist": "4445c47865abb8b43954ff477d238687a36ac4e824f2f9f547b5c009b1ef23cb",
+    "EasyRPG.xcframework/ios-arm64/EasyRPG.framework/EasyRPG": "ef13bcc7137a83d9065ac35df0030f1a530d963d876e729d11abb57be448a2f2",
+    "EasyRPG.xcframework/ios-arm64/EasyRPG.framework/Info.plist": "18b28a76ed254377499f410a86dc6b524e1783f0d69457156e28869da5c3780d"
+  },
+  "sdks": {
+    "iphoneos": "27.0",
+    "iphonesimulator": "27.0",
+    "macosx": "27.0"
+  },
+  "sources": {
+    "Native/easyrpg/liblcf": "92c4450a1bc1acb58bd02bbb99b57e5036919cdf",
+    "Native/easyrpg/player": "78328fa29f465315291e161130e6682f69410370"
+  },
+  "toolchain": "Xcode 27.0 Build version 27A266a"
+}

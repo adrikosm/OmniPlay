@@ -1,11 +1,17 @@
 import Diagnostics
 import Foundation
 import GameCore
+import GameStore
 
-/// What `stop()` reports. `.slotSpent` is a first-class, honest outcome (§4.2 rule 3).
+/// What `stop()` reports. `.slotSpent` is a first-class, honest outcome (§4.2 rule 3). The reason behind a
+/// verdict goes to the session log where it happens; nothing downstream branches on it.
 public enum TeardownVerdict: Sendable, Equatable {
+    /// The engine can take another game now: a fresh instance per game (web), or a parked engine that restarts
+    /// in place (Ren'Py).
     case clean
+    /// The engine's one boot for this process is used up; its slot (and `diesWith` siblings) need a relaunch.
     case slotSpent
+    /// The engine did not stop (hung, or its state is unknown); the app should relaunch before anything else.
     case restartRequired
 }
 
@@ -20,72 +26,53 @@ public enum RuntimeStopReason: Sendable, Equatable {
     case fallback
 }
 
-public enum PauseSemantics: Sendable, Equatable {
-    /// Engine thread is suspended; audio/timers stop (mkxp-z snapshot model).
-    case suspendThread
-    /// Engine keeps running; the host hides it (WKWebView with page-visibility events).
-    case backgroundVisible
-    case unsupported
-}
-
-public struct RuntimeCapabilities: Sendable, Equatable {
-    public var canInspectState: Bool
-    public var canMutateState: Bool
-    public var pause: PauseSemantics
-    public var multiSession: Bool
-
-    public init(canInspectState: Bool, canMutateState: Bool, pause: PauseSemantics, multiSession: Bool) {
-        self.canInspectState = canInspectState
-        self.canMutateState = canMutateState
-        self.pause = pause
-        self.multiSession = multiSession
-    }
-}
-
-/// The kind of surface the shell must host for this adapter.
-public enum RuntimeSurface: Sendable, Equatable {
-    case webView
-    case uiView
-    case metalLayer
-}
-
-/// Typed state bridge requests (§27). Engine-specific payloads are opaque here.
-public struct StateInspectionRequest: Sendable, Hashable {
-    public var path: String
-    public init(path: String) { self.path = path }
-}
-
-public struct StateInspectionResult: Sendable, Hashable {
-    public var path: String
-    public var json: String
-    public init(path: String, json: String) {
-        self.path = path
-        self.json = json
-    }
-}
-
-public struct StateMutation: Sendable, Hashable {
-    public var path: String
-    public var json: String
-    public init(path: String, json: String) {
-        self.path = path
-        self.json = json
-    }
-}
-
-public struct StateMutationResult: Sendable, Hashable {
-    public var applied: Bool
-    public var message: String?
-    public init(applied: Bool, message: String? = nil) {
-        self.applied = applied
-        self.message = message
-    }
-}
-
 public enum RuntimeEvent: Sendable {
     case log(LogCategory, String)
     case gradeReached(PlayabilityGrade)
     case watchdogStalled(seconds: Double)
     /// A value the shell should persist into the game's compatibility overrides for the next launch (e.g. the loopback port).
     case profileHint(key: String, value: String)
+    /// The engine ended the session by itself (the game's own Quit, or an error it could not show); the shell leaves.
+    case ended(status: Int32)
 }
+
+/// What the app hands the coordinator: the record, the descriptor and the resolution already made for this game.
+public struct LaunchRequest: Sendable {
+    public let record: GameRecord
+    public let descriptor: GameDescriptor
+    public let resolution: RuntimeResolution
+    public let configuration: RuntimeConfiguration
+
+    public init(record: GameRecord, descriptor: GameDescriptor, resolution: RuntimeResolution, configuration: RuntimeConfiguration) {
+        self.record = record
+        self.descriptor = descriptor
+        self.resolution = resolution
+        self.configuration = configuration
+    }
+}
+
+public struct ActiveSession: Sendable, Hashable {
+    public let id: UUID
+    public let gameID: GameID
+    public let runtime: RuntimeIdentifier
+    public let slot: SessionSlot
+    public let startedAt: Date
+}
+
+public enum LaunchPreflight: Sendable, Equatable {
+    case ok
+    case slotBusy(activeGame: GameID)
+    case slotSpent(SessionSlotLedger.SlotSpentReason)
+    case notBuilt(RuntimeIdentifier)
+    case noRuntime(String)
+}
+
+public enum CoordinatorError: Error, Sendable, Equatable {
+    case busy
+    case preflight(LaunchPreflight)
+    case prepareFailed(String)
+    case startFailed(String)
+}
+
+/// Builds an adapter for a runtime identifier. Registered by each adapter module; the coordinator never imports one.
+public typealias RuntimeFactory = @MainActor @Sendable (RuntimeConfiguration) -> any GameRuntime

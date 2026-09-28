@@ -4,12 +4,12 @@ import GameCore
 import OSLog
 import SaveKit
 
-/// Routes web-storage writes to files and seeds the page from them on launch. Numbered save slots go to
+/// Routes web-storage writes to files and seeds the page from them on launch. Save slots go to
 /// `Saves/slots`; everything else (RPG Maker config and global data, a plain HTML5 game's whole localStorage) is a
 /// persistent store under `Saves/persistent/webLocalStorage` or `webIndexedDB`, backed up and reset separately.
 /// `ls` entries are UTF-8 strings under `ls.<base64url(key)>.<ext>`; `mz` entries are RPG Maker MZ deflate blobs,
 /// carried as base64 and stored raw under `<key>.rmmzsave`.
-public struct SaveBridge: Sendable {
+public actor SaveBridge {
     public struct Kind: Sendable, Hashable {
         public let name: String
         public let fileExtension: String
@@ -19,7 +19,7 @@ public struct SaveBridge: Sendable {
     public let location: SaveLocation
     public let kinds: [Kind]
     private let session: SessionID?
-    /// Total bytes the seed may carry into the page; larger libraries stay file-only and load lazily by the game.
+    /// Maximum source bytes loaded at launch. The page cannot lazily read omitted saves.
     public static let maxSeedBytes = 32 << 20
 
     public init(location: SaveLocation, engine: EngineFamily, session: SessionID? = nil) {
@@ -43,9 +43,11 @@ public struct SaveBridge: Sendable {
         ]
     }
 
-    /// MV `RPG File<n>` and MZ `rmmzsave.<game>.file<n>` are slots; nothing else is.
+    /// MV `RPG File<n>`, MZ `rmmzsave.<game>.file<n>` and Tyrano's `<project>_tyrano_data` (every slot in one value),
+    /// quick save and auto save are slots; nothing else is. Tyrano's `<project>_sf` system variables stay persistent.
     static func isSlot(kind: String, key: String) -> Bool {
-        kind == "ls" ? key.wholeMatch(of: /RPG File\d+/) != nil : key.wholeMatch(of: /rmmzsave\..*\.file\d+/) != nil
+        kind == "ls" ? key.wholeMatch(of: /RPG File\d+|.+_tyrano_(data|quick_save|auto_save)/) != nil
+            : key.wholeMatch(of: /rmmzsave\..*\.file\d+/) != nil
     }
 
     func store(_ kind: Kind, key: String) -> SaveFileStore {
@@ -55,54 +57,95 @@ public struct SaveBridge: Sendable {
 
     func stem(_ kind: Kind, key: String) -> String { kind.name == "ls" ? SaveKey.encodeWebStorage(key) : key }
 
-    /// One message from the page. Rejected keys and oversized values are logged, never written.
-    public func handle(op: String, kind kindName: String, key: String, value: String?) {
-        guard let kind = kinds.first(where: { $0.name == kindName }) else { return log(.error, "unknown save kind \(kindName)") }
-        let store = store(kind, key: key)
-        do {
-            switch op {
-            case "write":
-                guard let value else { return log(.error, "write without value for \(key)") }
-                guard let data = kind.binary ? Data(base64Encoded: value) : Data(value.utf8) else { return log(
-                    .error,
-                    "undecodable value for \(key)"
-                ) }
-                try store.write(data, key: stem(kind, key: key))
-                log(.debug, "wrote \(kind.name) \(key) (\(data.count) bytes)")
-            case "remove":
-                try store.remove(key: stem(kind, key: key))
-                log(.debug, "removed \(kind.name) \(key)")
-            default: log(.error, "unknown save op \(op)")
+    public enum Failure: Error, CustomStringConvertible {
+        case invalidMessage(String), incompleteSeed(String)
+
+        public var description: String {
+            switch self {
+            case let .invalidMessage(detail): detail
+            case let .incompleteSeed(detail):
+                "The game could not start because its saves could not all be loaded. \(detail) Your save files have been kept."
             }
-        } catch {
-            log(.error, "save \(op) \(key) failed: \(error)")
         }
     }
 
+    /// A reply is successful only after the atomic file operation succeeds. Isolated on this actor so
+    /// file writes and fsync never run on the UI actor.
+    public func handle(op: String, kind kindName: String, key: String, value: String?) throws {
+        guard let kind = kinds.first(where: { $0.name == kindName }) else { throw Failure.invalidMessage("unknown save kind") }
+        let store = store(kind, key: key)
+        switch op {
+        case "write":
+            guard let value else { throw Failure.invalidMessage("write without value") }
+            let limit = kind.binary ? ((SaveFileStore.maxBytes + 2) / 3) * 4 : SaveFileStore.maxBytes
+            guard value.utf8.count <= limit else { throw SaveFileStore.Failure.tooLarge(value.utf8.count) }
+            guard let data = kind.binary ? Data(base64Encoded: value) : Data(value.utf8) else {
+                throw Failure.invalidMessage("invalid base64 save")
+            }
+            try store.write(data, key: stem(kind, key: key))
+            log(.debug, "wrote \(kind.name) \(key) (\(data.count) bytes)")
+        case "remove":
+            try store.remove(key: stem(kind, key: key))
+            log(.debug, "removed \(kind.name) \(key)")
+        case "seedFailed":
+            throw Failure.incompleteSeed("Web storage refused the saved data.")
+        default: throw Failure.invalidMessage("unknown save operation")
+        }
+    }
+
+    /// What the player is told when a write fails; the full error goes to the session log.
+    public static func playerMessage(for error: Error) -> String {
+        let nsError = error as NSError
+        let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError
+        if nsError.code == NSFileWriteOutOfSpaceError || (underlying?.domain == NSPOSIXErrorDomain && underlying?.code == Int(ENOSPC)) {
+            return "The iPhone is out of storage, so the save was not written."
+        }
+        if case SaveFileStore.Failure.tooLarge = error {
+            return "The save is larger than OmniPlay keeps (16 MB), so it was not written."
+        }
+        return "OmniPlay could not write to this game's save folder."
+    }
+
     /// JSON `{"ls": {key: string}, "mz": {key: base64}}` for `__OMNIPLAY_SAVES__`.
-    public func seed() -> String {
+    public func seed() throws -> String {
         var budget = Self.maxSeedBytes
         var out: [String: [String: String]] = [:]
-        for kind in kinds {
-            var map: [String: String] = [:]
-            for store in stores(kind) {
-                try? FileManager.default.createDirectory(at: store.directory, withIntermediateDirectories: true)
-                AtomicFileWriter.sweepStale(in: store.directory)
-            }
-            for (store, stem, bytes) in stores(kind).flatMap({ s in s.keys().map { (s, $0.key, $0.bytes) } }) {
-                guard bytes <= budget,
-                      let data = try? store.read(key: stem) else { log(.default, "seed skipped \(stem): over budget"); continue }
-                budget -= Int(bytes)
-                if kind.name == "ls" {
-                    guard let key = SaveKey.decodeWebStorage(stem), let text = String(data: data, encoding: .utf8) else { continue }
-                    map[key] = text
-                } else {
-                    map[stem] = data.base64EncodedString()
+        do {
+            for kind in kinds {
+                var map: [String: String] = [:]
+                for store in stores(kind) {
+                    try FileManager.default.createDirectory(at: store.directory, withIntermediateDirectories: true)
+                    AtomicFileWriter.sweepStale(in: store.directory)
+                    for (stem, bytes) in try store.keys() {
+                        guard bytes <= budget else {
+                            throw Failure.incompleteSeed("Together they exceed the 32 MB launch limit.")
+                        }
+                        guard let data = try store.read(key: stem), data.count <= budget else {
+                            throw Failure.incompleteSeed("A save changed or disappeared while it was being read.")
+                        }
+                        budget -= data.count
+                        if kind.name == "ls" {
+                            guard let key = SaveKey.decodeWebStorage(stem), let text = String(data: data, encoding: .utf8) else {
+                                throw Failure.incompleteSeed("A web save is not valid text.")
+                            }
+                            map[key] = text
+                        } else {
+                            map[stem] = data.base64EncodedString()
+                        }
+                    }
                 }
+                out[kind.name] = map
             }
-            out[kind.name] = map
+            guard let seed = try String(data: JSONEncoder().encode(out), encoding: .utf8) else {
+                throw Failure.incompleteSeed("The save data could not be prepared for the game.")
+            }
+            return seed
+        } catch let error as Failure {
+            throw error
+        } catch {
+            log(.error, "seed failed: \(error)")
+            throw Failure.incompleteSeed("A save file or folder could not be read.")
         }
-        return (try? JSONEncoder().encode(out)).flatMap { String(bytes: $0, encoding: .utf8) } ?? "{}"
     }
 
     private func log(_ level: OSLogType, _ message: String) { OPLog.log(.save, level, message, session: session) }

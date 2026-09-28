@@ -1,0 +1,179 @@
+diff --git a/binding/binding-mri.cpp b/binding/binding-mri.cpp
+index 4985e23..42d041a 100644
+--- a/binding/binding-mri.cpp
++++ b/binding/binding-mri.cpp
+@@ -431,7 +431,28 @@ static void mkxp_install_legacy_respond_to() {
+ }
+ #endif // MKXPZ_HAVE_SYNTAX_TRANSFORM_PATCHES
+ 
++/* OmniPlay: typed state requests (app_bridge mkxp_enqueueRubyRequest), evaluated on the engine thread by the host's
++ * preload script. OmniPlay::Bridge.handle rescues its own errors and answers JSON; this only guards the call. */
++static VALUE omniplayRequestEval(VALUE) {
++    return rb_eval_string("defined?(OmniPlay::Bridge) ? OmniPlay::Bridge.handle($omniplay_request).to_s : "
++                          "'{\"error\":\"bridge not loaded\"}'");
++}
++
++static void omniplayHandleRequest(const char *json, mkxp_RubyReplyCallback cb, void *ctx) {
++    rb_gv_set("$omniplay_request", rb_str_new2(json));
++    int state = 0;
++    VALUE result = rb_protect(omniplayRequestEval, Qnil, &state);
++    rb_gv_set("$omniplay_request", Qnil);
++    if (state) {
++        rb_set_errinfo(Qnil);
++        if (cb) cb("{\"error\":\"the bridge raised\"}", ctx);
++        return;
++    }
++    if (cb) cb(RSTRING_PTR(result), ctx);
++}
++
+ static void mriBindingInit() {
++    mkxp_setRubyRequestHandler(omniplayHandleRequest);
+ #ifdef MKXPZ_HAVE_SYNTAX_TRANSFORM_PATCHES
+ #if RAPI_MAJOR > 1 || (RAPI_MAJOR == 1 && RAPI_MINOR > 8)
+     if (mkxp_legacy_stub_can_run(1, 8)) {
+diff --git a/src/app_bridge.cpp b/src/app_bridge.cpp
+index 5227dfe..2c57c27 100644
+--- a/src/app_bridge.cpp
++++ b/src/app_bridge.cpp
+@@ -17,6 +17,7 @@
+ #include <cstring>
+ #include <mutex>
+ #include <condition_variable>
++#include <deque>
+ #include <string>
+ #include <vector>
+ 
+@@ -884,6 +885,9 @@ void mkxp_requestResume(void) {
+     s_pauseCV.notify_one();
+ }
+ 
++/* OmniPlay: whether a typed state request is waiting (defined with the queue below). */
++bool mkxp_hasRubyRequests(void);
++
+ void mkxp_checkPause(void) {
+     if (!s_pauseRequested.load(std::memory_order_acquire) &&
+         !s_paused.load(std::memory_order_acquire))
+@@ -899,11 +903,20 @@ void mkxp_checkPause(void) {
+ 
+     s_pausedCb.fire();
+ 
+-    /* Block until resume is requested. */
++    /* Block until resume is requested. OmniPlay: the Game Tools open from the pause menu, so a typed state
++     * request wakes the wait and is answered here, on the Ruby thread, before waiting again. */
+     std::unique_lock<std::mutex> lock(s_pauseMutex);
+-    s_pauseCV.wait(lock, [] {
+-        return !s_paused.load(std::memory_order_acquire);
+-    });
++    for (;;) {
++        s_pauseCV.wait(lock, [] {
++            return !s_paused.load(std::memory_order_acquire) || mkxp_hasRubyRequests();
++        });
++        if (!s_paused.load(std::memory_order_acquire))
++            break;
++        lock.unlock();
++        while (mkxp_hasRubyRequests())
++            mkxp_drainRubyRequests();
++        lock.lock();
++    }
+ 
+     if (!s_terminateRequested.load(std::memory_order_acquire)) {
+         /* Normal resume; un-pause the sources we paused. */
+@@ -1189,4 +1202,52 @@ std::string mkxp_getDebugLogPath(void) {
+     return s_debugLogPath;
+ }
+ 
++/* ---- OmniPlay: typed state requests ---- */
++
++namespace {
++struct RubyRequest {
++    std::string json;
++    mkxp_RubyReplyCallback cb = nullptr;
++    void *ctx = nullptr;
++};
++std::mutex s_rubyRequestMutex;
++std::deque<RubyRequest> s_rubyRequests;
++std::atomic<mkxp_RubyRequestHandler> s_rubyRequestHandler{nullptr};
++}
++
++void mkxp_enqueueRubyRequest(const char *jsonUTF8, mkxp_RubyReplyCallback cb, void *ctx) {
++    {
++        std::lock_guard<std::mutex> lock(s_rubyRequestMutex);
++        s_rubyRequests.push_back({jsonUTF8 ? jsonUTF8 : "", cb, ctx});
++    }
++    /* Wake a paused engine (mkxp_checkPause) so it answers now. */
++    { std::lock_guard<std::mutex> lock(s_pauseMutex); }
++    s_pauseCV.notify_all();
++}
++
++bool mkxp_hasRubyRequests(void) {
++    std::lock_guard<std::mutex> lock(s_rubyRequestMutex);
++    return !s_rubyRequests.empty();
++}
++
++void mkxp_setRubyRequestHandler(mkxp_RubyRequestHandler handler) {
++    s_rubyRequestHandler.store(handler, std::memory_order_release);
++}
++
++void mkxp_drainRubyRequests(void) {
++    RubyRequest request;
++    {
++        std::lock_guard<std::mutex> lock(s_rubyRequestMutex);
++        if (s_rubyRequests.empty())
++            return;
++        request = std::move(s_rubyRequests.front());
++        s_rubyRequests.pop_front();
++    }
++    mkxp_RubyRequestHandler handler = s_rubyRequestHandler.load(std::memory_order_acquire);
++    if (handler)
++        handler(request.json.c_str(), request.cb, request.ctx);
++    else if (request.cb)
++        request.cb("{\"error\":\"no Ruby binding\"}", request.ctx);
++}
++
+ #endif /* MKXPZ_MOBILE */
+diff --git a/src/app_bridge.h b/src/app_bridge.h
+index 520aa58..a1ad646 100644
+--- a/src/app_bridge.h
++++ b/src/app_bridge.h
+@@ -568,6 +568,15 @@ void        mkxp_requestResume(void);
+ // Engine-internal: checks for pause request, blocks if needed. NOT for UI.
+ void        mkxp_checkPause(void);
+ 
++/* OmniPlay: typed state requests for the running game. The host enqueues a JSON request from any thread; the engine
++ * thread hands one per frame (from Graphics.update, where Ruby may run) to the handler the Ruby binding registered,
++ * which evaluates it in Ruby and passes the JSON reply to cb, on the engine thread. */
++typedef void (*mkxp_RubyReplyCallback)(const char *jsonUTF8, void *ctx);
++typedef void (*mkxp_RubyRequestHandler)(const char *jsonUTF8, mkxp_RubyReplyCallback cb, void *ctx);
++void        mkxp_enqueueRubyRequest(const char *jsonUTF8, mkxp_RubyReplyCallback cb, void *ctx);
++void        mkxp_setRubyRequestHandler(mkxp_RubyRequestHandler handler);
++void        mkxp_drainRubyRequests(void);
++
+ bool        mkxp_isPauseRequested(void);
+ bool        mkxp_isPaused(void);
+ 
+@@ -760,6 +769,11 @@ static inline void        mkxp_setInfoMessageCallback(mkxp_InfoMessageCallback c
+ static inline void        mkxp_requestPause(void) {}
+ static inline void        mkxp_requestResume(void) {}
+ static inline void        mkxp_checkPause(void) {}
++typedef void (*mkxp_RubyReplyCallback)(const char *jsonUTF8, void *ctx);
++typedef void (*mkxp_RubyRequestHandler)(const char *jsonUTF8, mkxp_RubyReplyCallback cb, void *ctx);
++static inline void        mkxp_enqueueRubyRequest(const char *json, mkxp_RubyReplyCallback cb, void *ctx) { (void)json; (void)cb; (void)ctx; }
++static inline void        mkxp_setRubyRequestHandler(mkxp_RubyRequestHandler handler) { (void)handler; }
++static inline void        mkxp_drainRubyRequests(void) {}
+ static inline bool        mkxp_isPauseRequested(void) { return false; }
+ static inline bool        mkxp_isPaused(void) { return false; }
+ static inline void        mkxp_setSnapshot(const unsigned char *data, int width, int height) { (void)data; (void)width; (void)height; }
+diff --git a/src/display/graphics.cpp b/src/display/graphics.cpp
+index dfba7b4..67a81c6 100644
+--- a/src/display/graphics.cpp
++++ b/src/display/graphics.cpp
+@@ -1170,6 +1170,9 @@ struct GraphicsPrivate {
+      * finishes, the snapshot is discarded and the real SDL rendering
+      * takes over.  See docs/pause-resume.md for the full picture. */
+     void checkPause() {
++        /* OmniPlay: one typed state request per frame, here on the Ruby thread (app_bridge). */
++        mkxp_drainRubyRequests();
++
+         if (!mkxp_isPaused() && !mkxp_isPauseRequested())
+             return;
+ 
