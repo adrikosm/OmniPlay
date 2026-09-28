@@ -225,7 +225,9 @@ public extension GameStore {
 
         /// FTS5 prefix search over titles: `"dra"` finds "Dragon Quest".
         public func search(_ query: String, limit: Int = 50) throws -> [GameRecord] {
-            let tokens = query.split(whereSeparator: \.isWhitespace).map { "\"\($0.replacingOccurrences(of: "\"", with: ""))\"*" }
+            // A token of quotes alone would become `""*`, which FTS5 rejects as a syntax error.
+            let tokens = query.split(whereSeparator: \.isWhitespace).map { $0.replacingOccurrences(of: "\"", with: "") }
+                .filter { !$0.isEmpty }.map { "\"\($0)\"*" }
             guard !tokens.isEmpty else { return [] }
             let match = tokens.joined(separator: " ")
             return try store.read("games.search") {
@@ -291,6 +293,14 @@ public extension GameStore {
             $0,
             key: id.uuidString
         ) } }
+
+        /// A game's sessions, newest first (served by the `sessions_game` index).
+        public func recent(game: GameID, limit: Int = 500) throws -> [SessionRecord] {
+            try store.read("sessions.recent") {
+                try SessionRecord.filter(sql: "game_id = ?", arguments: [game.description]).order(sql: "started_at DESC")
+                    .limit(limit).fetchAll($0)
+            }
+        }
     }
 
     struct Slots: Sendable {
@@ -317,6 +327,14 @@ public extension GameStore {
         public func record(_ record: ImportRecord) throws -> ImportRecord { try store.insert(record) }
         public func recent(limit: Int = 50) throws -> [ImportRecord] {
             try store.read("imports.recent") { try ImportRecord.order(sql: "created_at DESC, id DESC").limit(limit).fetchAll($0) }
+        }
+
+        /// One game's imports, newest first.
+        public func recent(game: GameID, limit: Int = 500) throws -> [ImportRecord] {
+            try store.read("imports.recentForGame") {
+                try ImportRecord.filter(sql: "game_id = ?", arguments: [game.description]).order(sql: "created_at DESC, id DESC")
+                    .limit(limit).fetchAll($0)
+            }
         }
 
         public func find(sha256: String) throws -> [ImportRecord] {

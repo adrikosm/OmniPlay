@@ -6,7 +6,7 @@ import OverlayVFS
 import UniformTypeIdentifiers
 
 /// Derives a library cover from the game's own title art. Candidates are globbed through the game's path index
-/// per engine family, decoded as a bounded thumbnail (never the full bitmap) and written to `Artwork/cover.jpg`.
+/// per engine family, decoded as a bounded thumbnail (never the full bitmap) and written to `Artwork/cover-<unique>.jpg`.
 enum CoverExtractor {
     static let maxPixels = 1024
 
@@ -67,7 +67,9 @@ enum CoverExtractor {
         return nil
     }
 
-    /// Downsamples any image file into `Artwork/cover.jpg`; returns nil if it cannot be decoded.
+    /// Downsamples any image file into `Artwork/cover-<unique>.jpg`; returns nil if it cannot be decoded. Each cover
+    /// gets a new name, because the library and the game page reload a cover only when its stored path changes: a
+    /// picture written over the same `cover.jpg` kept showing the old one. Older covers are removed.
     static func write(source: URL, game id: GameID, paths: AppPaths) -> String? {
         guard let src = CGImageSourceCreateWithURL(source as CFURL, nil), CGImageSourceGetCount(src) > 0 else { return nil }
         let options: [CFString: Any] = [
@@ -79,15 +81,24 @@ enum CoverExtractor {
               image.height >= 16 else { return nil }
         let dir = paths.tier(.artwork, for: id)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let out = dir.appending(path: "cover.jpg")
-        let temp = dir.appending(path: ".cover-\(UUID().uuidString).jpg")
+        let name = "cover-\(UUID().uuidString.prefix(8).lowercased()).jpg"
+        let out = dir.appending(path: name)
+        let temp = dir.appending(path: ".\(name)")
         guard let dest = CGImageDestinationCreateWithURL(temp as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
         CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.86] as CFDictionary)
-        guard CGImageDestinationFinalize(dest) else { try? FileManager.default.removeItem(at: temp); return nil }
-        _ = try? FileManager.default.replaceItemAt(out, withItemAt: temp)
-        if !FileManager.default.fileExists(atPath: out.path(percentEncoded: false)) {
-            try? FileManager.default.moveItem(at: temp, to: out)
+        guard CGImageDestinationFinalize(dest), (try? FileManager.default.moveItem(at: temp, to: out)) != nil else {
+            try? FileManager.default.removeItem(at: temp)
+            return nil
         }
+        removeOlderCovers(in: dir, keeping: name)
         return paths.stored(out)
+    }
+
+    /// Earlier covers of this game, including the `cover.jpg` older builds wrote.
+    private static func removeOlderCovers(in dir: URL, keeping name: String) {
+        let items = (try? FileManager.default.contentsOfDirectory(atPath: dir.path(percentEncoded: false))) ?? []
+        for item in items where item != name && item.hasPrefix("cover") && item.hasSuffix(".jpg") {
+            try? FileManager.default.removeItem(at: dir.appending(path: item))
+        }
     }
 }

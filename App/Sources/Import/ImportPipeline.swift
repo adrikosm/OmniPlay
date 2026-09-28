@@ -267,6 +267,6 @@ final class ProgressReporter: Sendable {
         }
         guard due else { return }
         let txn = txn, total = total
-        Task { await txn.transition(to: .extracting(.init(completedBytes: done, totalBytes: total, currentItem: item))) }
+        Task { await txn.progress(.init(completedBytes: done, totalBytes: total, currentItem: item)) }
     }
 }

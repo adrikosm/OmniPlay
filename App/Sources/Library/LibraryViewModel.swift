@@ -153,10 +153,12 @@ final class LibraryViewModel {
                     title: game.title,
                     paths: paths
                 )
+                // The row goes first: the tile leaves the shelf at once instead of after a multi-GB tree is removed,
+                // and a failed delete never leaves a library entry pointing at files that are already gone.
+                try store.games.delete(id: game.id)
                 try? OriginalGuard.unseal(originalRoot: paths.tier(.original, for: game.id))
                 try? FileManager.default.removeItem(at: paths.game(game.id))
                 try? FileManager.default.removeItem(at: paths.tier(.runtimeCache, for: game.id))
-                try store.games.delete(id: game.id)
                 return nil
             } catch {
                 return error.localizedDescription
