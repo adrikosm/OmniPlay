@@ -29,12 +29,11 @@ else
   brew bundle install --file=Brewfile --no-upgrade || { echo "brew bundle failed; see the formula named above" >&2; exit 2; }
   brew_state="installed missing formulae"
 fi
-Scripts/install-hooks.sh
 git submodule update --init --depth 1 Native/libarchive Native/xz Native/zstd 2>/dev/null || git submodule update --init
 
 printf '\n%-12s %s\n' tool version
 printf '%-12s %s\n' xcode "$have" swift "$swiftv"
-for t in xcodegen ninja meson scons pkg-config swiftlint swiftformat; do
+for t in xcodegen ninja meson scons pkg-config; do
   printf '%-12s %s\n' "$t" "$($t --version 2>&1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1)"
 done
 printf '%-12s %s\n' minisign "$(minisign -v 2>&1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1)"

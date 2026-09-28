@@ -4,6 +4,4 @@ brew "ninja"        # native engine builds (mkxp-z, EasyRPG, FFmpeg)
 brew "meson"        # mkxp-z
 brew "scons"        # Godot
 brew "pkg-config"
-brew "swiftlint"
-brew "swiftformat"
 brew "minisign"     # signs native artefact manifests

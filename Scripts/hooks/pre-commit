@@ -1,2 +1,0 @@
-#!/bin/zsh
-exec "$(git rev-parse --show-toplevel)/Scripts/check-public-safe.sh"

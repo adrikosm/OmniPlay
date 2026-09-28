@@ -22,7 +22,7 @@ runtimes are not yet available. Physical-device compatibility remains unverified
 ## Build and run
 
 ```bash
-Scripts/bootstrap-mac.sh       # verify Xcode/Swift, install missing Homebrew tools, install git hooks
+Scripts/bootstrap-mac.sh       # verify Xcode/Swift, install missing Homebrew tools
 Scripts/build-libarchive.sh    # static libarchive + liblzma + libzstd XCFramework (device, simulator, Mac)
 Scripts/native/build-renpy.sh  # the three Ren'Py engine frameworks from Ren'Py's own iOS packages (~800 MB download)
 Scripts/generate-project.sh    # xcodegen: project.yml -> OmniPlay.xcodeproj
@@ -58,11 +58,9 @@ installation is not proof that every planned engine works.
 | `App/` | SwiftUI shell on the UIScene lifecycle, Info.plist, entitlements, asset catalog |
 | `Packages/` | Local SwiftPM packages holding all non-UI logic; none of them import SwiftUI |
 | `Native/` | Pinned upstream sources as submodules (libarchive, xz, zstd, later the engines); build outputs are gitignored |
-| `Scripts/` | Bootstrap, project generation, build, test and repository-hygiene scripts |
-| `Fixtures/synthetic/` | Deterministic, generated test inputs with no game content (`Scripts/make-fixtures.py`) |
-| `Fixtures/private/`, `Fixtures/large/` | Local-only real samples and multi-gigabyte stress inputs, gitignored |
+| `Scripts/` | Bootstrap, project generation, build and test scripts |
+| `Fixtures/synthetic/` | Deterministic test inputs with no game content |
 | `Tests/` | App-level tests; each package carries its own test target |
-| `Distribution/` | Sideload distribution metadata |
 | `LICENSES/` | Full licence texts of third-party components |
 | `project.yml` | xcodegen specification for the app target and package graph |
 
@@ -73,8 +71,7 @@ Every bundled component is listed in `THIRD-PARTY-LICENSES.txt` with its licence
 
 ## What is deliberately not here
 
-- Design documents and the roadmap: they live outside the repository, and `.gitignore` plus the
-  pre-commit guard (`Scripts/check-public-safe.sh`) refuse any markdown other than this file.
+- Design documents and the roadmap: they live outside the repository.
 - Fixtures containing real games, RTPs or soundfonts: only synthetic fixtures are committed.
 - Signing configuration and provisioning profiles.
 - Prebuilt binaries, DerivedData and the generated Xcode project: all reproducible from source.
