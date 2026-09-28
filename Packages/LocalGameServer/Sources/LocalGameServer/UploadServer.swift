@@ -240,18 +240,38 @@ public actor UploadServer {
         )
     }
 
+    /// A browser that vanishes mid-file (the laptop sleeps, the tab closes without a reset) would otherwise hold the
+    /// one upload slot forever and every later file would get 409.
+    public static let idleTimeout: Duration = .seconds(60)
+
     private static func receive(_ nw: NWConnection) async throws -> Data? {
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data?, Error>) in
-            nw.receive(minimumIncompleteLength: 1, maximumLength: chunk) { data, _, complete, error in
-                if let error {
-                    cont.resume(throwing: error)
-                } else if complete,
-                          data == nil {
-                    cont.resume(returning: nil)
-                } else {
-                    cont.resume(returning: data ?? Data())
+        try await withThrowingTaskGroup(of: Data?.self) { group in
+            group.addTask {
+                try await withTaskCancellationHandler {
+                    try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data?, Error>) in
+                        nw.receive(minimumIncompleteLength: 1, maximumLength: chunk) { data, _, complete, error in
+                            if let error {
+                                cont.resume(throwing: error)
+                            } else if complete,
+                                      data == nil {
+                                cont.resume(returning: nil)
+                            } else {
+                                cont.resume(returning: data ?? Data())
+                            }
+                        }
+                    }
+                } onCancel: {
+                    // The group joins its children: cancel the socket so the pending receive completes.
+                    nw.cancel()
                 }
             }
+            group.addTask {
+                try await Task.sleep(for: idleTimeout)
+                throw CancellationError()
+            }
+            let first = try await group.next()!
+            group.cancelAll()
+            return first
         }
     }
 
