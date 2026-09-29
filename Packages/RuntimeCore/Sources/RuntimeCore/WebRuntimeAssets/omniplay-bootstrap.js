@@ -1,7 +1,7 @@
 // OmniPlay bootstrap (isolated world). Typed API only; nothing here evaluates strings from the page.
 // Page-world scripts reach this world through DOM events carrying JSON strings; those are parsed, never evaluated.
 (() => {
-  const VERSION = 4;
+  const VERSION = 5;
   const post = (name, body) => window.webkit?.messageHandlers?.[name]?.postMessage(body);
   const api = {
     version: VERSION,
@@ -38,5 +38,14 @@
     post("omniplay.save", { op: "seedFailed", kind: "ls", key: "" })?.catch(() => {});
   });
   document.addEventListener("omniplay:booted", () => api.booted());
+  // A viewport tag without a width (RPG Maker MV's own template says only "user-scalable=no") makes WebKit lay the
+  // page out 980 px wide and zoom it, so the engine fits its canvas to the wrong window and the picture is cropped.
+  const fixViewport = (node) => {
+    if (node.nodeName !== "META" || node.name !== "viewport" || /width\s*=/.test(node.content)) return;
+    node.content = "width=device-width, initial-scale=1" + (node.content ? ", " + node.content : "");
+  };
+  const viewportWatch = new MutationObserver((records) => records.forEach((r) => r.addedNodes.forEach(fixViewport)));
+  viewportWatch.observe(document, { childList: true, subtree: true });
+  document.addEventListener("DOMContentLoaded", () => viewportWatch.disconnect(), { once: true });
   post("omniplay.console", { level: "info", message: "OmniPlay bundle v" + VERSION + " injected" });
 })();
