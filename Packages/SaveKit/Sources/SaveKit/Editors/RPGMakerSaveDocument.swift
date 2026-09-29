@@ -1,4 +1,5 @@
 import Foundation
+import GameCore
 
 /// An RPG Maker MV or MZ save decoded to its JSON (JsonEx: plain JSON with `"@"` class tags, kept as they are), for
 /// editing while the game is not running. MV: LZString base64 text. MZ: zlib, as raw bytes or as a binary string.
@@ -23,6 +24,17 @@ public final class RPGMakerSaveDocument: @unchecked Sendable {
     public let format: Format
     /// The decoded save. Only this class touches it, on one thread at a time (the editor's).
     private var root: [String: Any]
+
+    /// Reads the save within `maxBytes`: an oversized file is refused from its size, before any of it is read.
+    public convenience init(contentsOf url: URL) throws {
+        let data: Data
+        do {
+            data = try SmallFileGuard.read(url, maxBytes: Self.maxBytes)
+        } catch let error as FileTooLargeError {
+            throw Failure.tooLarge(error.size)
+        }
+        try self.init(data: data)
+    }
 
     public init(data: Data) throws {
         guard data.count <= Self.maxBytes else { throw Failure.tooLarge(data.count) }

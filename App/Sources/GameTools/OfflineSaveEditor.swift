@@ -56,7 +56,7 @@ struct OfflineSaveEditor: View {
         let (url, root) = (slot.url, model.paths.tier(.original, for: game.id))
         do {
             let (document, names) = try await Task.detached {
-                try (RPGMakerSaveDocument(data: Data(contentsOf: url)), RPGMakerNames.load(gameRoot: root))
+                try (RPGMakerSaveDocument(contentsOf: url), RPGMakerNames.load(gameRoot: root))
             }.value
             let inspector = OfflineSaveInspector(document: document, names: names)
             self.inspector = inspector
@@ -96,7 +96,7 @@ struct OfflineSaveEditor: View {
             mutate: { staging in try data.write(to: staging.url(for: file), options: .atomic) },
             validate: { staging in
                 let staged = staging.url(for: file)
-                _ = try RPGMakerSaveDocument(data: Data(contentsOf: staged))
+                _ = try RPGMakerSaveDocument(contentsOf: staged)
                 guard SaveValidator.validate(file: staged, family: .webLocalStorage).isAcceptable else {
                     throw RPGMakerSaveDocument.Failure.notASave("the rewritten save does not validate")
                 }
@@ -117,7 +117,7 @@ struct OfflineSaveEditor: View {
             // Slot 1 (the probe project's round-trip slot) when there is one; the leave-game autosave is newer.
             guard let slot = editable.first(where: { $0.displayName.hasSuffix("File1") || $0.displayName.hasSuffix(".file1") }) ?? editable
                 .first,
-                let document = try? RPGMakerSaveDocument(data: Data(contentsOf: slot.url)) else {
+                let document = try? RPGMakerSaveDocument(contentsOf: slot.url) else {
                 return OPLog.log(.save, .info, "EDITPROBE no editable save")
             }
             let inspector = OfflineSaveInspector(

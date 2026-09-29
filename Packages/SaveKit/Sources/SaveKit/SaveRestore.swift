@@ -159,10 +159,16 @@ public enum RescuedSaves {
         let target = paths.rescuedSaves().appending(path: "\(titleHash.prefix(24))-\(stamp)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.moveItem(at: location.root, to: target)
-        try AtomicFileWriter.write(
-            JSONEncoder().encode(Record(titleHash: titleHash, title: title, rescuedAt: .now)),
-            to: target.appending(path: "rescue.json")
-        )
+        do {
+            try AtomicFileWriter.write(
+                JSONEncoder().encode(Record(titleHash: titleHash, title: title, rescuedAt: .now)),
+                to: target.appending(path: "rescue.json")
+            )
+        } catch {
+            // Without its record the rescue is never offered back; the saves go home and the deletion stops.
+            try? FileManager.default.moveItem(at: target, to: location.root)
+            throw error
+        }
         OPLog.log(.save, .info, "rescued saves of \(title) → \(target.lastPathComponent)")
         return target
     }
