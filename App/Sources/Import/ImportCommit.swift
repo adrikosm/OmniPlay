@@ -68,6 +68,7 @@ extension ImportPipeline {
         do {
             try install(plan, into: id)
             try register(plan, id: id, replacing: true)
+            discardGenerated(id)
             attachCover(plan, id: id)
             try? OriginalGuard.unseal(originalRoot: backup.appending(path: "Original"))
             try? fm.removeItem(at: backup)
@@ -98,6 +99,23 @@ extension ImportPipeline {
                     .internalError("Replacement failed (\(failure)); recovery failed (\(error)). Preserved ImportRollback for recovery.")
             }
             throw failure
+        }
+    }
+
+    /// Everything in Generated was derived from the replaced files: media converted from the old release (whose cached
+    /// plan would otherwise be reused, serving the old videos and never scanning the new ones) and a composed plugin
+    /// list. It is rebuilt from the new files at the next launch.
+    func discardGenerated(_ id: GameID) {
+        let fm = FileManager.default
+        let generated = paths.tier(.generated, for: id)
+        do {
+            if fm.fileExists(atPath: generated.path(percentEncoded: false)) {
+                try fm.removeItem(at: generated)
+            }
+            try fm.createDirectory(at: generated, withIntermediateDirectories: true)
+            try PathIndex.open(at: paths.game(id).appending(path: "index.sqlite")).invalidate(layer: "generated")
+        } catch {
+            OPLog.log(.importer, .error, "generated files of the replaced game not cleared: \(error)", session: session)
         }
     }
 

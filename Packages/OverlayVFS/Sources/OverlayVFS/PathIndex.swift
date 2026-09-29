@@ -93,13 +93,27 @@ public final class PathIndex: Sendable {
 
     /// Direct children of `directoryKey` (`""` for the layer root), paged.
     public func children(layer: String, directoryKey: String, limit: Int = 500, offset: Int = 0) throws -> [IndexedEntry] {
-        let prefix = directoryKey.isEmpty ? "" : directoryKey + "/"
+        // The directory name is literal: `audio/[se]` must not become a GLOB character class.
+        let prefix = directoryKey.isEmpty ? "" : Self.globLiteral(directoryKey) + "/"
         return try queue.read { db in
             try IndexedEntry.fetchAll(db, sql: """
             SELECT layer, key, real_rel AS realRel, is_dir AS isDir, size FROM entries
             WHERE layer = ? AND key GLOB ? AND key NOT GLOB ? AND key <> ? ORDER BY key LIMIT ? OFFSET ?
             """, arguments: [layer, prefix + "*", prefix + "*/*", directoryKey, limit, offset])
         }
+    }
+
+    /// `s` as a GLOB pattern that matches only itself: `*`, `?` and `[` become one-character classes.
+    static func globLiteral(_ s: String) -> String {
+        var out = ""
+        out.reserveCapacity(s.count)
+        for c in s {
+            switch c {
+            case "*", "?", "[": out += "[\(c)]"
+            default: out.append(c)
+            }
+        }
+        return out
     }
 
     /// Keys matching a SQLite GLOB pattern (case-sensitive on lower-cased keys), at most `limit`.

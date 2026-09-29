@@ -17,7 +17,8 @@ public struct ArchiveWriter: Sendable {
     public init() {}
 
     /// Writes every regular file under `directory` as `prefix/<relative path>`; `extras` are small in-memory members
-    /// (a manifest) added first. Returns the number of entries written.
+    /// (a manifest) added first. Returns the number of entries written. The ZIP is built beside `destination` and moved
+    /// into place only once its central directory is written, so a failure never leaves a truncated archive there.
     @discardableResult
     public func zip(
         directory: URL,
@@ -26,14 +27,37 @@ public struct ArchiveWriter: Sendable {
         extras: [(name: String, data: Data)] = [],
         progress: (@Sendable (Int64, String) -> Void)? = nil
     ) throws -> Int {
+        let fm = FileManager.default
+        let temp = destination.deletingLastPathComponent().appending(path: ".\(destination.lastPathComponent).part-\(UUID().uuidString)")
+        do {
+            let count = try write(directory: directory, to: temp, prefix: prefix, extras: extras, progress: progress)
+            if fm.fileExists(atPath: destination.path(percentEncoded: false)) {
+                _ = try fm.replaceItemAt(destination, withItemAt: temp)
+            } else {
+                try fm.moveItem(at: temp, to: destination)
+            }
+            return count
+        } catch {
+            try? fm.removeItem(at: temp)
+            throw error
+        }
+    }
+
+    private func write(
+        directory: URL,
+        to destination: URL,
+        prefix: String,
+        extras: [(name: String, data: Data)],
+        progress: (@Sendable (Int64, String) -> Void)?
+    ) throws -> Int {
         guard let a = archive_write_new() else { throw ArchiveWriteError.open("archive_write_new failed") }
+        // `archive_write_free` also closes, but ignores the result; the success path closes explicitly below.
         defer { archive_write_free(a) }
         archive_write_set_format_zip(a)
         archive_write_set_options(a, "zip:compression=deflate,zip:zip64")
         guard archive_write_open_filename(a, destination.path(percentEncoded: false)) == ARCHIVE_OK else {
             throw ArchiveWriteError.open(Self.errorString(a))
         }
-        defer { archive_write_close(a) }
         var count = 0
         var written: Int64 = 0
         for extra in extras {
@@ -67,6 +91,8 @@ public struct ArchiveWriter: Sendable {
             count += 1
             progress?(written, file.relativePath)
         }
+        // Close writes the ZIP's central directory; if that fails (a full disk) the archive cannot be opened.
+        guard archive_write_close(a) == ARCHIVE_OK else { throw ArchiveWriteError.open(Self.errorString(a)) }
         return count
     }
 

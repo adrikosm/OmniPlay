@@ -147,7 +147,8 @@ public actor ImportTransaction {
     /// Runs `body` as the transaction's work. A thrown `ImportFailure` (or any error) rolls back and ends in `.failed`;
     /// cancellation rolls back and ends in `.cancelled`.
     public func run(_ body: @escaping @Sendable (ImportTransaction) async throws -> GameID) {
-        guard work == nil else { return }
+        // Cancelled while still queued: the coordinator reaches it later, and must not import it after all.
+        guard work == nil, !state.isTerminal else { return }
         work = Task { [self] in
             do {
                 try FileManager.default.createDirectory(at: stagingURL, withIntermediateDirectories: true)

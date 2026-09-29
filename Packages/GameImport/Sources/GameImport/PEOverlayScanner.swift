@@ -100,7 +100,9 @@ public enum PEOverlayScanner {
     /// Godot embeds the PCK after the image and finishes the file with `u64 pck size` + `GDPC`.
     static func godotTail(_ tail: Data, size: Int64) -> PEPayload.Kind? {
         guard tail.count >= 12, tail.suffix(4).elementsEqual("GDPC".utf8) else { return nil }
-        let pckSize = Int64(tail.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: tail.count - 12, as: UInt64.self) }.littleEndian)
+        let raw = tail.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: tail.count - 12, as: UInt64.self) }.littleEndian
+        // The size is the file's claim: `Int64(exactly:)`, since a value past Int64.max would trap a plain conversion.
+        guard let pckSize = Int64(exactly: raw) else { return nil }
         let offset = size - 12 - pckSize
         guard pckSize > 0, offset >= 0 else { return nil }
         return .godotPCK(offset: offset, size: pckSize)

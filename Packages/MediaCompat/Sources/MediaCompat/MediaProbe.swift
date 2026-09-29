@@ -351,10 +351,11 @@ public enum MediaProbe {
                 let type = String(bytes: d[i + 4 ..< i + 8], encoding: .ascii) ?? ""
                 var header = 8
                 if size == 1, i + 16 <= end {
-                    size = Int(d.withUnsafeBytes { $0.loadUnaligned(
-                        fromByteOffset: i + 8 - d.startIndex,
-                        as: UInt64.self
-                    ) }.bigEndian); header = 16
+                    let large = d.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: i + 8 - d.startIndex, as: UInt64.self) }.bigEndian
+                    // The file says how big the box is; past the window it is clamped, since `Int(large)` traps above
+                    // Int.max and `i + size` could overflow.
+                    size = large > UInt64(end - i) ? end - i : Int(large)
+                    header = 16
                 }
                 if size == 0 {
                     size = end - i

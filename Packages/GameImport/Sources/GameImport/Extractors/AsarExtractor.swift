@@ -72,7 +72,10 @@ public struct AsarExtractor: Sendable {
                     guard let offsetText = node["offset"] as? String, let offset = UInt64(offsetText) else {
                         throw ImportFailure.unsupportedContainer(firstBytesHex: "asar: \(path) has no offset")
                     }
-                    written = try Self.stream(from: url, offset: header.dataOffset + offset, length: size, to: target)
+                    // Both numbers come from the archive; an overflowing sum would trap rather than fail the import.
+                    let (start, overflow) = header.dataOffset.addingReportingOverflow(offset)
+                    guard !overflow else { throw ImportFailure.unsupportedContainer(firstBytesHex: "asar: \(path) offset out of range") }
+                    written = try Self.stream(from: url, offset: start, length: size, to: target)
                 }
                 totals.writtenBytes += written
                 if let v = validator.checkWritten(totals, sourceBytes: sourceBytes) {
