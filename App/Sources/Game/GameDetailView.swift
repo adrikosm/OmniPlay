@@ -30,6 +30,10 @@ struct GameDetailView: View {
     @State var lowMemory = false
     @State var preflight: LaunchPreflight?
     @State var confirmRelaunch = false
+    @State var confirmDelete = false
+    @State var deleting = false
+    @State var deleteError: String?
+    @Environment(\.dismiss) var dismiss
     /// The visible height of the scroll view, so the hero can fill the first screen.
     @State var viewport: CGFloat = 0
 
@@ -57,6 +61,7 @@ struct GameDetailView: View {
                     }
                     .frame(minHeight: max(viewport, 0))
                     technical.id("technical").padding(.top, Theme.s8)
+                    deleteSection.padding(.top, Theme.s8)
                 }
                 .padding(.horizontal, Theme.s4)
                 .padding(.bottom, Theme.s8)

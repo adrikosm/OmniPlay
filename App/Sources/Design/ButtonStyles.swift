@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - Buttons
 
 /// Pills. `accent` is only Play, Continue and Resume; `primary` is every other main action (white); `secondary` a
-/// quiet fill; `destructive` the same fill with red text. Presses shrink a little and brighten.
+/// quiet fill; `destructive` a faint red wash with red text. Presses shrink a little and brighten.
 struct PillButtonStyle: ButtonStyle {
     enum Kind { case accent, primary, secondary, destructive }
     var kind: Kind
@@ -57,7 +57,8 @@ private struct PillBody: View {
         return switch kind {
         case .accent: pressed ? Theme.accentPressed : Theme.accent
         case .primary: pressed ? .white : Theme.textPrimary.opacity(0.94)
-        case .secondary, .destructive: pressed ? Theme.fillStrong : Theme.fill
+        case .secondary: pressed ? Theme.fillStrong : Theme.fill
+        case .destructive: Theme.danger.opacity(pressed ? 0.26 : 0.15)
         }
     }
 }

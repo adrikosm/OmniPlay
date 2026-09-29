@@ -89,6 +89,46 @@ extension GameDetailView {
         }
     }
 
+    // MARK: Delete
+
+    /// The last thing on the page, in red: deleting the game, after asking. Saves are kept.
+    var deleteSection: some View {
+        VStack(alignment: .leading, spacing: Theme.s2) {
+            Button(role: .destructive) { confirmDelete = true } label: {
+                Label(deleting ? "Deleting…" : "Delete game", systemImage: "trash").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.destructive)
+            .disabled(deleting || model.playing?.id == game.id)
+            .confirmationDialog("Delete \(game.title)?", isPresented: $confirmDelete, titleVisibility: .visible) {
+                Button("Delete game, keep saves", role: .destructive) { Task { await deleteGame() } }
+            } message: {
+                Text("The game files are removed. Saves are kept and come back if you import the same game again.")
+            }
+            Text(deleteError ?? "Saves are kept and come back if you import the same game again.")
+                .font(.footnote)
+                .foregroundStyle(deleteError == nil ? Theme.textTertiary : Theme.danger)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, Theme.s1)
+        }
+        .frame(maxWidth: 480, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Deletes off the main actor, then leaves the page, which no longer has a game behind it.
+    func deleteGame() async {
+        guard let store = model.store else { return }
+        deleting = true
+        deleteError = nil
+        let (record, paths) = (game, model.paths)
+        let failure = await Task.detached { GameDeletion.run(record, store: store, paths: paths) }.value
+        deleting = false
+        if let failure {
+            deleteError = "The game could not be deleted: \(failure)"
+        } else {
+            dismiss()
+        }
+    }
+
     /// Cover override: the game's own art stays the default; a user's picture is copied and downsampled.
     var coverMenu: some View {
         Menu { coverMenuItems } label: { Label("Change cover", systemImage: "photo.badge.plus") }
