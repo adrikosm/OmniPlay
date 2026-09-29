@@ -91,7 +91,7 @@ extension GameDetailView {
 
     // MARK: Delete
 
-    /// The last thing on the page, in red: deleting the game, after asking. Saves are kept.
+    /// The last thing on the page, in red: deleting the game, after asking whether to keep its saves.
     var deleteSection: some View {
         VStack(alignment: .leading, spacing: Theme.s2) {
             Button(role: .destructive) { confirmDelete = true } label: {
@@ -100,11 +100,12 @@ extension GameDetailView {
             .buttonStyle(.destructive)
             .disabled(deleting || model.playing?.id == game.id)
             .confirmationDialog("Delete \(game.title)?", isPresented: $confirmDelete, titleVisibility: .visible) {
-                Button("Delete game, keep saves", role: .destructive) { Task { await deleteGame() } }
+                Button("Delete game, keep saves", role: .destructive) { Task { await deleteGame(keepSaves: true) } }
+                Button("Delete game and all its data", role: .destructive) { Task { await deleteGame(keepSaves: false) } }
             } message: {
-                Text("The game files are removed. Saves are kept and come back if you import the same game again.")
+                Text(GameDeletion.explanation)
             }
-            Text(deleteError ?? "Saves are kept and come back if you import the same game again.")
+            Text(deleteError ?? "You can keep the saves or remove everything.")
                 .font(.footnote)
                 .foregroundStyle(deleteError == nil ? Theme.textTertiary : Theme.danger)
                 .fixedSize(horizontal: false, vertical: true)
@@ -115,12 +116,11 @@ extension GameDetailView {
     }
 
     /// Deletes off the main actor, then leaves the page, which no longer has a game behind it.
-    func deleteGame() async {
+    func deleteGame(keepSaves: Bool) async {
         guard let store = model.store else { return }
         deleting = true
         deleteError = nil
-        let (record, paths) = (game, model.paths)
-        let failure = await Task.detached { GameDeletion.run(record, store: store, paths: paths) }.value
+        let failure = await GameDeletion.run(game, keepSaves: keepSaves, store: store, paths: model.paths)
         deleting = false
         if let failure {
             deleteError = "The game could not be deleted: \(failure)"
@@ -237,10 +237,11 @@ extension GameDetailView {
         guard var loaded = await Task.detached(operation: { AppModel.snapshot(for: id, paths: paths) }).value else { await facts; return }
         loaded.resolution = await model.freshResolution(for: game, snapshot: loaded)
         snapshot = loaded
+        checkRTP()
         await facts
         #if DEBUG
             if DebugLaunch.playFirstGame, canPlay {
-                showPlayer = true
+                play()
             }
         #endif
     }

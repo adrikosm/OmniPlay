@@ -89,7 +89,6 @@ struct LibrarySearchView: View {
     let query: String
     @Environment(AppModel.self) private var model
     @State private var path: [GameRecord] = []
-    @State private var tabBarToken = 0
     @Namespace private var zoom
 
     var body: some View {
@@ -99,15 +98,6 @@ struct LibrarySearchView: View {
                     SearchResults(viewModel: LibraryViewModel(store: store, paths: model.paths), query: query, zoom: zoom)
                 } else {
                     Color.clear.canvas()
-                }
-            }
-            // A game's page hides the tab bar; back on the results it returns (see LibraryContent).
-            .revealsTabBar(tabBarToken, when: path.isEmpty)
-            .onChange(of: path.isEmpty) { _, root in
-                guard root else { return }
-                Task {
-                    try? await Task.sleep(for: .milliseconds(450))
-                    tabBarToken &+= 1
                 }
             }
             .navigationTitle("Search")

@@ -55,8 +55,8 @@ public enum RTPManager {
     public static func explanation(for status: Status) -> String? {
         guard case let .missing(family, named) = status else { return nil }
         let name = named.map { "the \($0) RTP" } ?? "the \(family.rawValue) RTP"
-        return "This game expects \(name) and does not carry those graphics itself. "
-            + "Import the RTP folder from your own RPG Maker installation, or start it anyway and expect missing art."
+        return "This game uses \(name), which it does not include. Import it from your own RPG Maker "
+            + "(a folder, ZIP or installer); without it the game stops at the first picture it cannot find."
     }
 
     /// Copies a user-chosen folder into `RTP/<family>/`, file by file. Returns how many files landed.

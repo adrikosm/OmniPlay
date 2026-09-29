@@ -140,11 +140,9 @@ final class LibraryViewModel {
         try? store.games.update(updated)
     }
 
-    /// Removes the library entry and the game tree. Saves are moved to the user-visible export folder first.
-    func delete(_ game: GameRecord) async {
-        let store = store
-        let paths = paths
-        if let outcome = await Task.detached(operation: { GameDeletion.run(game, store: store, paths: paths) }).value {
+    /// Removes the library entry and the game tree; with `keepSaves` the saves are rescued first.
+    func delete(_ game: GameRecord, keepSaves: Bool) async {
+        if let outcome = await GameDeletion.run(game, keepSaves: keepSaves, store: store, paths: paths) {
             error = outcome
         }
     }

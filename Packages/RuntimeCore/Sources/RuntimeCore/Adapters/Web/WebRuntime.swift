@@ -38,6 +38,11 @@
         public var onFailure: (@MainActor (String) -> Void)?
         public var onNotice: (@MainActor (String) -> Void)?
         public var onSaveFailure: (@MainActor (String) -> Void)?
+
+        /// Drops a deleted game's WebKit storage (its per-game data store).
+        public static func removeData(for game: GameID) async {
+            try? await WKWebsiteDataStore.remove(forIdentifier: game.rawValue)
+        }
         public var onMissedText: (@MainActor (String) -> Void)?
 
         override public init() { super.init() }

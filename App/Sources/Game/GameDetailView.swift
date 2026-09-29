@@ -33,6 +33,10 @@ struct GameDetailView: View {
     @State var confirmDelete = false
     @State var deleting = false
     @State var deleteError: String?
+    /// Why the game will stop at its first picture: it needs an RTP that is not installed.
+    @State var missingRTP: String?
+    @State var askRTP = false
+    @State var showEngineFiles = false
     @Environment(\.dismiss) var dismiss
     /// The visible height of the scroll view, so the hero can fill the first screen.
     @State var viewport: CGFloat = 0
@@ -75,7 +79,6 @@ struct GameDetailView: View {
         .navigationTitle(game.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(removing: .title)
-        .toolbarVisibility(.hidden, for: .tabBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) { coverMenu }
         }
@@ -88,9 +91,15 @@ struct GameDetailView: View {
             }
             if autoplay, !autoplayed, canPlay, !slotSpent {
                 autoplayed = true
-                showPlayer = true
+                play()
             }
         }
+        .onChange(of: showEngineFiles) { _, open in
+            if !open {
+                checkRTP()
+            }
+        }
+        .navigationDestination(isPresented: $showEngineFiles) { EngineAssetsView() }
         .photosPicker(isPresented: $showPhotos, selection: $photoItem, matching: .images)
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.image]) { result in
             if case let .success(url) = result {
@@ -189,9 +198,15 @@ struct GameDetailView: View {
                             Text("Any running game is stopped and its saves flushed. OmniPlay closes and reopens on this game.")
                         }
                 } else {
-                    Button { showPlayer = true } label: { Label(playTitle, systemImage: "play.fill") }
+                    Button { play() } label: { Label(playTitle, systemImage: "play.fill") }
                         .buttonStyle(.accent)
                         .disabled(!canPlay)
+                        .confirmationDialog("This game needs an RTP", isPresented: $askRTP, titleVisibility: .visible) {
+                            Button("Import RTP…") { showEngineFiles = true }
+                            Button("Play anyway") { showPlayer = true }
+                        } message: {
+                            Text(missingRTP ?? "")
+                        }
                 }
                 NavigationLink { GameToolsView(game: game, snapshot: snapshot) } label: { Text("Game Tools") }
                     .buttonStyle(.secondary)
@@ -200,7 +215,24 @@ struct GameDetailView: View {
                 note("Restart needed. This engine can run one game per app launch.")
             } else if snapshot != nil, !canPlay || snapshot?.resolution.manualOverride == true {
                 note(playReason)
+            } else if let missingRTP {
+                note(missingRTP)
             }
+        }
+    }
+
+    /// Asks first when the engine would stop at a missing RTP picture, since that also spends its one boot.
+    func play() {
+        if missingRTP == nil {
+            showPlayer = true
+        } else {
+            askRTP = true
+        }
+    }
+
+    func checkRTP() {
+        missingRTP = snapshot.flatMap {
+            RTPManager.explanation(for: RTPManager.status(for: $0.report.descriptor, paths: model.paths))
         }
     }
 
