@@ -122,7 +122,10 @@ public struct RGSSDetector: Detector {
             if let title = fields["title"], !title.isEmpty {
                 r.partial.title = title
             }
-            if let rtp = fields["rtp"] ?? fields["rtp1"], !rtp.isEmpty, !ctx.exists("Graphics/Characters") {
+            // Every title menu draws the windowskin first; a game that ships its own characters but not that still
+            // reads the rest from the RTP (Crysalis), and the engine stops at the first missing picture.
+            let ownsWindowskin = ctx.exists("Graphics/System/Window.png") || ctx.exists("Graphics/Windowskins")
+            if let rtp = fields["rtp"] ?? fields["rtp1"], !rtp.isEmpty, !ownsWindowskin {
                 r.partial.warnings.append(.rtpRequired(rtp))
                 r.add(id, .text(path: "Game.ini", excerpt: rtp), 0.8, .fileContent, "Needs the \(rtp) RTP; its graphics are not bundled")
             }
