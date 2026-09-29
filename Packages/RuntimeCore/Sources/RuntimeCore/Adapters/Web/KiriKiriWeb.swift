@@ -48,6 +48,9 @@ public enum KiriKiriWeb {
         return (try? JSONSerialization.data(withJSONObject: files)) ?? Data("[]".utf8)
     }
 
+    /// All of a game's KiriKiri saves together, as they are sent to the page in one response.
+    static let maxSavesBytes = 64 << 20
+
     /// POST routes for the page: the manifest, and the game's saves in `saves` (its `Saves/slots`), read and written
     /// by path. Paths come from the page, so each is validated as a logical path before it touches the disk.
     static func routes(gameRoot: URL, saves: URL, session: SessionID) -> [String: @Sendable (HTTPRequest) async -> HTTPResponse] {
@@ -57,14 +60,26 @@ public enum KiriKiriWeb {
                 HTTPResponse(status: 200, headers: json, body: .data(manifest(gameRoot: gameRoot)))
             },
             "/omniplay-saves": { _ in
+                // Every save goes out in one body, so the total is bounded, not just each file. Past the bound the
+                // page gets an error rather than a partial list it would take for "these are all the saves".
                 var files: [[String: String]] = []
+                var total = 0
+                var complete = true
                 try? LazyDirectoryWalker.walk(root: saves) { entry in
-                    if !entry.isDirectory, let data = try? SmallFileGuard.read(entry.url, maxBytes: 64 << 20) {
-                        files.append(["path": "/" + entry.relativePath, "data": data.base64EncodedString()])
+                    guard !entry.isDirectory else { return .continue }
+                    guard total + Int(entry.fileSize) <= maxSavesBytes,
+                          let data = try? SmallFileGuard.read(entry.url, maxBytes: maxSavesBytes) else {
+                        complete = false
+                        return .stop
                     }
+                    total += data.count
+                    files.append(["path": "/" + entry.relativePath, "data": data.base64EncodedString()])
                     return .continue
                 }
-                let body = (try? JSONSerialization.data(withJSONObject: files)) ?? Data("[]".utf8)
+                guard complete, let body = try? JSONSerialization.data(withJSONObject: files) else {
+                    OPLog.log(.save, .error, "kirikiri saves could not all be read (\(total) bytes so far)", session: session)
+                    return .text(500, "saves could not all be read")
+                }
                 return HTTPResponse(status: 200, headers: json, body: .data(body))
             },
             "/omniplay-save": { request in

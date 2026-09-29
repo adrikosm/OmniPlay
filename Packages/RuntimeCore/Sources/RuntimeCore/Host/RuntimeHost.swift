@@ -241,8 +241,11 @@ public protocol RuntimeHost: AnyObject, Sendable {
         private func pin(_ subview: UIView, into parent: UIView) {
             guard subview.superview !== parent else { return }
             let intoHost = parent.isDescendant(of: view)
+            // Only the children still riding in the overlay come back: one removed meanwhile (the touch controls, taken
+            // down as the player leaves) must not be adopted again.
+            let returning = intoHost ? detachedChildren.filter { $0.view.isDescendant(of: subview) } : []
             if intoHost {
-                for child in detachedChildren {
+                for child in returning {
                     addChild(child)
                 }
             } else {
@@ -262,7 +265,7 @@ public protocol RuntimeHost: AnyObject, Sendable {
                 subview.trailingAnchor.constraint(equalTo: parent.trailingAnchor),
             ])
             if intoHost {
-                for child in detachedChildren {
+                for child in returning {
                     child.didMove(toParent: self)
                 }
                 detachedChildren = []

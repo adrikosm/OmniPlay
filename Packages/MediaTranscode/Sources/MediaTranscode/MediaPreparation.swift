@@ -221,10 +221,20 @@ public enum MediaPreparation {
         public let description: String
     }
 
-    /// The first frame of any image ImageIO reads (WebP, AVIF, HEIC, TIFF, TGA...) as PNG, alpha kept.
+    /// Larger than any game picture: 8192 × 8192 decodes to 256 MiB, which the phone can still hold beside the engine.
+    static let maxImagePixels = 8192 * 8192
+
+    /// The first frame of any image ImageIO reads (WebP, AVIF, HEIC, TIFF, TGA...) as PNG, alpha kept. The size the file
+    /// claims is checked before anything is decoded: a damaged header asking for gigabytes must not end the app.
     static func convertImage(_ input: URL, to output: URL) throws {
-        guard let source = CGImageSourceCreateWithURL(input as CFURL, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { throw ImageFailure(description: "unreadable image") }
+        guard let source = CGImageSourceCreateWithURL(input as CFURL, nil) else { throw ImageFailure(description: "unreadable image") }
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        let width = (properties?[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue ?? 0
+        let height = (properties?[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue ?? 0
+        guard width > 0, height > 0, width <= maxImagePixels / height else {
+            throw ImageFailure(description: "image size \(width)×\(height) is not plausible")
+        }
+        guard let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { throw ImageFailure(description: "unreadable image") }
         try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
         let partial = output.appendingPathExtension("partial")
         guard let destination = CGImageDestinationCreateWithURL(partial as CFURL, UTType.png.identifier as CFString, 1, nil)
