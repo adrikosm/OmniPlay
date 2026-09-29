@@ -50,6 +50,9 @@ struct ImportCommitTests {
             paths.logs(game: id, session: UUID()).deletingLastPathComponent().appending(path: "detection.json"),
         ]
         let before = try metadata.map { try Data(contentsOf: $0) } // tiny synthetic metadata
+        // Media converted from the replaced release must not outlive it, or its cached plan is served again.
+        let mediaPlan = paths.tier(.generated, for: id).appending(path: ".omniplay-media.json")
+        try Data("{}".utf8).write(to: mediaPlan)
         try fm.removeItem(at: source.appending(path: "old.txt"))
         try Data("new data".utf8).write(to: source.appending(path: "new.txt"))
         try failImports(store)
@@ -65,6 +68,7 @@ struct ImportCommitTests {
         #expect(try index.lookup(layer: "original", key: "new.txt") == nil)
         #expect(try store.imports.recent().count == 1)
         #expect(try store.fetchAll(DetectionResultRecord.self, game: id).count == 1)
+        #expect(fm.fileExists(atPath: mediaPlan.path(percentEncoded: false)))
         try await store.pool.write { try $0.execute(sql: "DROP TRIGGER fail_import") }
         let replaced = try await pipeline.run(ImportTransaction(source: .folder(source), paths: paths), options: options)
         #expect(replaced == id)
@@ -73,6 +77,17 @@ struct ImportCommitTests {
         #expect(!fm.fileExists(atPath: sidecars.path(percentEncoded: false)))
         #expect(try store.imports.recent().count == 2)
         #expect(!fm.fileExists(atPath: game.appending(path: "ImportRollback").path(percentEncoded: false)))
+        #expect(!fm.fileExists(atPath: mediaPlan.path(percentEncoded: false)))
+
+        // Cancelled while still queued: when the queue reaches it, it must not import after all.
+        let queued = ImportTransaction(source: .folder(source), paths: paths)
+        await queued.cancel()
+        await queued.run { _ in
+            Issue.record("a cancelled import ran")
+            return id
+        }
+        await queued.wait()
+        #expect(await queued.state == .cancelled)
 
         try await verifyWebSaveAcknowledgement(paths: paths, id: id)
         try await verifyIncompleteSaveRefusal(paths: paths, id: id)
