@@ -2,6 +2,7 @@ import Diagnostics
 import Foundation
 import GameCore
 import GameTools
+import OverlayVFS
 import RuntimeCore
 import SaveKit
 
@@ -63,6 +64,10 @@ extension AppModel {
         /// UI tests start from nothing: library database, game trees, saves and logs are removed before the store opens.
         nonisolated static func resetLibrary(paths: AppPaths) {
             let fm = FileManager.default
+            // Sealed Original trees are read-only; without this the game folders survive the reset.
+            for game in (try? fm.contentsOfDirectory(at: paths.games(), includingPropertiesForKeys: nil)) ?? [] {
+                try? OriginalGuard.unseal(originalRoot: game.appending(path: "Original", directoryHint: .isDirectory))
+            }
             for dir in [
                 paths.games(),
                 paths.logsRoot(),
