@@ -117,18 +117,21 @@ public enum RTPManager {
         try FileManager.default.createDirectory(at: paths.rtp(family), withIntermediateDirectories: true)
     }
 
-    /// The official installers unpack one level deep ("RPGVXAce/Graphics"), and people zip either level.
-    /// Accepts the folder itself or its single child, and refuses anything with no RTP-shaped folder at all.
+    /// The official installers unpack one level deep ("RPGVXAce/Graphics"), and people zip either level, sometimes
+    /// inside one more folder ("RTP/RPG2003/CharSet"). Accepts the folder or a descendant up to two levels down, and
+    /// refuses anything with no RTP-shaped folder at all. A macOS zip's `__MACOSX` resource forks are never the RTP.
     public static func locateRoot(in folder: URL, family: RTPFamily) throws -> URL {
         if looksLikeRTP(folder, family) {
             return folder
         }
         let top = contents(of: folder)
-        for child in top {
-            let candidate = folder.appending(path: child, directoryHint: .isDirectory)
-            if looksLikeRTP(candidate, family) {
-                return candidate
+        var level = top.map { folder.appending(path: $0, directoryHint: .isDirectory) }
+        for _ in 0 ..< 2 {
+            level = level.filter { $0.lastPathComponent != "__MACOSX" }
+            if let found = level.first(where: { looksLikeRTP($0, family) }) {
+                return found
             }
+            level = level.flatMap { dir in contents(of: dir).map { dir.appending(path: $0, directoryHint: .isDirectory) } }
         }
         throw ImportError.notAnRTP(found: Array(top.prefix(8)))
     }

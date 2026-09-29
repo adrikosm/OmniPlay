@@ -55,7 +55,7 @@ struct EngineAssetsView: View {
                             .transition(.opacity)
                     }
                     Text("Older RPG Maker games use shared art and music from the RTP. OmniPlay can't include it, so import the "
-                        + "RTP folder from your own copy of RPG Maker. 2000 and 2003 RTPs are recognised by their files, including "
+                        + "RTP folder from your own copy of RPG Maker, or a ZIP of it. 2000 and 2003 RTPs are recognised by their files, including "
                         +
                         "translated releases. MIDI music (2000, 2003, XP and VX) plays through the soundfont from the next game you start.")
                         .font(.footnote).foregroundStyle(Theme.textTertiary)
@@ -84,7 +84,8 @@ struct EngineAssetsView: View {
         .navigationTitle("Engine files")
         .navigationBarTitleDisplayMode(.inline)
         .canvas()
-        .fileImporter(isPresented: $pickingRTP, allowedContentTypes: [.folder]) { result in
+        // The folder itself, or a ZIP/7z/RAR of it, or an installer whose payload OmniPlay can read (RTPArchive).
+        .fileImporter(isPresented: $pickingRTP, allowedContentTypes: [.folder, .archive, .executable]) { result in
             if case let .success(url) = result, let family = importing {
                 importRTP(url, as: family)
             }
@@ -131,10 +132,24 @@ struct EngineAssetsView: View {
     }
 
     /// 2000 and 2003 RTPs are fingerprinted before the copy, so one picked under the wrong row still lands where
-    /// its games look for it.
-    private func importRTP(_ url: URL, as chosen: RTPFamily) {
-        run("Copying the RTP…") {
-            try await scoped(url) {
+    /// its games look for it. An archive is unpacked first, so an RTP can come over as one file (AirDrop, Files)
+    /// instead of a folder sent from a computer.
+    private func importRTP(_ picked: URL, as chosen: RTPFamily) {
+        run(RTPArchive.isFolder(picked) ? "Copying the RTP…" : "Unpacking the RTP…") {
+            try await scoped(picked) {
+                var url = picked
+                var staging: URL?
+                defer {
+                    if let staging {
+                        try? FileManager.default.removeItem(at: staging)
+                    }
+                }
+                if !RTPArchive.isFolder(picked) {
+                    let paths = model.paths
+                    let extracted = try await Task.detached { try RTPArchive.extract(picked, paths: paths) }.value
+                    url = extracted.folder
+                    staging = extracted.staging
+                }
                 var family = chosen
                 var match: EasyRPGRTPMatch?
                 if chosen == .rpg2000 || chosen == .rpg2003 {
@@ -161,7 +176,8 @@ struct EngineAssetsView: View {
             do {
                 message = try await work()
             } catch let RTPManager.ImportError.notAnRTP(found) {
-                message = "That folder doesn't look like an RTP (it has \(found.joined(separator: ", ")))."
+                message = found.isEmpty ? "That doesn't contain an RTP."
+                    : "That doesn't look like an RTP (it has \(found.joined(separator: ", ")))."
             } catch {
                 message = error.localizedDescription
             }
