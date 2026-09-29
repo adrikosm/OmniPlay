@@ -87,6 +87,7 @@
             self.host = host
             let cache = configuration.cacheDirectory.appending(path: "godot", directoryHint: .isDirectory)
             try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+            Self.teachDelegateWindow(host.containerView.window)
             try library.setup(arguments: arguments, userDirectory: configuration.saveDirectory, cacheDirectory: cache)
             guard let raw = library.surface() else { throw Failure.notPrepared }
             // Godot in its own window, like the other native engines' windows.
@@ -112,6 +113,20 @@
             observeLifecycle()
             host.runtimeDidEmit(.gradeReached(.intro))
             OPLog.log(.runtime, .info, "godot drawing", session: configuration.sessionID)
+        }
+
+        /// Godot 3 and 4 read `UIApplication.shared.delegate.window` on every frame once the device's motion sensors
+        /// are on, which is always on a phone. The app's delegate answers it; should the delegate UIKit actually holds
+        /// (SwiftUI's own, which forwards to the app's) not, it is taught to here, since an unanswered selector is an
+        /// exception that ends the whole app, not just the game.
+        private static func teachDelegateWindow(_ window: UIWindow?) {
+            guard let delegate = UIApplication.shared.delegate as? NSObject else { return }
+            let selector = NSSelectorFromString("window")
+            guard !delegate.responds(to: selector) else { return }
+            weak var fallback = window
+            let answer: @convention(block) (AnyObject) -> UIWindow? = { _ in fallback }
+            class_addMethod(type(of: delegate), selector, imp_implementationWithBlock(answer), "@@:")
+            OPLog.log(.runtime, .info, "app delegate taught to answer window for Godot")
         }
 
         private func observeLifecycle() {

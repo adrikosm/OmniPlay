@@ -28,6 +28,19 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_: UIApplication, supportedInterfaceOrientationsFor _: UIWindow?) -> UIInterfaceOrientationMask {
         RuntimeHostViewController.sceneOrientations
     }
+
+    /// Godot 3 and 4 read `UIApplication.shared.delegate.window` on every frame of a device with motion sensors (to
+    /// turn the accelerometer with the screen). A delegate without `window` raised "unrecognized selector" there and
+    /// took the whole app down on the phone; the simulator has no motion sensors, so it never showed. The scene owns
+    /// the windows; this answers with the app's own.
+    var window: UIWindow? {
+        get {
+            let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+            return scene?.keyWindow ?? scene?.windows.first
+        }
+        set {} // UIKit never assigns it under the scene lifecycle; nothing to keep
+    }
 }
 
 /// The app-lifetime diagnostics session: `Logs/host/<session>/{host.log,memory.jsonl}`.
