@@ -79,5 +79,23 @@ struct OverlayResolverTests {
         for bad in ["../x", "a/../b", "/abs", "\\abs", "a/./b", "a\u{0}b", "a\nb", "", "..", "."] {
             #expect(PathPolicy.validateLogical(bad) == nil, "\(bad.debugDescription) should be rejected")
         }
+        try await deferredSeal(root)
+    }
+
+    /// Imports seal without hashing and hash afterwards, in the background: the manifest is written whole, every line
+    /// waiting, and the later pass fills in hashes that verify.
+    func deferredSeal(_ root: TemporaryGameRoot) async throws {
+        let tree = root.url.appending(path: "Sealed", directoryHint: .isDirectory)
+        let manifest = root.url.appending(path: "original.manifest")
+        try FileManager.default.createDirectory(at: tree.appending(path: "img"), withIntermediateDirectories: true)
+        try Data("a".utf8).write(to: tree.appending(path: "img/a.png"))
+        try Data("bb".utf8).write(to: tree.appending(path: "b.txt"))
+        defer { try? OriginalGuard.unseal(originalRoot: tree) }
+        let summary = try OriginalGuard.seal(originalRoot: tree, manifest: manifest, hashing: .deferred)
+        #expect(summary.files == 2 && !summary.hashed)
+        #expect(try String(contentsOf: manifest, encoding: .utf8).split(separator: "\n").allSatisfy { $0.split(separator: "\t")[1] == "-" })
+        try await OriginalGuard.completeDeferredHashing(originalRoot: tree, manifest: manifest)
+        let hashed = try await OriginalGuard.verify(originalRoot: tree, manifest: manifest)
+        #expect(hashed.ok && hashed.checked == 2 && hashed.skippedUnhashed == 0)
     }
 }

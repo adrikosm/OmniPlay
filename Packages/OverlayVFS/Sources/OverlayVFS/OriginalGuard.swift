@@ -36,6 +36,9 @@ public enum OriginalGuard {
         let out = try FileHandle(forWritingTo: temp)
         var files = 0
         var bytes: Int64 = 0
+        // Lines go out in 64 KiB writes, not one write per file: a game of tens of thousands of small files paid a
+        // system call for each.
+        var pending = Data()
         do {
             try LazyDirectoryWalker.walk(root: originalRoot, skipHidden: false) { entry in
                 try Task.checkCancellation()
@@ -44,12 +47,17 @@ public enum OriginalGuard {
                     return .continue
                 }
                 let hash = mode == .immediate ? try StreamingHasher.sha256(of: entry.url).hex : "-"
-                try out.write(contentsOf: Data("\(entry.fileSize)\t\(hash)\t\(entry.relativePath)\n".utf8))
+                pending.append(contentsOf: "\(entry.fileSize)\t\(hash)\t\(entry.relativePath)\n".utf8)
+                if pending.count >= 64 << 10 {
+                    try out.write(contentsOf: pending)
+                    pending.removeAll(keepingCapacity: true)
+                }
                 try fm.setAttributes([.posixPermissions: 0o444], ofItemAtPath: entry.url.path(percentEncoded: false))
                 files += 1
                 bytes += entry.fileSize
                 return .continue
             }
+            try out.write(contentsOf: pending)
             try fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: originalRoot.path(percentEncoded: false))
             try out.close()
             if fm.fileExists(atPath: manifest.path(percentEncoded: false)) {
@@ -71,7 +79,9 @@ public enum OriginalGuard {
     }
 
     /// Fills in the `-` hashes of a deferred manifest, streaming line by line into a temp file, then swaps it in.
+    /// A manifest replaced meanwhile (the game re-imported over itself) is left alone: its lines are not these.
     public static func completeDeferredHashing(originalRoot: URL, manifest: URL) async throws {
+        let before = identity(of: manifest)
         let temp = manifest.appendingPathExtension("rehash")
         _ = FileManager.default.createFile(atPath: temp.path(percentEncoded: false), contents: nil)
         let out = try FileHandle(forWritingTo: temp)
@@ -87,6 +97,10 @@ public enum OriginalGuard {
                 try out.write(contentsOf: Data("\(parts[0])\t\(hash)\t\(parts[2])\n".utf8))
             }
             try out.close()
+            guard before != nil, identity(of: manifest) == before else {
+                try? FileManager.default.removeItem(at: temp)
+                return
+            }
             _ = try FileManager.default.replaceItemAt(manifest, withItemAt: temp)
         } catch {
             try? out.close()
@@ -140,6 +154,12 @@ public enum OriginalGuard {
             )
             return .continue
         }
+    }
+
+    /// Which file a path names, and when it last changed: a replaced manifest is a different file.
+    private static func identity(of url: URL) -> [String]? {
+        guard let a = try? FileManager.default.attributesOfItem(atPath: url.path(percentEncoded: false)) else { return nil }
+        return ["\(a[.systemFileNumber] ?? "")", "\((a[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate ?? 0)", "\(a[.size] ?? "")"]
     }
 
     private static func treeSize(_ root: URL) -> Int64 {

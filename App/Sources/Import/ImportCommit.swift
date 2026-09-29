@@ -102,6 +102,23 @@ extension ImportPipeline {
         }
     }
 
+    /// Fills in the manifest's hashes at background priority once the game is in the library (the import queue calls
+    /// it when a run ends). A game deleted or replaced meanwhile just ends the pass; its manifest is never overwritten
+    /// with another tree's lines.
+    func completeHashingLater(_ id: GameID) {
+        let original = paths.tier(.original, for: id)
+        let manifest = paths.game(id).appending(path: "original.manifest")
+        let session = session
+        Task.detached(priority: .background) {
+            do {
+                try await OriginalGuard.completeDeferredHashing(originalRoot: original, manifest: manifest)
+                OPLog.log(.importer, .info, "hashed the originals of \(id)", session: session)
+            } catch {
+                OPLog.log(.importer, .default, "originals of \(id) left unhashed: \(error)", session: session)
+            }
+        }
+    }
+
     /// Everything in Generated was derived from the replaced files: media converted from the old release (whose cached
     /// plan would otherwise be reused, serving the old videos and never scanning the new ones) and a composed plugin
     /// list. It is rebuilt from the new files at the next launch.
@@ -120,11 +137,13 @@ extension ImportPipeline {
     }
 
     /// Moves the staged tree into place, seals it, indexes it and writes game.json plus the full detection report.
+    /// The manifest's hashes wait (`completeHashingLater`): hashing read every byte of the game a second time before it
+    /// could appear in the library, and nothing needs them while it is being played.
     func install(_ plan: CommitPlan, into id: GameID) throws {
         let gameRoot = paths.game(id)
         let original = paths.tier(.original, for: id)
         try FileManager.default.moveItem(at: plan.stagedRoot, to: original)
-        try OriginalGuard.seal(originalRoot: original, manifest: gameRoot.appending(path: "original.manifest"))
+        try OriginalGuard.seal(originalRoot: original, manifest: gameRoot.appending(path: "original.manifest"), hashing: .deferred)
         let located = plan.located.relativePath.isEmpty ? original : original.appending(
             path: plan.located.relativePath,
             directoryHint: .isDirectory

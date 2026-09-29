@@ -47,7 +47,11 @@ final class ImportsModel {
         let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
         let source: ImportSource = isDirectory ? .folder(url) : .file(url)
         let pipeline = pipeline
-        let txn = await coordinator.enqueue(source: source) { try await pipeline.run($0, options: options) }
+        let txn = await coordinator.enqueue(source: source) {
+            let id = try await pipeline.run($0, options: options)
+            pipeline.completeHashingLater(id)
+            return id
+        }
         items.insert(ImportItem(transaction: txn, name: url.lastPathComponent, options: options), at: 0)
     }
 
