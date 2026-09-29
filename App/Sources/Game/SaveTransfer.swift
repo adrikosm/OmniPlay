@@ -14,6 +14,8 @@ struct SaveTransfer: Sendable {
         let family: SaveFamily
         let slotPattern: String?
         let identityHash: String
+        /// The game's own folder (Original plus its root), where MZ's System.json names the game in its storage keys.
+        let gameRoot: URL
     }
 
     enum Collision: Sendable { case replace, nextFreeSlot }
@@ -108,6 +110,19 @@ struct SaveTransfer: Sendable {
         }
         guard !slotFiles.isEmpty || !persistentFiles.isEmpty
         else { return .nothingRecognised(["No save files found in \(source.lastPathComponent)."]) }
+        // RPG Maker MV/MZ saves from the PC editions go under the keys the web runtime reads, with their entries in the
+        // game's save list (DesktopWebSaves); copied in under their own names they were never found, or stopped the game.
+        var desktop = DesktopPlan()
+        if let matcher = Self.desktopEdition(for: target.engine, gameID: "") {
+            let pc = slotFiles.filter { DesktopWebSaves.name(of: $0.lastPathComponent, edition: matcher) != nil }
+            if !pc.isEmpty {
+                slotFiles.removeAll { pc.contains($0) }
+                switch planDesktop(pc, replace: collision == .replace) {
+                case let .success(plan): desktop = plan
+                case let .failure(refusal): return .nothingRecognised(refusal.reasons)
+                }
+            }
+        }
         var warnings: [String] = []
         var refused: [String] = []
         for file in slotFiles {
@@ -159,15 +174,139 @@ struct SaveTransfer: Sendable {
         }
         try location.ensure()
         let txn = SafePersistTransaction(location: location, identityHash: target.identityHash)
-        let mapping = plan
-        try await txn.run(targets: mapping.map(\.1), reason: .imported) { staging in
+        let (mapping, writes) = (plan, desktop.writes)
+        try await txn.run(targets: mapping.map(\.1) + writes.map(\.1), reason: .imported) { staging in
             for (file, destination) in mapping {
                 let staged = staging.url(for: destination)
                 try? FileManager.default.removeItem(at: staged)
                 try FileManager.default.copyItem(at: file, to: staged)
             }
+            for (data, destination) in writes {
+                try data.write(to: staging.url(for: destination), options: .atomic)
+            }
         }
-        OPLog.log(.save, .info, "imported \(plan.count) save files into \(target.title)")
-        return .installed(slots: plan.count - persistentFiles.count, persistent: persistentFiles.count)
+        OPLog.log(.save, .info, "imported \(plan.count + writes.count) save files into \(target.title)")
+        return .installed(slots: plan.count - persistentFiles.count + desktop.slots, persistent: persistentFiles.count + desktop.persistent)
+    }
+
+    // MARK: PC saves of RPG Maker MV/MZ
+
+    struct DesktopPlan {
+        var writes: [(Data, URL)] = []
+        var slots = 0
+        var persistent = 0
+    }
+
+    struct Refusal: Error {
+        let reasons: [String]
+    }
+
+    static func desktopEdition(for engine: EngineFamily, gameID: String) -> DesktopWebSaves.Edition? {
+        switch engine {
+        case .rpgMakerMV: .mv
+        case .rpgMakerMZ: .mz(gameID: gameID)
+        default: nil
+        }
+    }
+
+    /// Reads, checks and places PC saves: every slot must decode as a save and be listed in a `global` file imported
+    /// with it; the slots land on their own numbers (or the first free ones) and their entries are merged into the
+    /// game's save list. `config` files are left out: they hold the PC's volume and options, not progress.
+    func planDesktop(_ files: [URL], replace: Bool) -> Result<DesktopPlan, Refusal> {
+        let refuse = { (reason: String) in Result<DesktopPlan, Refusal>.failure(Refusal(reasons: [reason])) }
+        let edition: DesktopWebSaves.Edition
+        if target.engine == .rpgMakerMZ {
+            guard let id = Self.mzGameID(location: location, gameRoot: target.gameRoot) else {
+                return refuse("This game's MZ save key could not be found. Start the game once in OmniPlay, then import again.")
+            }
+            edition = .mz(gameID: id)
+        } else {
+            edition = .mv
+        }
+        let globalName = edition == .mv ? "global.rpgsave" : "global.rmmzsave"
+        var slots: [Int: Data] = [:]
+        var incomingGlobal: [Any]?
+        for file in files {
+            guard let raw = try? SmallFileGuard.read(file, maxBytes: SaveFileStore.maxBytes),
+                  let web = DesktopWebSaves.webBytes(raw, edition: edition) else {
+                return refuse(DesktopWebSaves.Failure.notASave(file.lastPathComponent).description)
+            }
+            switch DesktopWebSaves.name(of: file.lastPathComponent, edition: edition) {
+            case let .slot(n)?:
+                guard (try? RPGMakerSaveDocument(data: web)) != nil else {
+                    return refuse(DesktopWebSaves.Failure.notASave(file.lastPathComponent).description)
+                }
+                slots[n] = web
+            case .global?:
+                guard let list = DesktopWebSaves.decodeGlobal(web, edition: edition) else {
+                    return refuse(DesktopWebSaves.Failure.notASave(file.lastPathComponent).description)
+                }
+                incomingGlobal = list
+            case .config?, nil:
+                continue
+            }
+        }
+        guard !slots.isEmpty else { return refuse("There are no save slots (file1, file2, …) in what was picked.") }
+        guard let incomingGlobal else {
+            return refuse("Include \(globalName) from the same save folder: the game lists its saves from it.")
+        }
+        let globalURL = location.root.appending(path: DesktopWebSaves.relativePath(.global, edition: edition))
+        var existingGlobal: [Any]?
+        if FileManager.default.fileExists(atPath: globalURL.path(percentEncoded: false)) {
+            guard let data = try? SmallFileGuard.read(globalURL, maxBytes: SaveFileStore.maxBytes),
+                  let list = DesktopWebSaves.decodeGlobal(data, edition: edition) else {
+                return refuse("The game's own save list could not be read, so nothing was imported.")
+            }
+            existingGlobal = list
+        }
+        // Taken: a slot file already here, or an entry the game's save list still shows.
+        var occupied = Set(((try? FileManager.default.contentsOfDirectory(atPath: location.slots.path(percentEncoded: false))) ?? [])
+            .compactMap { name -> Int? in
+                let stem = (name as NSString).deletingPathExtension
+                return DesktopWebSaves.slotNumber(inKey: SaveKey.decodeWebStorage(stem) ?? stem, edition: edition)
+            })
+        for (index, entry) in (existingGlobal ?? []).enumerated() where index > 0 && !(entry is NSNull) {
+            occupied.insert(index)
+        }
+        do {
+            let moves = try DesktopWebSaves.placements(incoming: Array(slots.keys), occupied: occupied, replace: replace)
+            let merged = try DesktopWebSaves.mergeGlobal(existing: existingGlobal, incoming: incomingGlobal, moves: moves)
+            var plan = DesktopPlan()
+            for (from, to) in moves {
+                plan.writes.append((slots[from]!, location.root.appending(path: DesktopWebSaves.relativePath(.slot(to), edition: edition))))
+            }
+            let globalData = try DesktopWebSaves.encodeGlobal(merged, edition: edition)
+            plan.writes.append((globalData, globalURL))
+            plan.slots = moves.count
+            plan.persistent = 1
+            return .success(plan)
+        } catch let failure as DesktopWebSaves.Failure {
+            return refuse(failure.description)
+        } catch {
+            return refuse("The save list could not be written: \(error.localizedDescription)")
+        }
+    }
+
+    /// MZ puts `$dataSystem.advanced.gameId` into every storage key: from a key this game already saved under, else
+    /// from its System.json (bounded read).
+    static func mzGameID(location: SaveLocation, gameRoot: URL) -> String? {
+        for folder in [location.slots, location.persistent.appending(path: "webIndexedDB")] {
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path(percentEncoded: false))) ?? []
+            for name in names where name.hasPrefix("rmmzsave.") {
+                let parts = name.split(separator: ".")
+                if parts.count >= 3, !parts[1].isEmpty {
+                    return String(parts[1])
+                }
+            }
+        }
+        for rel in ["data/System.json", "www/data/System.json"] {
+            let url = gameRoot.appending(path: rel)
+            guard let data = try? SmallFileGuard.read(url),
+                  let system = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let advanced = system["advanced"] as? [String: Any],
+                  let id = (advanced["gameId"] as? NSNumber)?.int64Value else { continue }
+            return String(id)
+        }
+        return nil
     }
 }

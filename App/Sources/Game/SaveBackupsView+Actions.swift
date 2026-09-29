@@ -31,7 +31,9 @@ extension SaveBackupsView {
         SaveTransfer(paths: model.paths, target: .init(
             id: game.id, title: game.title, engine: game.engine,
             family: SaveStrategy.forEngine(game.engine, generation: game.generation).family,
-            slotPattern: slotPattern, identityHash: identityHash
+            slotPattern: slotPattern, identityHash: identityHash,
+            gameRoot: game.rootRelPath.isEmpty ? model.paths.tier(.original, for: game.id)
+                : model.paths.tier(.original, for: game.id).appending(path: game.rootRelPath, directoryHint: .isDirectory)
         ))
     }
 
