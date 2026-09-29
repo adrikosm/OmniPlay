@@ -51,6 +51,35 @@ play, save, force-quit, relaunch and continue. Export a save before updating. Re
 the existing app without uninstalling, then verify the save still loads. A successful build or
 installation is not proof that every planned engine works.
 
+## Before the first phone install
+
+Everything up to the phone is checked by one command on the Mac:
+
+```bash
+Scripts/preflight.sh --release
+```
+
+It verifies the toolchain and every native artefact, runs the source-boundary checks and the eight tests
+(packages, then the app and UI bundles on the simulator), builds the unsigned iphoneos app in Debug and Release, and
+reports what signing still needs. Logs go to `.build/preflight/`. Do not install until it ends with every step
+passing; `TODO`/`WARN` lines are the signing steps below.
+
+1. Xcode → Settings → Accounts: add your Apple ID. A free account (Personal Team) works; apps it signs expire
+   after 7 days and are reinstalled with the same command, keeping their data.
+2. In `Signing.xcconfig`, set `DEVELOPMENT_TEAM` to your team ID and `OMNIPLAY_BUNDLE_IDENTIFIER` to one of your
+   own (for example `com.yourname.omniplay`). Bundle IDs are unique across all Apple accounts; keep yours unchanged
+   after the first install so updates keep your games and saves. Leave `OMNIPLAY_ENTITLEMENTS_FILE` unset on a free
+   account.
+3. Connect the iPhone by cable once, trust the Mac, and turn on Developer Mode (Settings → Privacy & Security).
+4. `Scripts/build-device.sh --device <identifier> --release` (identifiers: `xcrun devicectl list devices`). The
+   first run creates the signing certificate; on the phone, trust it under Settings → General → VPN & Device
+   Management.
+
+What only the phone can show: memory and heat on large WebGL and MZ games, the native engines' graphics (mkxp-z,
+Ren'Py, EasyRPG, Godot) on real Metal, long-session memory (Ren'Py grows about 3 MB per game switch inside the
+engine on the simulator), audio, haptics and touch ergonomics. Each session writes `memory.jsonl` beside its log,
+which the per-game Diagnostics screen exports.
+
 ## Repository layout
 
 | Path | Contents |

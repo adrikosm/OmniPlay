@@ -21,5 +21,7 @@ xcodebuild -project OmniPlay.xcodeproj -scheme OmniPlay -destination "id=$udid" 
 app="$(find .build/DerivedData/Build/Products/Debug-iphonesimulator -maxdepth 1 -name OmniPlay.app)"
 xcrun simctl install "$udid" "$app"
 open -b com.apple.iphonesimulator --args -CurrentDeviceUDID "$udid" 2>/dev/null || echo "(Simulator UI not registered with Launch Services; the app is running headless, attach a viewer or open Simulator from Xcode)"
-pid="$(xcrun simctl launch "$udid" com.omniplay.app | awk '{print $NF}')"
+# The identifier Signing.xcconfig chose, read from the app rather than assumed.
+bundle="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")"
+pid="$(xcrun simctl launch "$udid" "$bundle" | awk '{print $NF}')"
 echo "OmniPlay running on $name ($ios) [$udid], pid $pid"

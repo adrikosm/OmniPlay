@@ -1,7 +1,11 @@
-// Copy to Signing.xcconfig (gitignored). Choose your team locally in Xcode.
+// Copy to Signing.xcconfig (gitignored; Scripts/generate-project.sh does it once) and fill in locally.
+// Your team ID: Xcode → Settings → Accounts → your Apple ID → the team's ID (ten characters). A free Apple ID
+// (Personal Team) works; the app it signs expires after 7 days and is re-installed with the same command.
 DEVELOPMENT_TEAM = REPLACE_ME
 CODE_SIGN_STYLE = Automatic
-// Keep this stable after installation so updates retain the existing app container.
+// Bundle IDs are unique across every Apple account, so use one of your own, such as com.<yourname>.omniplay.
+// Keep it unchanged after the first install: updates then keep the app's container, and with it your games and saves.
 OMNIPLAY_BUNDLE_IDENTIFIER = com.omniplay.app
-// Core build needs no optional memory entitlements. Enable only if your profile supports them:
+// Core build needs no optional memory entitlements, and a free account cannot sign them. Enable only with a paid
+// membership whose profile includes them:
 // OMNIPLAY_ENTITLEMENTS_FILE = App/OmniPlay.entitlements

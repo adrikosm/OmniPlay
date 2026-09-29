@@ -4,35 +4,43 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 usage() {
   cat <<'HELP'
-Usage: Scripts/build-device.sh --unsigned
-       Scripts/build-device.sh --device <identifier>
+Usage: Scripts/build-device.sh --unsigned [--release]
+       Scripts/build-device.sh --device <identifier> [--release]
 
 --unsigned  Build without signing or installing; no account/device required.
 --device    Sign using local Signing.xcconfig, then install and launch on this device.
+--release   Optimised Release configuration (what to play on the phone); Debug otherwise.
 Find identifiers with: xcrun devicectl list devices
-Output: .build/DeviceDerivedData/Build/Products/Debug-iphoneos/OmniPlay.app
+Output: .build/DeviceDerivedData/Build/Products/<Debug|Release>-iphoneos/OmniPlay.app
 Evidence: .build/device-handoff/manifest.json and build.log
 HELP
 }
-mode="${1:-}"
-case "$mode" in
-  --help|-h) usage; exit 0 ;;
-  --unsigned) [[ $# == 1 ]] || { usage >&2; exit 2; } ;;
-  --device) [[ $# == 2 && -n "$2" && "$2" != -* ]] || { usage >&2; exit 2; } ;;
-  *) usage >&2; exit 2 ;;
-esac
+mode=""; device=""; configuration=Debug
+while (( $# )); do
+  case "$1" in
+    --help|-h) usage; exit 0 ;;
+    --unsigned) [[ -z "$mode" ]] || { usage >&2; exit 2; }; mode=--unsigned ;;
+    --device)
+      [[ -z "$mode" && $# -ge 2 && -n "$2" && "$2" != -* ]] || { usage >&2; exit 2; }
+      mode=--device; device="$2"; shift ;;
+    --release) configuration=Release ;;
+    *) usage >&2; exit 2 ;;
+  esac
+  shift
+done
+[[ -n "$mode" ]] || { usage >&2; exit 2; }
 
 out="$PWD/.build/device-handoff"
 mkdir -p "$out"
 # An earlier manifest must not look like evidence for a failed new attempt.
 rm -f "$out/manifest.json"
 Scripts/generate-project.sh
-args=(-project OmniPlay.xcodeproj -scheme OmniPlay -configuration Debug -sdk iphoneos
+args=(-project OmniPlay.xcodeproj -scheme OmniPlay -configuration "$configuration" -sdk iphoneos
       -derivedDataPath .build/DeviceDerivedData)
 if [[ "$mode" == --unsigned ]]; then
   args+=(-destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO)
 else
-  args+=(-destination "id=$2" -allowProvisioningUpdates)
+  args+=(-destination "id=$device" -allowProvisioningUpdates)
 fi
 xcodebuild "${args[@]}" -showBuildSettings -json > "$out/build-settings.json"
 if [[ "$mode" == --device ]]; then
@@ -44,7 +52,7 @@ if not team or team == 'REPLACE_ME':
     sys.exit('Set DEVELOPMENT_TEAM in local Signing.xcconfig, or use --unsigned to prepare without signing.')
 PY
 fi
-print "Building iphoneos app ($mode); log: $out/build.log"
+print "Building iphoneos app ($mode, $configuration); log: $out/build.log"
 if ! xcodebuild "${args[@]}" build -quiet > "$out/build.log" 2>&1; then
   tail -60 "$out/build.log" >&2
   print -u2 "Device build failed. Full log: $out/build.log"
@@ -78,7 +86,7 @@ for path in sorted(pathlib.Path('Native/manifests').glob('*.json')):
                       | {'manifest_sha256': sha(path), 'output_count': len(m.get('outputs', {}))})
 manifest = {
     'created_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-    'mode': sys.argv[2].removeprefix('--'), 'app_path': str(app),
+    'mode': sys.argv[2].removeprefix('--'), 'configuration': settings['CONFIGURATION'], 'app_path': str(app),
     'bundle_id': info['CFBundleIdentifier'], 'version': info['CFBundleShortVersionString'],
     'build': info['CFBundleVersion'], 'minimum_ios': info['MinimumOSVersion'],
     'sdk': settings['SDK_NAME'], 'architecture': settings['ARCHS'],
@@ -98,7 +106,7 @@ if [[ "$mode" == --unsigned ]]; then
 else
   app=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["app_path"])' "$out/manifest.json")
   bundle=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["bundle_id"])' "$out/manifest.json")
-  xcrun devicectl device install app --device "$2" "$app"
-  xcrun devicectl device process launch --device "$2" "$bundle"
+  xcrun devicectl device install app --device "$device" "$app"
+  xcrun devicectl device process launch --device "$device" "$bundle"
   print "OmniPlay launched on selected device. Run the personal-device acceptance walkthrough next."
 fi
