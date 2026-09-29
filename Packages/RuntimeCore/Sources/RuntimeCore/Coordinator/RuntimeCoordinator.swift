@@ -224,7 +224,9 @@ public actor RuntimeCoordinator {
     private func stopCurrent(reason: RuntimeStopReason, grade: PlayabilityGrade?, peak: Int64?) async -> TeardownVerdict {
         if let launchTask {
             launchTask.cancel()
-            let verdict = await RuntimeTeardown.wait {
+            // The cancelled launch runs its own teardown under `stopTimeout` once it notices the cancellation, so this
+            // outer deadline covers both; one `stopTimeout` would call a clean but slow teardown a hang.
+            let verdict = await RuntimeTeardown.wait(timeout: Self.stopTimeout * 2) {
                 _ = await launchTask.result
                 return await self.lastVerdict
             }

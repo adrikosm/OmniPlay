@@ -131,6 +131,9 @@ public actor OggVorbisDecoder {
         case -3 where !sink.failed: throw Failure.tooLong
         default: throw Failure.damaged(status)
         }
+        // Rate and channel count come straight from the file's header (a 32-bit rate, cast to `int` in C). A negative
+        // or huge rate would trap in the header arithmetic below and take the app down with the game's sound.
+        guard (1 ... 768_000).contains(rate), (1 ... 255).contains(channels) else { throw Failure.damaged(-5) }
         try handle.seek(toOffset: 0)
         try handle.write(contentsOf: wavHeader(dataBytes: UInt32(sink.written), rate: UInt32(rate), channels: UInt16(channels)))
         try handle.close()

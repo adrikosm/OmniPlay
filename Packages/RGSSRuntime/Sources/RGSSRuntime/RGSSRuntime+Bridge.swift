@@ -28,7 +28,7 @@
     }
 
     /// Trampoline for the engine's C callbacks: they fire on the engine thread, so every one hops to the main
-    /// actor before touching the adapter. Unretained on purpose — the adapter outlives its own callbacks.
+    /// actor before touching the adapter. `installCallbacks` retains the adapter for the process, so it outlives them.
     func hop(_ userdata: UnsafeMutableRawPointer?, _ body: @escaping @MainActor (RGSSRuntime) -> Void) {
         guard let userdata else { return }
         let runtime = Unmanaged<RGSSRuntime>.fromOpaque(userdata).takeUnretainedValue()

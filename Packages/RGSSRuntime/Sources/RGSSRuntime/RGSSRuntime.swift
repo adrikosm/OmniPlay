@@ -322,7 +322,10 @@
         /// closure — which the engine thread trips the first time it calls one, taking the app down with
         /// `dispatch_assert_queue`. Top-level functions are non-isolated, and `hop` does the crossing.
         func installCallbacks() {
-            let box = Unmanaged.passUnretained(self).toOpaque()
+            // Retained for the rest of the process on purpose. The coordinator lets go of the adapter after a clean
+            // `.slotSpent` stop, while the engine thread may still be about to report its termination; an unretained
+            // pointer would then name a freed object. The engine boots once per process, so this keeps one adapter.
+            let box = Unmanaged.passRetained(self).toOpaque()
             mkxp_setEngineTerminatedCallback(rgssEngineTerminated, box)
             mkxp_setErrorMessageCallback(rgssEngineError, box)
             mkxp_setInfoMessageCallback(rgssEngineInfo, box)

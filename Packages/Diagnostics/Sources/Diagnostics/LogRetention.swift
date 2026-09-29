@@ -16,8 +16,9 @@ public enum LogRetention {
         public var remainingBytes: Int64 = 0
     }
 
-    /// A session is pinned while it holds a crash marker or was exported as a bundle.
-    public static let pinMarkers = ["termination.json", "crash.json", ".exported"]
+    /// A session is pinned while it holds a crash marker or was exported as a bundle. `.ended-unexpectedly` is the
+    /// tombstone `SessionMarker` leaves on a session that never tore down (RuntimeCore names it; this package cannot).
+    public static let pinMarkers = ["termination.json", "crash.json", ".exported", ".ended-unexpectedly"]
 
     struct Session {
         let url: URL
@@ -90,7 +91,8 @@ public enum LogRetention {
                 }
             }
         }
-        if fm.fileExists(atPath: url.appending(path: ".exported").path(percentEncoded: false)) {
+        // The enumerator skips hidden files, so the dot-named markers are looked up directly.
+        if pinMarkers.contains(where: { $0.hasPrefix(".") && fm.fileExists(atPath: url.appending(path: $0).path(percentEncoded: false)) }) {
             pinned = true
         }
         return Session(url: url, modified: modified, bytes: bytes, pinned: pinned)

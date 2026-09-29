@@ -44,6 +44,8 @@
         public func stop() {
             observers.forEach(NotificationCenter.default.removeObserver)
             observers = []
+            // Discovery keeps the Bluetooth radio scanning until it is stopped; it has no use once the game is left.
+            GCController.stopWirelessControllerDiscovery()
             GCController.controllers().forEach { $0.extendedGamepad?.valueChangedHandler = nil }
             GCKeyboard.coalesced?.keyboardInput?.keyChangedHandler = nil
             bus.send(stick.releaseAll())
