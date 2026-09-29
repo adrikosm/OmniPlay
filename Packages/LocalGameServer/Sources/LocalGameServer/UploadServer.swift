@@ -20,6 +20,10 @@ public actor UploadServer {
     public static let chunk = 1 << 20
     public static let maxFileBytes: Int64 = 64 << 30
     public static let maxPathLength = 512
+    /// The page posts files one after another, so a handful of sockets covers a browser; the port is on the LAN.
+    public static let maxConnections = 8
+    /// A browser that stops sending mid-file would otherwise keep `busy` set and refuse every later file.
+    public static let idleTimeout: Duration = .seconds(60)
 
     public nonisolated let stagingRoot: URL
     public nonisolated let token: String
@@ -92,6 +96,10 @@ public actor UploadServer {
     // MARK: Connections
 
     private func accept(_ nw: NWConnection) {
+        guard listener != nil, connections.count < Self.maxConnections else {
+            nw.cancel()
+            return
+        }
         connections[ObjectIdentifier(nw)] = nw
         Task { [weak self] in
             await self?.serve(nw)
@@ -241,17 +249,33 @@ public actor UploadServer {
     }
 
     private static func receive(_ nw: NWConnection) async throws -> Data? {
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data?, Error>) in
-            nw.receive(minimumIncompleteLength: 1, maximumLength: chunk) { data, _, complete, error in
-                if let error {
-                    cont.resume(throwing: error)
-                } else if complete,
-                          data == nil {
-                    cont.resume(returning: nil)
-                } else {
-                    cont.resume(returning: data ?? Data())
+        try await withThrowingTaskGroup(of: Data?.self) { group in
+            group.addTask {
+                try await withTaskCancellationHandler {
+                    try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data?, Error>) in
+                        nw.receive(minimumIncompleteLength: 1, maximumLength: chunk) { data, _, complete, error in
+                            if let error {
+                                cont.resume(throwing: error)
+                            } else if complete,
+                                      data == nil {
+                                cont.resume(returning: nil)
+                            } else {
+                                cont.resume(returning: data ?? Data())
+                            }
+                        }
+                    }
+                } onCancel: {
+                    // The group still joins this child after the deadline; cancelling the socket makes receive return.
+                    nw.cancel()
                 }
             }
+            group.addTask {
+                try await Task.sleep(for: idleTimeout)
+                throw CancellationError()
+            }
+            let first = try await group.next()!
+            group.cancelAll()
+            return first
         }
     }
 

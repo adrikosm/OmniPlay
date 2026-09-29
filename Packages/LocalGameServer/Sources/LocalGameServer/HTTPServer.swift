@@ -63,6 +63,8 @@ public actor HTTPServer {
     private func listenerWentDown(_ listener: NWListener) {
         guard self.listener === listener else { return }
         self.listener = nil
+        // A failed listener keeps its socket until cancelled.
+        listener.cancel()
         OPLog.log(.web, .default, "loopback listener went down")
     }
 
@@ -76,6 +78,19 @@ public actor HTTPServer {
             guard let self else { connection.cancel(); return }
             Task { await self.accept(connection) }
         }
+        do {
+            try await ready(listener)
+        } catch {
+            // A listener that never became ready must not read as listening, or `restartIfNeeded` never rebinds.
+            listener.cancel()
+            if self.listener === listener {
+                self.listener = nil
+            }
+            throw error
+        }
+    }
+
+    private func ready(_ listener: NWListener) async throws {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             let resumed = Mutex(false)
             listener.stateUpdateHandler = { [weak self, weak listener] state in
@@ -202,11 +217,17 @@ final class HTTPConnection: Sendable {
     }
 
     func refuseBusy() {
-        Task { [self] in
+        let reply = Task { [self] in
             nw.start(queue: .global(qos: .userInitiated))
             var r = HTTPResponse.text(503, "too many connections")
             r.headers.append(("Connection", "close"))
             try? await write(r, head: false)
+            nw.cancel()
+        }
+        // A client that never reads would otherwise hold the refused socket and this task forever.
+        Task { [nw] in
+            try? await Task.sleep(for: .seconds(5))
+            reply.cancel()
             nw.cancel()
         }
     }
@@ -285,7 +306,11 @@ final class HTTPConnection: Sendable {
             while remaining > 0 {
                 try Task.checkCancellation()
                 let want = Int(min(Int64(HTTPServer.chunk), remaining))
-                guard let chunk = try autoreleasepool(invoking: { try handle.read(upToCount: want) }), !chunk.isEmpty else { break }
+                // The file shrank after the headers went out: the promised Content-Length can no longer be met, and a
+                // keep-alive client would read the next response as the rest of this body. Close the connection.
+                guard let chunk = try autoreleasepool(invoking: { try handle.read(upToCount: want) }), !chunk.isEmpty else {
+                    throw CocoaError(.fileReadCorruptFile, userInfo: [NSURLErrorKey: url])
+                }
                 try await send(chunk) // back-pressure: the next read waits for this send to complete
                 remaining -= Int64(chunk.count)
             }
