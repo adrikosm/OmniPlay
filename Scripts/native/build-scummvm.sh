@@ -155,10 +155,11 @@ EOF
     [[ -f "$f" && "$f" != *.md && "$f" != *.txt && "$f" != */doc/* && "${f:t}" != (AUTHORS|COPYING*|COPYRIGHT*) ]] &&
       /bin/cp -f "$f" "$fw/data/"
   done
-  codesign -f -s - "$fw/ScummVM" 2>/dev/null
   sed -e "s/@NAME@/ScummVM/g" -e "s/@VERSION@/$(make -s -C "$build" print-version)/g" -e "s/@PLATFORM@/$platform/g" \
     -e "s/@MIN@/$IOS_MIN/g" -e "s/com.omniplay.engine.easyrpg/com.omniplay.engine.scummvm/" \
     "$NATIVE_ROOT/Native/EasyRPG/Info.plist.in" >"$fw/Info.plist"
+  # Sign the bundle, not the binary, so the signing identifier is CFBundleIdentifier (iOS refuses a mismatch).
+  codesign -f -s - "$fw" 2>/dev/null
 }
 
 WANT=all

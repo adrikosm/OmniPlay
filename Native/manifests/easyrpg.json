@@ -9,10 +9,12 @@
   },
   "outputs": {
     "EasyRPG.xcframework/Info.plist": "3d8d77ba00836f84508208cc22c7170404cd70ceb390c550142c8e928a716de0",
-    "EasyRPG.xcframework/ios-arm64-simulator/EasyRPG.framework/EasyRPG": "e5c48a48a3c8b238e118eb37a19f3f2ebc0a871e75f96f9abfc12f10ce899311",
+    "EasyRPG.xcframework/ios-arm64-simulator/EasyRPG.framework/EasyRPG": "ec0f1643e0ce5928d2be85253bb592f7165a05766f679a36c6ef11601931f602",
     "EasyRPG.xcframework/ios-arm64-simulator/EasyRPG.framework/Info.plist": "4445c47865abb8b43954ff477d238687a36ac4e824f2f9f547b5c009b1ef23cb",
-    "EasyRPG.xcframework/ios-arm64/EasyRPG.framework/EasyRPG": "ef13bcc7137a83d9065ac35df0030f1a530d963d876e729d11abb57be448a2f2",
-    "EasyRPG.xcframework/ios-arm64/EasyRPG.framework/Info.plist": "18b28a76ed254377499f410a86dc6b524e1783f0d69457156e28869da5c3780d"
+    "EasyRPG.xcframework/ios-arm64-simulator/EasyRPG.framework/_CodeSignature/CodeResources": "975e74501cfce15f0614b98a4af5f434e07bad478125f361a0e294cd5ff424e9",
+    "EasyRPG.xcframework/ios-arm64/EasyRPG.framework/EasyRPG": "c503decec2898fc5bc388e2afdaaeb2d02908a525993d8ef1ce5e12638138b11",
+    "EasyRPG.xcframework/ios-arm64/EasyRPG.framework/Info.plist": "18b28a76ed254377499f410a86dc6b524e1783f0d69457156e28869da5c3780d",
+    "EasyRPG.xcframework/ios-arm64/EasyRPG.framework/_CodeSignature/CodeResources": "2c7d2ba5df6cef93476c301f3e13db7ede803ad134b1939d6b8c1a11d9657511"
   },
   "sdks": {
     "iphoneos": "27.0",

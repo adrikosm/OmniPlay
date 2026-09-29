@@ -160,9 +160,10 @@ build_sdk() {  # build_sdk <sdk>: $OUT-bound framework under $WORK/<sdk>/EasyRPG
   mkdir -p "$fw"
   /bin/cp "$build/player/EasyRPG" "$fw/EasyRPG"
   python3 Scripts/native/rename-objc-classes.py "$fw/EasyRPG" ERP
-  codesign -f -s - "$fw/EasyRPG" 2>/dev/null
   sed -e "s/@NAME@/EasyRPG/g" -e "s/@VERSION@/$version/g" -e "s/@PLATFORM@/$platform/g" -e "s/@MIN@/$IOS_MIN/g" \
     "$SHIM/Info.plist.in" >"$fw/Info.plist"
+  # Sign the bundle, not the binary, so the signing identifier is CFBundleIdentifier (iOS refuses a mismatch).
+  codesign -f -s - "$fw" 2>/dev/null
 }
 
 WANT=all

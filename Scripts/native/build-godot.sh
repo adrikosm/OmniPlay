@@ -58,9 +58,10 @@ build_sdk() {  # build_sdk <sdk>: $WORK/<sdk>/Godot.framework
     -Wl,-exported_symbols_list,"$NATIVE_ROOT/Native/godot/exports.txt" -Wl,-dead_strip ||
     { echo "link failed ($sdk)" >&2; exit 1; }
   xcrun strip -x "$fw/Godot"
-  codesign -f -s - "$fw/Godot" 2>/dev/null
   sed -e "s/@NAME@/Godot/g" -e "s/@VERSION@/4.7.2/g" -e "s/@PLATFORM@/$platform/g" -e "s/@MIN@/$IOS_MIN/g" \
     -e "s/com.omniplay.engine.easyrpg/com.omniplay.engine.godot/" "$NATIVE_ROOT/Native/EasyRPG/Info.plist.in" >"$fw/Info.plist"
+  # Sign the bundle, not the binary, so the signing identifier is CFBundleIdentifier (iOS refuses a mismatch).
+  codesign -f -s - "$fw" 2>/dev/null
 }
 
 WANT=all

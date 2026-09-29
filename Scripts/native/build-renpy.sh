@@ -163,10 +163,11 @@ PY
       -Wl,-exported_symbols_list,"$SRC/exports.txt" -Wl,-dead_strip \
       -o "$fw/$name" "$obj" "$gl" -F"$mgl" -framework MetalANGLE -L"$libs" $link -lc++ -liconv
     python3 Scripts/native/rename-objc-classes.py "$fw/$name" "R${tag:0:2}"
-    codesign -f -s - "$fw/$name" 2>/dev/null
     sed -e "s/@NAME@/$name/g" -e "s/@VERSION@/$v/g" -e "s/@TAG@/$tag/g" -e "s/@PLATFORM@/$platform/g" \
       -e "s/@MIN@/$IOS_MIN/g" "$SRC/Info.plist.in" >"$fw/Info.plist"
     /bin/cp -R "$stage/base" "$fw/base"
+    # Sign the bundle, not the binary, so the signing identifier is CFBundleIdentifier (iOS refuses a mismatch).
+    codesign -f -s - "$fw" 2>/dev/null
     frameworks+=(-framework "$fw")
   done
   xcodebuild -create-xcframework $frameworks -output "$out/$name.xcframework" >/dev/null
