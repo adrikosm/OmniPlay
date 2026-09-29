@@ -169,6 +169,11 @@ extension LibraryContent {
         .scrollIndicators(.hidden)
         .scrollTargetBehavior(.viewAligned)
         .scrollPosition(id: featuredBinding, anchor: .leading)
+        .onScrollPhaseChange { _, phase in
+            if phase == .interacting {
+                showTabBar()
+            }
+        }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { shelfWidth = $0 }
         .frame(height: 226)
         .overlay(alignment: .bottomLeading) { errorLine }

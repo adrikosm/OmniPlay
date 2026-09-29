@@ -62,6 +62,9 @@ struct LibraryContent: View {
     @State var newName = ""
     @State var shelfError: String?
     @Namespace var marker
+    /// Bumped to bring back a tab bar left hidden (`revealsTabBar`); `contentBottom` places the tap band above it.
+    @State var tabBarToken = 0
+    @State var contentBottom: CGFloat = 0
 
     var wide: Bool { Adaptive.wide(vertical: verticalSizeClass, horizontal: horizontalSizeClass, type: typeSize) }
     var featured: GameRecord? { viewModel.games.first { $0.id == featuredID } ?? viewModel.games.first }
@@ -97,10 +100,34 @@ struct LibraryContent: View {
                     .padding(.bottom, 96)
                 }
                 .scrollBounceBehavior(.basedOnSize)
+                .onScrollPhaseChange { _, phase in
+                    if phase == .interacting {
+                        showTabBar()
+                    }
+                }
             }
         }
         .padding(.horizontal, Theme.s4)
         .canvas()
+        // The tab bar belongs on the library. Scrolling, or a tap where the bar sits, brings it back if a game's page
+        // left it hidden; so does coming back to the shelf.
+        .toolbarVisibility(.visible, for: .tabBar)
+        .revealsTabBar(tabBarToken, when: path.isEmpty)
+        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY } action: { contentBottom = $0 }
+        .simultaneousGesture(SpatialTapGesture(coordinateSpace: .global).onEnded { tap in
+            if tap.location.y > contentBottom - 90 {
+                showTabBar()
+            }
+        })
+        .onAppear { showTabBar() }
+        .onChange(of: path.isEmpty) { _, root in
+            guard root else { return }
+            Task {
+                // After the page has zoomed back into its cover.
+                try? await Task.sleep(for: .milliseconds(450))
+                showTabBar()
+            }
+        }
         #if DEBUG
             .onChange(of: viewModel.games.isEmpty) { _, empty in
                 if !empty, DebugLaunch.openFirstGame, path.isEmpty, let first = viewModel.games.max(by: { $0.importedAt < $1.importedAt }) {
@@ -159,4 +186,6 @@ struct LibraryContent: View {
                 Text(adding.map { "\"\($0.title)\" goes in it." } ?? "Add games from their cover's menu.")
             }
     }
+
+    func showTabBar() { tabBarToken &+= 1 }
 }
