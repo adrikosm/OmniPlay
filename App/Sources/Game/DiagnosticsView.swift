@@ -219,8 +219,9 @@ struct DiagnosticsView: View {
         let (paths, id) = (model.paths, game.id)
         data = await Task.detached { () -> Loaded in
             var out = Loaded()
-            out.sessions = ((try? store.fetchAll(SessionRecord.self, game: id)) ?? []).sorted { $0.startedAt > $1.startedAt }
-            out.imports = ((try? store.fetchAll(ImportRecord.self, game: id)) ?? []).sorted { $0.createdAt > $1.createdAt }
+            // Ordered in the query: sorting a capped, unordered page dropped the newest sessions of a long-played game.
+            out.sessions = (try? store.sessions.recent(game: id)) ?? []
+            out.imports = (try? store.imports.recent(game: id)) ?? []
             out.media = (try? store.fetchAll(MediaJobRecord.self, game: id)) ?? []
             out.saves = (try? store.saves.fetch(game: id)) ?? []
             out.crashReports = Set(out.sessions.prefix(10).map(\.id).filter { session in

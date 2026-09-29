@@ -291,6 +291,14 @@ public extension GameStore {
             $0,
             key: id.uuidString
         ) } }
+
+        /// A game's sessions, newest first (served by the `sessions_game` index).
+        public func recent(game: GameID, limit: Int = 500) throws -> [SessionRecord] {
+            try store.read("sessions.recent") {
+                try SessionRecord.filter(sql: "game_id = ?", arguments: [game.description]).order(sql: "started_at DESC")
+                    .limit(limit).fetchAll($0)
+            }
+        }
     }
 
     struct Slots: Sendable {
@@ -317,6 +325,14 @@ public extension GameStore {
         public func record(_ record: ImportRecord) throws -> ImportRecord { try store.insert(record) }
         public func recent(limit: Int = 50) throws -> [ImportRecord] {
             try store.read("imports.recent") { try ImportRecord.order(sql: "created_at DESC, id DESC").limit(limit).fetchAll($0) }
+        }
+
+        /// One game's imports, newest first.
+        public func recent(game: GameID, limit: Int = 500) throws -> [ImportRecord] {
+            try store.read("imports.recentForGame") {
+                try ImportRecord.filter(sql: "game_id = ?", arguments: [game.description]).order(sql: "created_at DESC, id DESC")
+                    .limit(limit).fetchAll($0)
+            }
         }
 
         public func find(sha256: String) throws -> [ImportRecord] {

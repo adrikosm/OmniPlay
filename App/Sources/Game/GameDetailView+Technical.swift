@@ -103,23 +103,32 @@ extension GameDetailView {
         }
     }
 
+    /// ImageIO reads the picked file in place and decodes only a thumbnail, off the main actor: a large file picked by
+    /// mistake is never loaded whole.
     func importCover(from url: URL) async {
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer {
-            if scoped {
-                url.stopAccessingSecurityScopedResource()
+        let (id, paths) = (game.id, model.paths)
+        let path = await Task.detached { () -> String? in
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer {
+                if scoped {
+                    url.stopAccessingSecurityScopedResource()
+                }
             }
+            return CoverExtractor.write(source: url, game: id, paths: paths)
+        }.value
+        if let path {
+            await setCover(path)
         }
-        guard let data = try? Data(contentsOf: url) else { return }
-        await importCover(data: data)
     }
 
     func importCover(data: Data) async {
-        let temp = FileManager.default.temporaryDirectory.appending(path: "cover-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: temp) }
-        guard (try? data.write(to: temp)) != nil else { return }
         let (id, paths) = (game.id, model.paths)
-        let path = await Task.detached { CoverExtractor.write(source: temp, game: id, paths: paths) }.value
+        let path = await Task.detached { () -> String? in
+            let temp = FileManager.default.temporaryDirectory.appending(path: "cover-\(UUID().uuidString)")
+            defer { try? FileManager.default.removeItem(at: temp) }
+            guard (try? data.write(to: temp)) != nil else { return nil }
+            return CoverExtractor.write(source: temp, game: id, paths: paths)
+        }.value
         if let path {
             await setCover(path)
         }
@@ -203,8 +212,9 @@ extension GameDetailView {
         facts = await Task.detached { () -> Facts in
             var out = Facts()
             out.lastPlayedAt = try? store.games.fetch(id: id)?.lastPlayedAt
-            out.sourceName = ((try? store.fetchAll(ImportRecord.self, game: id)) ?? []).max { $0.createdAt < $1.createdAt }?.sourceName
-            if let last = ((try? store.fetchAll(SessionRecord.self, game: id)) ?? []).max(by: { $0.startedAt < $1.startedAt }) {
+            // Newest first from the database: an unordered page of rows loses the latest once a game has many sessions.
+            out.sourceName = (try? store.imports.recent(game: id, limit: 1))?.first?.sourceName
+            if let last = (try? store.sessions.recent(game: id, limit: 1))?.first {
                 let crashed = last.teardownVerdict == "endedUnexpectedly" || (last.notes ?? "").hasPrefix("crash")
                 out.sessionFailed = crashed
                 out.lastSession = last.teardownVerdict == nil ? "Running" : crashed ? "Closed unexpectedly" : "Ended normally"

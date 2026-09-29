@@ -144,6 +144,13 @@ public actor ImportTransaction {
         }
     }
 
+    /// An extractor's progress, which arrives through an unstructured task and can land after the pipeline has moved
+    /// on: applied only while the transaction is still extracting, so a late update never drags a later phase back.
+    public func progress(_ progress: ImportProgress) {
+        guard case .extracting = state else { return }
+        transition(to: .extracting(progress))
+    }
+
     /// Runs `body` as the transaction's work. A thrown `ImportFailure` (or any error) rolls back and ends in `.failed`;
     /// cancellation rolls back and ends in `.cancelled`.
     public func run(_ body: @escaping @Sendable (ImportTransaction) async throws -> GameID) {
