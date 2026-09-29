@@ -106,6 +106,10 @@ struct PlayerScreen: View {
             .onChange(of: scenePhase) { _, phase in
                 overlay.sceneActive = phase == .active
             }
+            // The eye over the game puts the host's pause button away with the rest.
+            .onChange(of: overlay.chromeHidden) { _, hidden in
+                host.pauseButtonHidden = hidden
+            }
             .onChange(of: model.runtimeNotice) { _, line in
                 guard let line, !leaving else { return }
                 model.runtimeNotice = nil

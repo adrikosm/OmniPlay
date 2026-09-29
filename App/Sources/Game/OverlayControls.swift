@@ -30,6 +30,9 @@ final class SessionOverlay {
     var touchpadSpeed: Double?
     /// The key strip is up (INPUT-009).
     var keyStrip = false
+    /// Every button over the game is put away, the host's pause button too, leaving only a faint eye to bring them
+    /// back. For this session only: a new session never starts with no way to pause.
+    var chromeHidden = false
     /// The pad is shown for this game in this orientation. The choice is kept per game and orientation, so hiding it
     /// for a novel leaves an RPG's pad alone, and a portrait choice leaves landscape alone.
     var padVisible = true {
@@ -68,7 +71,7 @@ final class SessionOverlay {
 
 /// The touch controls as the host overlay hosts them. Reads the same defaults the pause menu writes, so the
 /// two stay in step without a binding crossing the hierarchy. Top right, beside the host's pause button: the key
-/// strip and the controller icon, which opens the controls editor.
+/// strip, the controller icon, which opens the controls editor, and the eye, which puts every button away.
 struct OverlayControls: View {
     let overlay: SessionOverlay
     let onHitRegions: ([CGRect]) -> Void
@@ -91,13 +94,14 @@ struct OverlayControls: View {
     }
 
     private var shows: Bool {
-        overlay.padVisible && overlay.hasPad && (overlay.controllers == 0 || !hideWithController)
+        overlay.padVisible && overlay.hasPad && !overlay.chromeHidden && (overlay.controllers == 0 || !hideWithController)
     }
 
     var body: some View {
         ZStack {
             if !overlay.failed, !overlay.editing, !overlay.paused, overlay.sceneActive {
-                if let speed = overlay.touchpadSpeed {
+                // Engines that read the screen themselves (ScummVM) run their own touchpad from the same setting.
+                if overlay.hasPad, let speed = overlay.touchpadSpeed {
                     TouchpadLayer(speed: speed, send: send).ignoresSafeArea().gameControlHitRegion()
                 }
                 if shows {
@@ -108,53 +112,20 @@ struct OverlayControls: View {
                 VStack(spacing: Theme.s2) {
                     HStack(spacing: 10) {
                         Spacer()
-                        if let fastest = overlay.speed?.options.last?.value, fastest > 1 {
-                            // Held: the fastest speed; let go: the speed chosen in Pause.
-                            Image(systemName: "forward.fill")
-                                .font(.system(size: 17, weight: .semibold))
-                                .foregroundStyle(Theme.textPrimary)
-                                .frame(width: 44, height: 44)
-                                .glass(Circle())
-                                .overlay(Circle().fill(Theme.edge.opacity(holdingSpeed ? 0.18 : 0)))
-                                .scaleEffect(holdingSpeed && !reduceMotion ? 0.9 : 1)
-                                .animation(Theme.motion(Theme.press, reduce: reduceMotion), value: holdingSpeed)
-                                .onLongPressGesture(minimumDuration: 0, maximumDistance: 60, perform: {}, onPressingChanged: { pressing in
-                                    holdingSpeed = pressing
-                                    onFastForward(pressing ? fastest : overlay.fastForward)
-                                })
-                                .gameControlHitRegion()
-                                .accessibilityLabel("Fast forward while held")
-                                .accessibilityAddTraits(.isButton)
+                        if !overlay.chromeHidden, overlay.hasPad {
+                            gameButtons
                         }
-                        if overlay.hasPad {
-                            Button { unlessSwiped { overlay.padVisible.toggle() } } label: {
-                                Image(systemName: overlay.padVisible ? "dpad.fill" : "dpad")
-                            }
-                            .buttonStyle(.round)
-                            .gameControlHitRegion()
-                            .accessibilityLabel(overlay.padVisible ? "Hide touch controls" : "Show touch controls")
-                        }
-                        Button { unlessSwiped { overlay.keyStrip.toggle() } } label: {
-                            Image(systemName: overlay.keyStrip ? "keyboard.chevron.compact.down" : "keyboard")
-                        }
-                        .buttonStyle(.round)
-                        .gameControlHitRegion()
-                        .accessibilityLabel(overlay.keyStrip ? "Hide keys" : "Show keys")
-                        .accessibilityValue(overlay.keyStrip ? "Shown" : "Hidden")
-                        Button { unlessSwiped(onEditControls) } label: { Image(systemName: "gamecontroller") }
-                            .buttonStyle(.round)
-                            .gameControlHitRegion()
-                            .accessibilityLabel("Edit touch controls")
+                        eyeButton
                     }
                     // Room for the host's own pause button, which sits in the top-right corner.
                     .padding(.trailing, 54)
                     // Swipe down on the buttons to put the pad away, up to bring it back.
                     .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { drag in
-                        guard overlay.hasPad, abs(drag.translation.height) > abs(drag.translation.width) else { return }
+                        guard overlay.hasPad, !overlay.chromeHidden, abs(drag.translation.height) > abs(drag.translation.width) else { return }
                         swipedAt = .now
                         overlay.padVisible = drag.translation.height < 0
                     })
-                    if overlay.keyStrip {
+                    if overlay.keyStrip, !overlay.chromeHidden {
                         KeyStripView(send: send)
                             .gameControlHitRegion()
                             .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
@@ -164,8 +135,9 @@ struct OverlayControls: View {
                 .padding(.horizontal, Theme.s3)
                 .padding(.top, 20)
                 .animation(reduceMotion ? nil : Theme.quick, value: overlay.keyStrip)
+                .animation(reduceMotion ? nil : Theme.quick, value: overlay.chromeHidden)
                 .overlay(alignment: .top) {
-                    if tip {
+                    if tip, !overlay.chromeHidden {
                         Label("Tap the controller icon to edit buttons", systemImage: "gamecontroller")
                             .font(.subheadline.weight(.medium))
                             .foregroundStyle(Theme.textPrimary)
@@ -191,6 +163,60 @@ struct OverlayControls: View {
             try? await Task.sleep(for: .seconds(4))
             withAnimation(Theme.motion(.easeOut(duration: 0.6), reduce: reduceMotion)) { tip = false }
         }
+    }
+
+    /// Put every button away, or bring them back. Glass like its neighbours; while everything is hidden it is the only
+    /// thing left on the game, dimmed so it does not sit on the picture.
+    private var eyeButton: some View {
+        Button { unlessSwiped { overlay.chromeHidden.toggle() } } label: {
+            Image(systemName: overlay.chromeHidden ? "eye" : "eye.slash")
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .buttonStyle(.round)
+        .opacity(overlay.chromeHidden ? 0.35 : 1)
+        .gameControlHitRegion()
+        .sensoryFeedback(.selection, trigger: overlay.chromeHidden)
+        .accessibilityLabel(overlay.chromeHidden ? "Show buttons" : "Hide all buttons")
+        .accessibilityHint(overlay.chromeHidden ? "Brings back the pause button and touch controls" : "Leaves only this button over the game")
+    }
+
+    /// Fast forward, the pad, the key strip and the controls editor, for engines that take the host's keys.
+    @ViewBuilder private var gameButtons: some View {
+        if let fastest = overlay.speed?.options.last?.value, fastest > 1 {
+            // Held: the fastest speed; let go: the speed chosen in Pause.
+            Image(systemName: "forward.fill")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(Theme.textPrimary)
+                .frame(width: 44, height: 44)
+                .glass(Circle())
+                .overlay(Circle().fill(Theme.edge.opacity(holdingSpeed ? 0.18 : 0)))
+                .scaleEffect(holdingSpeed && !reduceMotion ? 0.9 : 1)
+                .animation(Theme.motion(Theme.press, reduce: reduceMotion), value: holdingSpeed)
+                .onLongPressGesture(minimumDuration: 0, maximumDistance: 60, perform: {}, onPressingChanged: { pressing in
+                    holdingSpeed = pressing
+                    onFastForward(pressing ? fastest : overlay.fastForward)
+                })
+                .gameControlHitRegion()
+                .accessibilityLabel("Fast forward while held")
+                .accessibilityAddTraits(.isButton)
+        }
+        Button { unlessSwiped { overlay.padVisible.toggle() } } label: {
+            Image(systemName: overlay.padVisible ? "dpad.fill" : "dpad")
+        }
+        .buttonStyle(.round)
+        .gameControlHitRegion()
+        .accessibilityLabel(overlay.padVisible ? "Hide touch controls" : "Show touch controls")
+        Button { unlessSwiped { overlay.keyStrip.toggle() } } label: {
+            Image(systemName: overlay.keyStrip ? "keyboard.chevron.compact.down" : "keyboard")
+        }
+        .buttonStyle(.round)
+        .gameControlHitRegion()
+        .accessibilityLabel(overlay.keyStrip ? "Hide keys" : "Show keys")
+        .accessibilityValue(overlay.keyStrip ? "Shown" : "Hidden")
+        Button { unlessSwiped(onEditControls) } label: { Image(systemName: "gamecontroller") }
+            .buttonStyle(.round)
+            .gameControlHitRegion()
+            .accessibilityLabel("Edit touch controls")
     }
 }
 

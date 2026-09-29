@@ -108,6 +108,25 @@ public protocol RuntimeHost: AnyObject, Sendable {
             positionPauseButton()
         }
 
+        /// Puts the pause button away with the rest of the buttons over the game, or brings it back. It fades; while
+        /// away it takes no touches, so the game gets them.
+        public var pauseButtonHidden = false {
+            didSet {
+                guard pauseButtonHidden != oldValue else { return }
+                let hidden = pauseButtonHidden
+                if !hidden {
+                    pauseButton.isHidden = false
+                }
+                UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+                    self.pauseButton.alpha = hidden ? 0 : 1
+                } completion: { _ in
+                    if self.pauseButtonHidden {
+                        self.pauseButton.isHidden = true
+                    }
+                }
+            }
+        }
+
         private func positionPauseButton() {
             let safe = overlayView.safeAreaLayoutGuide.layoutFrame
             guard safe.width > 0, safe.height > 0 else { return }

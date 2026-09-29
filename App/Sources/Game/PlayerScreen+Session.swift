@@ -61,7 +61,8 @@ extension PlayerScreen {
         if MouseMode(profile: model.profileValue("mouseMode", for: game.id)) == .touchpad {
             overlay.touchpadSpeed = model.profileValue("mouseSpeed", for: game.id).flatMap(Double.init) ?? 1
         }
-        if overlay.hasPad, controls == nil {
+        // Every engine gets the overlay: engines that read the screen themselves show only its eye.
+        if controls == nil {
             installControls()
         }
         host.onPauseRequested = { Task { await pause() } }
