@@ -127,9 +127,6 @@ public struct WebEngineDetector: Detector {
                 .fileContent,
                 "Plugin \(plugin.realRel) uses \(hits.joined(separator: ", "))"
             )
-            if let hard = MVMZPluginScanner.blocking.first(where: text.contains) {
-                r.partial.blockers.append(.nodePlugin(file: plugin.realRel, api: hard))
-            }
         }
     }
 

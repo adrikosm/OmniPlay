@@ -163,3 +163,36 @@ extension PartialDescriptor {
         }
     }
 }
+
+extension DetectionReport {
+    /// A plugin that mentions `child_process` or a native `.node` addon used to refuse the whole game; it is a named
+    /// warning now (`MVMZPluginScanner`). A report stored before that reads as if detected today, so games imported
+    /// then play without being imported again. Any other refusal stays as it was.
+    public func liftingPluginBlockers() -> DetectionReport {
+        let blockers = descriptor.blockers
+        let kept = blockers.filter { if case .nodePlugin = $0 { false } else { true } }
+        guard kept.count != blockers.count, case let .unsupported(reason) = outcome,
+              reason == blockers.map(OutcomeAggregator.describe).joined(separator: "; ") else { return self }
+        var report = self
+        report.descriptor.blockers = kept
+        let d = report.descriptor
+        if !kept.isEmpty {
+            report.outcome = .unsupported(reason: kept.map(OutcomeAggregator.describe).joined(separator: "; "))
+        } else if confidence < DetectionThresholds.limited {
+            report.outcome = .unknownEngine
+        } else if OutcomeAggregator.needsVersion(d.engine), d.generation == nil, d.version == nil {
+            report.outcome = .unknownVersion
+        } else if d.engine == .html5, d.profile.overrides["webSubFamily"] == nil {
+            report.outcome = .experimental
+        } else if confidence < DetectionThresholds.automatic || !d.warnings.isEmpty {
+            report.outcome = .supportedWithLimitations(OutcomeAggregator.limitations(
+                from: d.warnings,
+                lowConfidence: confidence < DetectionThresholds.automatic
+            ))
+        } else {
+            report.outcome = .supported
+        }
+        report.descriptor.grade = report.outcome.isPlayableClass ? .loadable : .refused
+        return report
+    }
+}

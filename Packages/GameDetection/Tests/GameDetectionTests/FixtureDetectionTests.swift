@@ -102,6 +102,7 @@ struct FixtureDetectionTests {
             let a = try enc.encode(first), b = try enc.encode(again)
             #expect(a == b, "two runs differ")
         }
+        try pluginsNeverRefuse()
         /// XP3 lengths come from untrusted bytes, including values that used to overflow signed addition.
         func chunk(_ tag: String, _ size: UInt64, _ body: Data = Data()) -> Data {
             var length = size.littleEndian
@@ -117,5 +118,44 @@ struct FixtureDetectionTests {
         let archive = try root.file("bad.xp3", Data(KiriKiriDetector.magicBytes) + withUnsafeBytes(of: &offset) { Data($0) })
         #expect(KiriKiriDetector.index(of: archive) == nil)
         #expect(KiriKiriDetector.inflate(Data(repeating: 0, count: 8), expected: 0) == nil)
+    }
+
+    /// An MZ game whose plugins name `child_process` and a native addon (VisuStella's Message Core and OrangeMapshot
+    /// do, for desktop-only features) plays, with the plugins named; a report stored when they refused it reads the
+    /// same, and a refusal for anything else stays.
+    func pluginsNeverRefuse() throws {
+        let root = try TemporaryGameRoot(name: "mz-child-process")
+        defer { root.remove() }
+        try root.file("index.html", Data("<html><body><script src='js/main.js'></script></body></html>".utf8))
+        try root.file("js/rmmz_core.js", Data("Utils.RPGMAKER_NAME = \"MZ\";\nUtils.RPGMAKER_VERSION = \"1.10.0\";\n".utf8))
+        try root.file("data/System.json", Data(#"{"gameTitle":"Plugins"}"#.utf8))
+        try root.file("js/plugins.js", Data(#"var $plugins = [{"name":"OpenFolder","status":true},{"name":"Steam","status":true}];"#.utf8))
+        try root.file("js/plugins/OpenFolder.js", Data("if (Utils.isNwjs()) { require('child_process').exec('explorer shots'); }".utf8))
+        try root.file("js/plugins/Steam.js", Data("if (Utils.isNwjs()) { const s = require(\"./greenworks.node\"); }".utf8))
+        let ctx = try ScanContext(root: root.url)
+        defer { ctx.close() }
+        let report = DetectionPipeline.standard.run(ctx, title: "Plugins", identityHash: "h")
+        #expect(report.outcome.isPlayableClass, "outcome \(report.outcome)")
+        #expect(report.descriptor.blockers.isEmpty)
+        #expect(report.descriptor.warnings.contains { if case .nodePlugin("js/plugins/OpenFolder.js", _) = $0 { true } else { false } })
+        #expect(report.liftingPluginBlockers() == report)
+
+        var stored = report
+        stored.descriptor.blockers = [
+            .nodePlugin(file: "js/plugins/OpenFolder.js", api: "child_process"),
+            .nodePlugin(file: "js/plugins/Steam.js", api: ".node\""),
+        ]
+        stored.outcome = .unsupported(reason: stored.descriptor.blockers.map(OutcomeAggregator.describe).joined(separator: "; "))
+        stored.descriptor.grade = .refused
+        let lifted = stored.liftingPluginBlockers()
+        #expect(lifted.outcome == report.outcome)
+        #expect(lifted.descriptor.blockers.isEmpty)
+        #expect(lifted.descriptor.grade == .loadable)
+
+        var other = stored
+        other.descriptor.blockers.append(.encryptedPCK)
+        other.outcome = .unsupported(reason: other.descriptor.blockers.map(OutcomeAggregator.describe).joined(separator: "; "))
+        #expect(other.liftingPluginBlockers().outcome == .unsupported(reason: "encrypted Godot package"))
+        #expect(other.liftingPluginBlockers().descriptor.blockers == [.encryptedPCK])
     }
 }

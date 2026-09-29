@@ -52,6 +52,27 @@
   if (Object.keys(modules).length) {
     // Anything that defines require also makes MV's Utils.isNwjs() true, which sends the game to require('nw.gui').
     modules["nw.gui"] = gui;
+    // Plugins start programs only on the desktop (open the screenshot folder, an editor in test play). There are no
+    // processes here: every call fails the way a missing program does, callbacks hear so once, and nothing throws at
+    // load time, so the plugin's other features keep working.
+    const noProcess = (name) => Object.assign(new Error("child_process." + name + " is not available in OmniPlay"), { code: "ENOSYS" });
+    const stream = () => lenient({ on() { return this; }, once() { return this; }, setEncoding() { return this; }, pipe: (to) => to });
+    const deadChild = (name, callback) => {
+      if (typeof callback === "function") setTimeout(() => callback(noProcess(name), "", ""), 0);
+      return lenient({ pid: undefined, exitCode: 1, killed: false, stdout: stream(), stderr: stream(), stdin: stream(),
+        kill: () => false, on() { return this; }, once() { return this; } });
+    };
+    const lastFunction = (args) => [...args].reverse().find((a) => typeof a === "function");
+    modules.child_process = {
+      exec: (...args) => deadChild("exec", lastFunction(args.slice(1))),
+      execFile: (...args) => deadChild("execFile", lastFunction(args.slice(1))),
+      spawn: () => deadChild("spawn"),
+      fork: () => deadChild("fork"),
+      execSync: () => { throw noProcess("execSync"); },
+      execFileSync: () => { throw noProcess("execFileSync"); },
+      spawnSync: () => ({ pid: 0, status: null, signal: null, output: [], stdout: "", stderr: "", error: noProcess("spawnSync") }),
+    };
+    modules.os = { platform: () => "ios", type: () => "Darwin", homedir: () => "/", tmpdir: () => "/tmp", hostname: () => "iPhone", EOL: "\n" };
     window.require = (name) => { const m = modules[String(name).replace(/^node:/, "")]; if (!m) throw new Error("Cannot find module '" + name + "'"); return m; };
   }
 })();

@@ -84,10 +84,13 @@ public struct RPGMakerMVMZDetector: Detector {
     }
 }
 
-/// Plugins that reach for Node or NW.js APIs: named per file so the player knows what may break.
+/// Plugins that reach for Node or NW.js APIs: named per file so the player knows what may break. None of them refuses
+/// the game: plugins reach for `child_process` or a native `.node` addon on the desktop only (opening a folder,
+/// Steam), behind `Utils.isNwjs()` or a test-play switch, and the web path runs without them. The NW.js shim answers
+/// `child_process` with a module whose every call fails politely.
 public struct MVMZPluginScanner: Detector {
     public let id = DetectorID.mvmzPlugins
-    public let version = 1
+    public let version = 2
     static let apis = [
         "require('fs'",
         "require(\"fs\"",
@@ -101,7 +104,6 @@ public struct MVMZPluginScanner: Detector {
         "fs.",
         "path.",
     ]
-    static let blocking = ["child_process", ".node\""]
     public init() {}
 
     public func probe(_ ctx: ScanContext, facts: StructureFacts) throws -> DetectorReport {
@@ -133,9 +135,6 @@ public struct MVMZPluginScanner: Detector {
                 .fileContent,
                 "Plugin \(name) uses \(hits.joined(separator: ", "))"
             )
-            if let hard = Self.blocking.first(where: text.contains) {
-                r.partial.blockers.append(.nodePlugin(file: path, api: hard))
-            }
         }
         return r
     }

@@ -71,11 +71,42 @@ extension AppModel {
         return snapshot.resolution
     }
 
-    /// The stored detection report and resolution for a game, read off the main actor.
+    /// The stored detection report and resolution for a game, read off the main actor. A report from before plugins
+    /// stopped refusing games reads as it would be detected today.
     nonisolated static func snapshot(for id: GameID, paths: AppPaths) -> DetectionSnapshot? {
         let url = paths.logs(game: id, session: UUID()).deletingLastPathComponent().appending(path: "detection.json")
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode(DetectionSnapshot.self, from: data)
+        guard let data = try? Data(contentsOf: url), var snapshot = try? JSONDecoder().decode(DetectionSnapshot.self, from: data)
+        else { return nil }
+        snapshot.report = snapshot.report.liftingPluginBlockers()
+        return snapshot
+    }
+
+    /// Games refused at import for a plugin that only names `child_process` or a native addon: their stored report,
+    /// runtime and library state are brought up to date once, so the shelf stops calling them refused.
+    func repairPluginRefusals(store: GameStore) async {
+        let paths = paths
+        let refused = await Task.detached { () -> [(GameRecord, DetectionSnapshot)] in
+            var out: [(GameRecord, DetectionSnapshot)] = []
+            for game in (try? store.games.fetchAll(limit: 10000)) ?? [] where game.compatibilityState == .refused {
+                // Refused at import, playable when read now: only a lifted plugin refusal changes that.
+                if let snapshot = Self.snapshot(for: game.id, paths: paths), snapshot.report.outcome.isPlayableClass {
+                    out.append((game, snapshot))
+                }
+            }
+            return out
+        }.value
+        for (game, stored) in refused {
+            var snapshot = stored
+            snapshot.resolution = await RuntimeResolver(registry: registry).resolve(snapshot.report, override: game.manualRuntimeOverride)
+            let url = paths.logs(game: game.id, session: UUID()).deletingLastPathComponent().appending(path: "detection.json")
+            try? JSONEncoder().encode(snapshot).write(to: url, options: .atomic)
+            guard var record = try? store.games.fetch(id: game.id) else { continue }
+            record.compatibilityState = .loadable
+            record.runtime = snapshot.resolution.selectedRuntime
+            record.runtimeVersion = snapshot.resolution.selectedRuntimeVersion
+            try? store.games.update(record)
+            OPLog.log(.ui, .info, "\(game.title) no longer refused for its plugins", session: HostSession.shared.sessionID)
+        }
     }
 
     /// Re-resolves a stored report against the runtimes this build actually has (a game imported before
