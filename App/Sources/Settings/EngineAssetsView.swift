@@ -54,13 +54,15 @@ struct EngineAssetsView: View {
                             .padding(.horizontal, Theme.s4)
                             .transition(.opacity)
                     }
-                    Text("Older RPG Maker games use shared art and music from the RTP. OmniPlay can't include it, so import the "
-                        + "RTP folder from your own copy of RPG Maker, or a ZIP of it. 2000 and 2003 RTPs are recognised by their files, including "
-                        +
-                        "translated releases. MIDI music (2000, 2003, XP and VX) plays through the soundfont from the next game you start.")
-                        .font(.footnote).foregroundStyle(Theme.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, Theme.s4)
+                    Text("""
+                    Older RPG Maker games use shared art and music from the RTP. OmniPlay can't include it, so import the \
+                    RTP folder from your own copy of RPG Maker, or a ZIP of it. 2000 and 2003 RTPs are recognised by their \
+                    files, including translated releases. MIDI music (2000, 2003, XP and VX) plays through the soundfont \
+                    from the next game you start.
+                    """)
+                    .font(.footnote).foregroundStyle(Theme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, Theme.s4)
                 }
                 .rise(1)
             }

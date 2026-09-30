@@ -53,7 +53,7 @@ public enum DesktopWebSaves {
         case "global": return .global
         case "config": return .config
         default:
-            guard stem.hasPrefix("file"), let n = Int(stem.dropFirst(4)), n >= 0, n < 10_000 else { return nil }
+            guard stem.hasPrefix("file"), let n = Int(stem.dropFirst(4)), n >= 0, n < 10000 else { return nil }
             return .slot(n)
         }
     }

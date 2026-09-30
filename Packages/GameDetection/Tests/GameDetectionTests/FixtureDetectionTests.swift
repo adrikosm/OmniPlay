@@ -137,7 +137,13 @@ struct FixtureDetectionTests {
         let report = DetectionPipeline.standard.run(ctx, title: "Plugins", identityHash: "h")
         #expect(report.outcome.isPlayableClass, "outcome \(report.outcome)")
         #expect(report.descriptor.blockers.isEmpty)
-        #expect(report.descriptor.warnings.contains { if case .nodePlugin("js/plugins/OpenFolder.js", _) = $0 { true } else { false } })
+        #expect(report.descriptor.warnings.contains {
+            if case .nodePlugin("js/plugins/OpenFolder.js", _) = $0 {
+                true
+            } else {
+                false
+            }
+        })
         #expect(report.liftingPluginBlockers() == report)
 
         var stored = report

@@ -121,7 +121,8 @@ struct OverlayControls: View {
                     .padding(.trailing, 54)
                     // Swipe down on the buttons to put the pad away, up to bring it back.
                     .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { drag in
-                        guard overlay.hasPad, !overlay.chromeHidden, abs(drag.translation.height) > abs(drag.translation.width) else { return }
+                        guard overlay.hasPad, !overlay.chromeHidden,
+                              abs(drag.translation.height) > abs(drag.translation.width) else { return }
                         swipedAt = .now
                         overlay.padVisible = drag.translation.height < 0
                     })
@@ -177,7 +178,9 @@ struct OverlayControls: View {
         .gameControlHitRegion()
         .sensoryFeedback(.selection, trigger: overlay.chromeHidden)
         .accessibilityLabel(overlay.chromeHidden ? "Show buttons" : "Hide all buttons")
-        .accessibilityHint(overlay.chromeHidden ? "Brings back the pause button and touch controls" : "Leaves only this button over the game")
+        .accessibilityHint(
+            overlay.chromeHidden ? "Brings back the pause button and touch controls" : "Leaves only this button over the game"
+        )
     }
 
     /// Fast forward, the pad, the key strip and the controls editor, for engines that take the host's keys.

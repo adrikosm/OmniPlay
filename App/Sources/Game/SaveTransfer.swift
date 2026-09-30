@@ -123,33 +123,7 @@ struct SaveTransfer: Sendable {
                 }
             }
         }
-        var warnings: [String] = []
-        var refused: [String] = []
-        for file in slotFiles {
-            let v = SaveValidator.validate(
-                file: file,
-                family: target.family,
-                expectedTitleHash: target.identityHash,
-                manifestTitleHash: manifest?.titleHash
-            )
-            if !v.isAcceptable {
-                refused.append("\(file.lastPathComponent): \(v.warnings.first ?? "unrecognised")"); continue
-            }
-            if !v
-                .matchesFamily {
-                warnings.append("\(file.lastPathComponent) is a \(v.format.rawValue) save; this game uses \(target.family.rawValue).")
-            }
-            if case let .foreign(hash) = v
-                .titleMatch {
-                warnings
-                    .append(
-                        "\(file.lastPathComponent) was exported from a different game (\(hash.prefix(12))). Loading it here can misbehave."
-                    )
-            }
-        }
-        if let manifest, manifest.titleHash != target.identityHash, !warnings.contains(where: { $0.contains("different game") }) {
-            warnings.append("This export came from \"\(manifest.title)\", not from \(target.title).")
-        }
+        let (warnings, refused) = check(slotFiles, manifest: manifest)
         guard refused.isEmpty else { return .nothingRecognised(refused) }
         if !warnings.isEmpty, !confirmed {
             return .needsConfirmation(Array(Set(warnings)).sorted())
@@ -187,6 +161,34 @@ struct SaveTransfer: Sendable {
         }
         OPLog.log(.save, .info, "imported \(plan.count + writes.count) save files into \(target.title)")
         return .installed(slots: plan.count - persistentFiles.count + desktop.slots, persistent: persistentFiles.count + desktop.persistent)
+    }
+
+    /// Refusals name files that are not saves; warnings name saves from another engine or another game.
+    private func check(_ slotFiles: [URL], manifest: SaveExportManifest?) -> (warnings: [String], refused: [String]) {
+        var warnings: [String] = []
+        var refused: [String] = []
+        for file in slotFiles {
+            let name = file.lastPathComponent
+            let v = SaveValidator.validate(
+                file: file,
+                family: target.family,
+                expectedTitleHash: target.identityHash,
+                manifestTitleHash: manifest?.titleHash
+            )
+            if !v.isAcceptable {
+                refused.append("\(name): \(v.warnings.first ?? "unrecognised")"); continue
+            }
+            if !v.matchesFamily {
+                warnings.append("\(name) is a \(v.format.rawValue) save; this game uses \(target.family.rawValue).")
+            }
+            if case let .foreign(hash) = v.titleMatch {
+                warnings.append("\(name) was exported from a different game (\(hash.prefix(12))). Loading it here can misbehave.")
+            }
+        }
+        if let manifest, manifest.titleHash != target.identityHash, !warnings.contains(where: { $0.contains("different game") }) {
+            warnings.append("This export came from \"\(manifest.title)\", not from \(target.title).")
+        }
+        return (warnings, refused)
     }
 
     // MARK: PC saves of RPG Maker MV/MZ

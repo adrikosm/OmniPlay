@@ -39,7 +39,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
             return scene?.keyWindow ?? scene?.windows.first
         }
-        set {} // UIKit never assigns it under the scene lifecycle; nothing to keep
+        set { _ = newValue } // UIKit never assigns it under the scene lifecycle; nothing to keep
     }
 }
 

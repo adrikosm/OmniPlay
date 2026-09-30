@@ -159,7 +159,11 @@ public enum OriginalGuard {
     /// Which file a path names, and when it last changed: a replaced manifest is a different file.
     private static func identity(of url: URL) -> [String]? {
         guard let a = try? FileManager.default.attributesOfItem(atPath: url.path(percentEncoded: false)) else { return nil }
-        return ["\(a[.systemFileNumber] ?? "")", "\((a[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate ?? 0)", "\(a[.size] ?? "")"]
+        return [
+            "\(a[.systemFileNumber] ?? "")",
+            "\((a[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate ?? 0)",
+            "\(a[.size] ?? "")",
+        ]
     }
 
     private static func treeSize(_ root: URL) -> Int64 {
