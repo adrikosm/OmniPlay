@@ -1,7 +1,7 @@
 {
   "arch": "arm64",
   "artefact": "Native/prebuilt/scummvm",
-  "built_at": "2026-09-28T05:57:48+00:00",
+  "built_at": "2026-09-30T20:52:14+00:00",
   "component": "scummvm",
   "flags": {
     "iphoneos_min": "27.0",
@@ -10,7 +10,7 @@
   "outputs": {
     "ScummVM.xcframework/Info.plist": "92655e7755004083003091266a73b3e83a8c2fbe6eeef8689b751e6ec63f65ae",
     "ScummVM.xcframework/ios-arm64-simulator/ScummVM.framework/Info.plist": "7a30c0f19222f63c2e4c78a530a39d820190603eeef6586bf4533bfe2f618128",
-    "ScummVM.xcframework/ios-arm64-simulator/ScummVM.framework/ScummVM": "a5ddacb5a45a05b7f9b9a3b794ebcc7f7610d4d44d1e15017b5514be7721c2a0",
+    "ScummVM.xcframework/ios-arm64-simulator/ScummVM.framework/ScummVM": "96d3ed5b74dbd7d4285c99a35309f6105a6bb497ed0344a2d6bae3306e3ad00e",
     "ScummVM.xcframework/ios-arm64-simulator/ScummVM.framework/_CodeSignature/CodeResources": "e0de4edbc943a874dee4b8c2d6edbbf1d07ae7174444196a38fc1a764b7608eb",
     "ScummVM.xcframework/ios-arm64-simulator/ScummVM.framework/data/Roland_SC-55.sf2": "fca3e514b635a21789d4224e84865d2954a2a914d46b64aa8219ddb565c44869",
     "ScummVM.xcframework/ios-arm64-simulator/ScummVM.framework/data/achievements.dat": "6f5394edee3a2ed9165d1ac0611a5e02aabe40e7ceca9e51926d01b23f157493",
@@ -35,7 +35,7 @@
     "ScummVM.xcframework/ios-arm64-simulator/ScummVM.framework/data/translations.dat": "88e4a57aa5d58b213f6a066518eb8a1cb1046132770987cc7dd8b06ce80e0156",
     "ScummVM.xcframework/ios-arm64-simulator/ScummVM.framework/data/wintermute.zip": "7559d45435dee4b49c339a892b73078a3123b33632567b02282847bed0e70060",
     "ScummVM.xcframework/ios-arm64/ScummVM.framework/Info.plist": "f408938db818c837c352c6bed577f32208924c35d72dbb04bb3e450242d4be81",
-    "ScummVM.xcframework/ios-arm64/ScummVM.framework/ScummVM": "97d9a51aeb4bef6dde95bc1f9b74aea4751a57d3b93f9db420a0628103ee65d4",
+    "ScummVM.xcframework/ios-arm64/ScummVM.framework/ScummVM": "834d675383279ee58c57e9d606c1e9833c79504a83e28f215847f9de38b8afe3",
     "ScummVM.xcframework/ios-arm64/ScummVM.framework/_CodeSignature/CodeResources": "5da4b1de43daddc9e20aa6f254e86d0effdabaca749b8ecbae5ca73d0bfeda0d",
     "ScummVM.xcframework/ios-arm64/ScummVM.framework/data/Roland_SC-55.sf2": "fca3e514b635a21789d4224e84865d2954a2a914d46b64aa8219ddb565c44869",
     "ScummVM.xcframework/ios-arm64/ScummVM.framework/data/achievements.dat": "6f5394edee3a2ed9165d1ac0611a5e02aabe40e7ceca9e51926d01b23f157493",

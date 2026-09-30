@@ -1,20 +1,48 @@
 --- a/backends/platform/ios7/ios7_osys_video.mm
 +++ b/backends/platform/ios7/ios7_osys_video.mm
-@@ -112,12 +112,12 @@
+@@ -103,21 +103,26 @@
+ 	dispatch_async(dispatch_get_main_queue(), ^{
+ 		[[UIApplication sharedApplication] setIdleTimerDisabled:YES];
+ 	});
++#if TARGET_OS_IOS
++	// OmniPlay: the game's orientation before isInGame, so the view never sees a game without its orientation mask.
++	applyOrientationSettings();
++#endif
+ 	[[iOS7AppDelegate iPhoneView] setIsInGame:YES];
+ 
+ #if TARGET_OS_IOS
+-	applyOrientationSettings();
+ 	updateTouchMode();
+ 
  	// Automatically open the keyboard when starting a game and in portrait mode.
  	// This is preferred for text input games and there's a lot of screen space to
  	// utilize for the keyboard anyway.
 -	if (_screenOrientation == kScreenOrientationPortrait ||
 -		_screenOrientation == kScreenOrientationFlippedPortrait) {
 -		execute_on_main_thread(^ {
-+	execute_on_main_thread(^ {
-+		// The host can attach/rotate the window before the engine drains its orientation event.
-+		// Query UIKit here; the cached engine orientation can still describe the previous screen.
-+		if (UIInterfaceOrientationIsPortrait([iOS7AppDelegate currentOrientation]))
- 			[[iOS7AppDelegate iPhoneView] showKeyboard];
+-			[[iOS7AppDelegate iPhoneView] showKeyboard];
 -		});
 -	}
++	// OmniPlay: only for a game that may be shown in portrait. The host rotates a landscape game after this, and a
++	// keyboard opened meanwhile stays up whenever a hardware keyboard is attached.
++	execute_on_main_thread(^ {
++		iPhoneView *view = [iOS7AppDelegate iPhoneView];
++		if (([view supportedScreenOrientations] & UIInterfaceOrientationMaskPortrait) &&
++			UIInterfaceOrientationIsPortrait([iOS7AppDelegate currentOrientation]))
++			[view showKeyboard];
 +	});
  #endif
  }
  
+--- a/backends/platform/ios7/ios7_video.mm
++++ b/backends/platform/ios7/ios7_video.mm
+@@ -629,7 +629,8 @@
+ 		[self hideKeyboard];
+ 	} else {
+ 		// Automatically open the keyboard if changing orientation in a game
+-		if ([self isInGame])
++		// OmniPlay: not for a landscape-only game, whose window can appear in portrait just before the host rotates it.
++		if ([self isInGame] && ([self supportedScreenOrientations] & UIInterfaceOrientationMaskPortrait))
+ 			[self showKeyboard];
+ 	}
+ }
