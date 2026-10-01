@@ -49,5 +49,9 @@ struct GameStoreTests {
         #expect(try again.games.search("hidden").isEmpty)
         #expect(try again.games.search("   ").isEmpty)
         #expect(try again.games.fetch(id: hidden.id)?.hidden == true)
+
+        // A family removed from the app (Wolf RPG) can still be stored; the library must keep loading.
+        try again.pool.write { try $0.execute(sql: "UPDATE games SET engine = 'wolfRPG' WHERE id = ?", arguments: [visible.id]) }
+        #expect(try again.games.fetch(id: visible.id)?.engine == .unknown)
     }
 }

@@ -5,7 +5,7 @@ import GameCore
 public struct StructureFacts: Sendable, Hashable {
     public enum Marker: String, Sendable, CaseIterable, Hashable {
         case gameIni, rgssArchive, renpyDir, gameDir, packageJSON, rpgCoreJS, rmmzCoreJS, systemJSON, rpgRTLdb, pck
-        case unityPlayer, gameAssembly, unityData, engineDir, dataWin, mainLua, nscriptDat, swf, acsetupCfg, xp3, wolf
+        case unityPlayer, gameAssembly, unityData, engineDir, dataWin, mainLua, nscriptDat, swf, acsetupCfg, xp3
     }
 
     public var topLevelNames: [String] = []
@@ -70,9 +70,6 @@ public struct StructureFacts: Sendable, Hashable {
         }
         if !ctx.glob("*.xp3", limit: 1).isEmpty {
             f.markers.insert(.xp3)
-        }
-        if !ctx.glob("data/*.wolf", limit: 1).isEmpty || !ctx.glob("data/*/*.wolf", limit: 1).isEmpty {
-            f.markers.insert(.wolf)
         }
         return f
     }

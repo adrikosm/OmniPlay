@@ -54,10 +54,6 @@ public struct RefusalDetectors: Detector {
                 0.9,
                 refused: true
             )
-        } else if facts.markers.contains(.wolf) || ctx.exists("Data/BasicData/Game.dat") {
-            r.claimFamily(.wolfRPG, 0.9)
-            r.unsupported = "Wolf RPG Editor games are not supported yet (tracked as post-MVP research)"
-            r.add(id, .present(path: "Data/*.wolf"), 0.9, .fileName, "Wolf RPG Editor data files")
         } else if !ctx.glob("*.ypf", limit: 1).isEmpty {
             apply(
                 &r,

@@ -117,7 +117,6 @@ extension EngineFamily {
         case .smileGameBuilder: "Smile Game Builder"
         case .srpgStudio: "SRPG Studio"
         case .pixelGameMakerMV: "Pixel Game Maker MV"
-        case .wolfRPG: "Wolf RPG Editor"
         case .kirikiri: "KiriKiri"
         case .yuris: "YU-RIS"
         case .artemis: "Artemis"

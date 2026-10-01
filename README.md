@@ -3,7 +3,7 @@
 OmniPlay is a personal-use, sideloaded iOS 27 game launcher and runtime host. It imports a game
 distribution in a common container, identifies the engine and version, and runs it offline with a
 matching embedded runtime: RPG Maker (MV/MZ through WebKit, XP/VX/VX Ace through mkxp-z, 2000/2003
-through EasyRPG), Ren'Py, plain HTML5 titles ScummVM, Godot, Wolf RPG, KiriKiri and TyranoBuilder. These are MVP targets; runtime
+through EasyRPG), Ren'Py, plain HTML5 titles, ScummVM, Godot, KiriKiri and TyranoBuilder. These are MVP targets; runtime
 availability is still being implemented. Unity/Unite is best-effort coverage. Saves, controls, mods and diagnostics stay owned by the host. It runs what it can
 identify and explains what it cannot; it does not claim universal compatibility.
 

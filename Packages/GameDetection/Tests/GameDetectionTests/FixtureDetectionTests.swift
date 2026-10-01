@@ -67,7 +67,6 @@ struct FixtureDetectionTests {
         Row(fixture: "unity-native-mono", family: .unityNative, generation: nil, version: nil, runtime: nil, playable: false),
         Row(fixture: "unreal-min", family: .unreal, generation: nil, version: nil, runtime: nil, playable: false),
         Row(fixture: "gamemaker-min", family: .gameMaker, generation: nil, version: nil, runtime: nil, playable: false),
-        Row(fixture: "wolf-min", family: .wolfRPG, generation: nil, version: nil, runtime: nil, playable: false),
         Row(fixture: "kirikiri-min", family: .kirikiri, generation: nil, version: nil, runtime: nil, playable: false),
         Row(fixture: "unknown-min", family: .unknown, generation: nil, version: nil, runtime: nil, playable: false),
     ]

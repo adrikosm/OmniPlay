@@ -4,8 +4,14 @@ public enum EngineFamily: String, Codable, Sendable, CaseIterable, Hashable {
     case rpgMakerMV, rpgMakerMZ, rpgMakerXP, rpgMakerVX, rpgMakerVXAce, rpgMaker2000, rpgMaker2003
     case renpy, html5, godot, scummvm, love, onscripter, tic80, flash, unityWeb, godotWeb
     case unityNative, unreal, gameMaker, clickteam, bakin, smileGameBuilder, srpgStudio, pixelGameMakerMV
-    case wolfRPG, kirikiri, yuris, artemis, siglus
+    case kirikiri, yuris, artemis, siglus
     case unknown
+
+    /// A family no longer in the app (Wolf RPG, removed 1 Oct 2026) can still be stored in a library or a game's
+    /// detection report; it reads as unknown instead of failing the whole library.
+    public init(from decoder: Decoder) throws {
+        self = try Self(rawValue: decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
 
     public var tier: EligibilityTier {
         switch self {
@@ -13,7 +19,7 @@ public enum EngineFamily: String, Codable, Sendable, CaseIterable, Hashable {
         case .rpgMaker2000, .rpgMaker2003, .scummvm, .love, .onscripter, .tic80, .flash, .unityWeb, .godotWeb: .breadth
         case .godot, .kirikiri: .opportunistic
         case .unityNative, .unreal, .gameMaker, .clickteam, .bakin, .smileGameBuilder, .srpgStudio, .pixelGameMakerMV,
-             .wolfRPG, .yuris, .artemis, .siglus, .unknown: .refused
+             .yuris, .artemis, .siglus, .unknown: .refused
         }
     }
 }
