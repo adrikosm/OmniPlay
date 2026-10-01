@@ -41,6 +41,9 @@
 
         /// Drops a deleted game's WebKit storage (its per-game data store).
         public static func removeData(for game: GameID) async {
+            // remove(forIdentifier:) answers on WebKit's main run loop, which only exists once WebKit is set up; in a
+            // launch that has not shown a web game yet it crashed the app. Any data store sets WebKit up.
+            _ = WKWebsiteDataStore.default()
             try? await WKWebsiteDataStore.remove(forIdentifier: game.rawValue)
         }
 

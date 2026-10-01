@@ -52,5 +52,19 @@ final class WebSliceTests: XCTestCase {
         let store = app.descendants(matching: .any)["persistentStore.webLocalStorage"].firstMatch
         XCTAssertTrue(store.waitForExistence(timeout: 10), "web storage store row missing")
         XCTAssertTrue(store.label.contains("1 file"), "expected the runs counter file, got: \(store.label)")
+
+        // Shipped 30 Sep: deleting a game before any web game had run in that launch crashed inside WebKit.
+        app.terminate()
+        app = launch(["--open-first-game"])
+        let delete = app.buttons["Delete game"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 15))
+        for _ in 0 ..< 5 where !delete.isHittable {
+            app.swipeUp()
+        }
+        delete.tap()
+        app.buttons["Delete game and all its data"].tap()
+        XCTAssertTrue(delete.waitForNonExistence(timeout: 15), "the game page did not close after deleting")
+        sleep(2)
+        XCTAssertEqual(app.state, .runningForeground, "deleting the game ended the app")
     }
 }
