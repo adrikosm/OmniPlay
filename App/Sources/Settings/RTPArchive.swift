@@ -37,7 +37,34 @@ enum RTPArchive {
     }
 
     /// Unpacks `url` off the main actor's caller; throws `Failure` (or `StorageError` when the disk is too full).
-    static func extract(_ url: URL, paths: AppPaths) throws -> Extracted {
+    /// The official downloads are installers inside a ZIP; such an archive is followed into its installer once.
+    static func extract(_ url: URL, paths: AppPaths, followInstaller: Bool = true) throws -> Extracted {
+        let extracted = try unpack(url, paths: paths)
+        guard followInstaller, let installer = wrappedInstaller(in: extracted.folder) else { return extracted }
+        defer { try? FileManager.default.removeItem(at: extracted.staging) }
+        return try extract(installer, paths: paths, followInstaller: false)
+    }
+
+    /// The largest `.exe` of an archive that holds only files (at most inside one wrapper folder): an installer, not an
+    /// unpacked RTP, which always has folders of its own (Graphics, Audio…).
+    private static func wrappedInstaller(in folder: URL) -> URL? {
+        let keys: [URLResourceKey] = [.isDirectoryKey, .fileSizeKey]
+        guard let walk = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: keys) else { return nil }
+        var best: (url: URL, size: Int)?
+        for case let url as URL in walk {
+            let values = try? url.resourceValues(forKeys: Set(keys))
+            if values?.isDirectory == true {
+                if walk.level > 1 {
+                    return nil
+                }
+            } else if url.pathExtension.lowercased() == "exe", (values?.fileSize ?? 0) > best?.size ?? -1 {
+                best = (url, values?.fileSize ?? 0)
+            }
+        }
+        return best?.url
+    }
+
+    private static func unpack(_ url: URL, paths: AppPaths) throws -> Extracted {
         let staging = paths.importStaging(txn: UUID())
         let folder = staging.appending(path: "RTP", directoryHint: .isDirectory)
         do {
