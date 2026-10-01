@@ -149,7 +149,9 @@ final class AppModel {
                     SampleLibrary.insert(into: store)
                 }
                 // A relative path is under Documents: on the phone, games are copied into the app's own container.
-                if let path = DebugLaunch.value(for: "--import") {
+                // Repeating the flag queues several imports at once.
+                let args = ProcessInfo.processInfo.arguments
+                for (flag, path) in zip(args, args.dropFirst()) where flag == "--import" {
                     await imports?.enqueue(path.hasPrefix("/") ? URL(filePath: path) : URL.documentsDirectory.appending(path: path))
                 }
             #endif

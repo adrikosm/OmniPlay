@@ -90,7 +90,8 @@ extension AppModel {
             OPLog.log(
                 .media,
                 .info,
-                "prepared \(converted) media files for \(engine.rawValue) in \(started.duration(to: .now)); \(plan.failed.count) failed"
+                (cancel.isSet ? "left during preparation of \(converted) media files" : "prepared \(converted) media files")
+                    + " for \(engine.rawValue) in \(started.duration(to: .now)); \(plan.failed.count) failed"
             )
             recordMediaJobs(plan, game: game, generated: generated)
         }

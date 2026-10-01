@@ -121,16 +121,18 @@ public actor ImportTransaction {
 
     public func transition(to next: ImportState) {
         guard !state.isTerminal else { return }
+        // Progress arrives several times a second within one phase; only a new phase is logged and timed.
+        let newPhase = next.label != state.label
         state = next
         history.append(next)
         if next.isTerminal {
             signpost.end()
-        } else {
+        } else if newPhase {
             signpost.enter("import phase", next.label)
         }
         if case let .failed(failure) = next {
             OPLog.log(.importer, .error, "txn \(id) → failed: \(failure)")
-        } else {
+        } else if newPhase {
             OPLog.log(.importer, .info, "txn \(id) → \(next.label)")
         }
         for c in continuations.values {
