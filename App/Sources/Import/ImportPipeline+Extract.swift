@@ -168,10 +168,11 @@ extension ImportPipeline {
         located: LocatedRoot,
         pePayload: PEPayload?,
         title: String,
-        fingerprint: String
+        fingerprint: String,
+        indexFile: URL
     ) throws -> DetectionReport {
-        let ctx = try ScanContext(root: root, sidecars: located.sidecars, pePayload: pePayload)
-        defer { ctx.close() }
+        // Kept in staging: the commit copies it in as the game's `original` layer instead of walking the tree again.
+        let ctx = try ScanContext(root: root, sidecars: located.sidecars, pePayload: pePayload, indexFile: indexFile)
         return DetectionPipeline.standard.run(ctx, title: title, identityHash: fingerprint, rootRelativePath: located.relativePath)
     }
 

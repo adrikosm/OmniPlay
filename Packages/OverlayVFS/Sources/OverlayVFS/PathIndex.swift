@@ -80,6 +80,19 @@ public final class PathIndex: Sendable {
         }
     }
 
+    /// `key` in each of `layers` that has it, in one query (one per request instead of one per layer).
+    public func lookup(layers: [String], key: String) throws -> [IndexedEntry] {
+        try queue.read { db in
+            let marks = Array(repeating: "?", count: layers.count).joined(separator: ",")
+            return try IndexedEntry.fetchAll(
+                db.cachedStatement(sql: """
+                SELECT layer, key, real_rel AS realRel, is_dir AS isDir, size FROM entries WHERE key = ? AND layer IN (\(marks))
+                """),
+                arguments: StatementArguments([key] + layers)
+            )
+        }
+    }
+
     /// SQLite's backup API includes committed WAL pages and uses bounded page buffers.
     public func backup(to destination: URL) throws {
         try queue.backup(to: DatabaseQueue(path: destination.path(percentEncoded: false)))
@@ -151,6 +164,23 @@ public final class PathIndex: Sendable {
     public func rebuild(layer: String, root: URL) throws {
         try invalidate(layer: layer)
         try build(layer: layer, root: root)
+    }
+
+    /// Replaces `layer` with `source`'s rows (and collisions) from the index at `file`, which was built from the same
+    /// tree: the import's detection index becomes the game's `original` layer without walking the tree again.
+    public func rebuild(layer: String, copying source: String, from file: URL) throws {
+        try queue.writeWithoutTransaction { db in
+            try db.execute(sql: "ATTACH DATABASE ? AS source", arguments: [file.path(percentEncoded: false)])
+            defer { try? db.execute(sql: "DETACH DATABASE source") }
+            try db.inTransaction {
+                try db.execute(sql: """
+                DELETE FROM main.entries WHERE layer = :layer; DELETE FROM main.collisions WHERE layer = :layer;
+                INSERT INTO main.entries SELECT :layer, key, real_rel, is_dir, size FROM source.entries WHERE layer = :source;
+                INSERT INTO main.collisions SELECT :layer, key, kept_real, dropped_real FROM source.collisions WHERE layer = :source;
+                """, arguments: ["layer": layer, "source": source])
+                return .commit
+            }
+        }
     }
 
     /// Streams the tree into the index, 500 rows per transaction. Case-only collisions keep the first entry

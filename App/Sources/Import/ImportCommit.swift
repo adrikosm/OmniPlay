@@ -14,6 +14,8 @@ extension ImportPipeline {
     struct CommitPlan {
         let stagedRoot: URL, located: LocatedRoot, title: String, report: DetectionReport, resolution: RuntimeResolution
         let bytes: Int64, source: ImportSource, kind: ContainerKind, fingerprint: String
+        /// Detection's index of the located root (layer `ScanContext.layer`), copied in as `original`.
+        let scanIndex: URL
     }
 
     func commit(_ plan: CommitPlan) async throws -> GameID {
@@ -198,7 +200,8 @@ extension ImportPipeline {
         }
     }
 
-    /// Moves the staged tree into place, seals it, indexes it and writes game.json plus the full detection report.
+    /// Moves the staged tree into place, seals it, indexes it (copying detection's index of the same tree) and writes
+    /// game.json plus the full detection report.
     /// The manifest's hashes wait (`completeHashingLater`): hashing read every byte of the game a second time before it
     /// could appear in the library, and nothing needs them while it is being played.
     func install(_ plan: CommitPlan, into id: GameID) throws {
@@ -206,11 +209,11 @@ extension ImportPipeline {
         let original = paths.tier(.original, for: id)
         try FileManager.default.moveItem(at: plan.stagedRoot, to: original)
         try OriginalGuard.seal(originalRoot: original, manifest: gameRoot.appending(path: "original.manifest"), hashing: .deferred)
-        let located = plan.located.relativePath.isEmpty ? original : original.appending(
-            path: plan.located.relativePath,
-            directoryHint: .isDirectory
+        try PathIndex.open(at: gameRoot.appending(path: "index.sqlite")).rebuild(
+            layer: "original",
+            copying: ScanContext.layer,
+            from: plan.scanIndex
         )
-        try PathIndex.open(at: gameRoot.appending(path: "index.sqlite")).rebuild(layer: "original", root: located)
         var d = plan.report.descriptor
         d.id = id
         d.title = plan.title

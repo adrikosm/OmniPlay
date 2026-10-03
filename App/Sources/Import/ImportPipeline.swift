@@ -68,7 +68,15 @@ struct ImportPipeline: Sendable {
         let title = Self.title(from: kind == .folder ? firstFolder.map { URL(filePath: $0) } ?? source.url : source.url)
         // Only a Windows program carries a payload worth reading; other sources skip the probe.
         let payload = kind == .pe ? try? PEOverlayScanner.scan(source.url) : nil
-        let report = try detect(root: gameRoot, located: located, pePayload: payload, title: title, fingerprint: fingerprint)
+        let scanIndex = staging.appending(path: "scan.sqlite")
+        let report = try detect(
+            root: gameRoot,
+            located: located,
+            pePayload: payload,
+            title: title,
+            fingerprint: fingerprint,
+            indexFile: scanIndex
+        )
         await txn.transition(to: .resolvingRuntime)
         let resolution = await RuntimeResolver(registry: registry).resolve(report)
 
@@ -82,7 +90,8 @@ struct ImportPipeline: Sendable {
             bytes: audited.writtenBytes,
             source: source,
             kind: kind,
-            fingerprint: fingerprint
+            fingerprint: fingerprint,
+            scanIndex: scanIndex
         )
         if case let .replace(existing) = duplicates {
             return try await replace(existing, with: plan)

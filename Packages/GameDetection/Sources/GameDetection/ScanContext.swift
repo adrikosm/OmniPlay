@@ -13,14 +13,19 @@ public final class ScanContext: Sendable {
     public let pePayload: PEPayload?
     public static let layer = "scan"
 
-    /// Builds a temporary index of `root` (deleted with `close()`); `pePayload` describes the executable the game came from, if any.
-    public init(root: URL, sidecars: ImportSidecars = ImportSidecars(), pePayload: PEPayload? = nil) throws {
+    /// Builds an index of `root` at `indexFile` (a temporary file by default, deleted with `close()`); `pePayload`
+    /// describes the executable the game came from, if any.
+    public init(
+        root: URL,
+        sidecars: ImportSidecars = ImportSidecars(),
+        pePayload: PEPayload? = nil,
+        indexFile: URL = FileManager.default.temporaryDirectory.appending(path: "omniplay-scan-\(UUID().uuidString).sqlite")
+    ) throws {
         self.root = root
         self.sidecars = sidecars
         self.pePayload = pePayload
-        let file = FileManager.default.temporaryDirectory.appending(path: "omniplay-scan-\(UUID().uuidString).sqlite")
-        index = try PathIndex.open(at: file)
-        try index.build(layer: Self.layer, root: root)
+        index = try PathIndex.open(at: indexFile)
+        try index.rebuild(layer: Self.layer, root: root)
     }
 
     public func close() {
