@@ -18,7 +18,8 @@ public enum BoundedDecode {
         return out.prefix(written)
     }
 
-    /// LZString `decompressFromBase64`, as RPG Maker MV saves use, stopping once `limit` characters are out.
+    /// LZString `decompressFromBase64`, as RPG Maker MV saves use, stopping once `limit` UTF-16 units are out. Works on
+    /// units like the JavaScript original (and `LZString`): a grapheme count never grows, so it cannot bound the output.
     public static func lzStringBase64(_ text: String, limit: Int = 64 << 10) -> String? {
         let alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")
         var reverse: [Character: Int] = [:]
@@ -27,9 +28,10 @@ public enum BoundedDecode {
         }
         let input = Array(text)
         guard !input.isEmpty else { return nil }
-        var dictionary: [Int: String] = [:]
+        var dictionary: [Int: [UInt16]] = [:]
         var enlargeIn = 4, dictSize = 4, numBits = 3
-        var result = ""
+        var result: [UInt16] = []
+        func decoded() -> String { String(decoding: result, as: UTF16.self) }
         var value = 0, position = 32, index = 1
         guard let first = reverse[input[0]] else { return nil }
         value = first
@@ -49,8 +51,8 @@ public enum BoundedDecode {
             }
             return bits
         }
-        func literal(_ width: Int) -> String? { readBits(width).flatMap { UnicodeScalar($0).map { String(Character($0)) } } }
-        var entry: String
+        func literal(_ width: Int) -> [UInt16]? { readBits(width).map { [UInt16($0)] } }
+        var entry: [UInt16]
         switch readBits(2) {
         case 0: guard let c = literal(8) else { return nil }; entry = c
         case 1: guard let c = literal(16) else { return nil }; entry = c
@@ -60,15 +62,15 @@ public enum BoundedDecode {
         var w = entry
         result += entry
         while result.count < limit {
-            guard var c = readBits(numBits) else { return result }
+            guard var c = readBits(numBits) else { return decoded() }
             switch c {
             case 0, 1:
-                guard let ch = literal(c == 0 ? 8 : 16) else { return result }
+                guard let ch = literal(c == 0 ? 8 : 16) else { return decoded() }
                 dictionary[dictSize] = ch
                 c = dictSize
                 dictSize += 1
                 enlargeIn -= 1
-            case 2: return result
+            case 2: return decoded()
             default: break
             }
             if enlargeIn == 0 {
@@ -76,14 +78,14 @@ public enum BoundedDecode {
             }
             if let known = dictionary[c] {
                 entry = known
-            } else if c == dictSize, let firstChar = w.first {
-                entry = w + String(firstChar)
+            } else if c == dictSize, let firstUnit = w.first {
+                entry = w + [firstUnit]
             } else {
-                return result
+                return decoded()
             }
             result += entry
-            if let firstChar = entry.first {
-                dictionary[dictSize] = w + String(firstChar)
+            if let firstUnit = entry.first {
+                dictionary[dictSize] = w + [firstUnit]
             }
             dictSize += 1
             enlargeIn -= 1
@@ -92,6 +94,6 @@ public enum BoundedDecode {
                 enlargeIn = 1 << numBits; numBits += 1
             }
         }
-        return result
+        return decoded()
     }
 }

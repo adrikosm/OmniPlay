@@ -93,7 +93,7 @@ struct SaveSlotDetails: View {
     let close: () -> Void
     let onEdit: (() -> Void)?
     let onDuplicate: (() -> Void)?
-    let onDelete: () -> Void
+    let onDelete: (() -> Void)?
     @State private var validation: SaveValidation?
 
     var body: some View {
@@ -143,7 +143,9 @@ struct SaveSlotDetails: View {
                 if let onDuplicate {
                     Button("Duplicate", action: onDuplicate).buttonStyle(.secondary).frame(maxWidth: .infinity)
                 }
-                Button("Delete", role: .destructive, action: onDelete).buttonStyle(.destructive).frame(maxWidth: .infinity)
+                if let onDelete {
+                    Button("Delete", role: .destructive, action: onDelete).buttonStyle(.destructive).frame(maxWidth: .infinity)
+                }
                 ShareLink(item: slot.url) { Text("Export") }.buttonStyle(.primary).frame(maxWidth: .infinity)
             }
         }

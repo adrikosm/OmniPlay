@@ -92,9 +92,11 @@ public enum PersistentStoreRegistry {
         }
     }
 
-    /// Empties one store after a snapshot; the game starts fresh next launch and the snapshot brings it back.
+    /// Empties one store after a snapshot; the game starts fresh next launch and the snapshot brings it back. The save
+    /// list stays: without it every slot drops off the game's Load screen.
     public static func reset(_ store: PersistentStoreInfo, location: SaveLocation, identityHash: String) async throws {
-        let files = store.paths.map { location.root.appending(path: $0) }
+        let files = store.paths.filter { !SaveSlots.isSaveList(($0 as NSString).lastPathComponent) }
+            .map { location.root.appending(path: $0) }
         guard !files.isEmpty else { return }
         let targets = files
         let txn = SafePersistTransaction(location: location, identityHash: identityHash)

@@ -292,13 +292,14 @@ public enum SaveSlots {
         if stem == "persistent" || fileName == "persistent" {
             return false
         }
-        guard let key = SaveKey.decodeWebStorage(stem) else { return true }
-        if key == "RPG Global" || key == "RPG Config" {
-            return false
-        }
-        if key.hasPrefix("rmmzsave."), key.hasSuffix(".global") || key.hasSuffix(".config") {
-            return false
-        }
-        return true
+        let key = SaveKey.decodeWebStorage(stem) ?? stem
+        return !isSaveList(fileName) && key != "RPG Config" && !(key.hasPrefix("rmmzsave.") && key.hasSuffix(".config"))
+    }
+
+    /// MV's `RPG Global` or MZ's `rmmzsave.<id>.global`: the engine's index of its slots, not a slot and not a setting.
+    public static func isSaveList(_ fileName: String) -> Bool {
+        let stem = (fileName as NSString).deletingPathExtension
+        let key = SaveKey.decodeWebStorage(stem) ?? stem
+        return key == "RPG Global" || key.hasPrefix("rmmzsave.") && key.hasSuffix(".global")
     }
 }

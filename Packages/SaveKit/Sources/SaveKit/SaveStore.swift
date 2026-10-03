@@ -237,14 +237,17 @@ public enum SaveVault {
         }.sorted { $0.manifest.timestamp > $1.manifest.timestamp }
     }
 
-    /// Keeps the newest `keep` automatic snapshots; manual ones and pre-mod/pre-cheat backups stay.
+    /// Keeps the newest `keep` snapshots of each automatic origin, so launches never push out the snapshot a delete or
+    /// edit promised; manual ones and pre-mod/pre-cheat backups stay.
     @discardableResult
     public static func prune(location: SaveLocation, keep: Int) -> Int {
-        let automatic = snapshots(location: location)
-            .filter { [.beforeLaunch, .beforeEdit, .crash].contains($0.manifest.provenance.origin) }
+        let all = snapshots(location: location)
         var removed = 0
-        for old in automatic.dropFirst(keep) where (try? FileManager.default.removeItem(at: old.directory)) != nil {
-            removed += 1
+        for origin: SaveProvenance.Origin in [.beforeLaunch, .beforeEdit, .crash] {
+            let old = all.filter { $0.manifest.provenance.origin == origin }.dropFirst(keep)
+            for snapshot in old where (try? FileManager.default.removeItem(at: snapshot.directory)) != nil {
+                removed += 1
+            }
         }
         return removed
     }

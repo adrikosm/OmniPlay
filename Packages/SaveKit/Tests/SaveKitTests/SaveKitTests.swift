@@ -82,6 +82,10 @@ struct SaveKitTests {
         }
         #expect(SlotNaming.duplicateName(for: "1-\(Int.max)-LT1.save", existing: [], pattern: nil) == nil)
         #expect(SlotNaming.duplicateName(for: "file\(Int.max).rpgsave", existing: [], pattern: "file%d.rpgsave") == nil)
+        // A combining mark repeated by `c == dictSize` codes stays one grapheme while doubling; the cap counts units.
+        #expect(BoundedDecode.lzStringBase64("oDANfGV07fwxTktW9HNez3f8GFHEmlnkWVXU2130A")?.utf16.count == 1035)
+        let unicode = "{\"party\":\"e\u{301}😀\"}"
+        #expect(BoundedDecode.lzStringBase64(LZString.compressToBase64(unicode)) == unicode)
 
         // Read real ZIP members, never deserialize Ren'Py's executable save payload.
         for (runtime, expected) in [("3661.9", "1:01:01" as String?), ("1e100", nil), ("-1", nil)] {

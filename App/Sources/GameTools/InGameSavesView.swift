@@ -179,16 +179,19 @@ struct InGameSavesView: View {
             loaded = nil
             reload()
         } catch {
-            await restoreBackup()
-            message = "The save did not go through (\(error.localizedDescription)); the backup was put back."
+            let failure = "The save did not go through (\(error.localizedDescription))"
+            message = await restoreBackup()
+                ? failure + "; the backup was put back."
+                : failure + ", and the backup could not be put back: close the game and restore the newest snapshot in Saves."
         }
     }
 
-    private func restoreBackup() async {
-        guard let backup else { return }
+    /// True when the backup is back in place.
+    private func restoreBackup() async -> Bool {
+        defer { reload() }
+        guard let backup else { return false }
         let identity = AppModel.snapshot(for: game.id, paths: model.paths)?.report.descriptor.identityHash ?? game.id.description
-        try? await SaveVault.restore(snapshot: backup, into: location, identityHash: identity, mode: .replace)
-        reload()
+        return await (try? SaveVault.restore(snapshot: backup, into: location, identityHash: identity, mode: .replace)) != nil
     }
 }
 

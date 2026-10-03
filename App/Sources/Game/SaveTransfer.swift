@@ -93,6 +93,8 @@ struct SaveTransfer: Sendable {
         var manifest: SaveExportManifest?
         var slotFiles: [URL] = []
         var persistentFiles: [(URL, String)] = []
+        // Ren'Py's `persistent` and `sync/` sit beside the slots: kept at their own path, never renamed into a slot.
+        var slotData: [(URL, String)] = []
         try LazyDirectoryWalker.walk(root: tree) { entry in
             guard !entry.isDirectory else { return .continue }
             if entry.url.lastPathComponent == SaveExportManifest.fileName {
@@ -103,18 +105,28 @@ struct SaveTransfer: Sendable {
                 ) }
             } else if let range = entry.relativePath.range(of: "persistent/") {
                 persistentFiles.append((entry.url, String(entry.relativePath[range.upperBound...])))
+            } else if let range = entry.relativePath.range(of: "slots/"), !SaveSlots.isSlot(entry.url.lastPathComponent) {
+                slotData.append((entry.url, String(entry.relativePath[range.upperBound...])))
             } else if Self.saveExtensions.contains(entry.url.pathExtension.lowercased()) || entry.relativePath.contains("slots/") {
                 slotFiles.append(entry.url)
             }
             return .continue
         }
-        guard !slotFiles.isEmpty || !persistentFiles.isEmpty
+        guard !slotFiles.isEmpty || !persistentFiles.isEmpty || !slotData.isEmpty
         else { return .nothingRecognised(["No save files found in \(source.lastPathComponent)."]) }
         // RPG Maker MV/MZ saves from the PC editions go under the keys the web runtime reads, with their entries in the
         // game's save list (DesktopWebSaves); copied in under their own names they were never found, or stopped the game.
         var desktop = DesktopPlan()
         if let matcher = Self.desktopEdition(for: target.engine, gameID: "") {
-            let pc = slotFiles.filter { DesktopWebSaves.name(of: $0.lastPathComponent, edition: matcher) != nil }
+            var pc = slotFiles.filter { DesktopWebSaves.name(of: $0.lastPathComponent, edition: matcher) != nil }
+            // An OmniPlay export holds the web keys themselves; its save list never replaces the game's own. With slots it
+            // takes the PC path, so the list is merged and colliding slots move to free numbers; without, it is left out.
+            let webGlobal = persistentFiles.map(\.0).filter { Self.webName(of: $0.lastPathComponent, engine: target.engine) == .global }
+            let webSlots = slotFiles.filter { Self.webName(of: $0.lastPathComponent, engine: target.engine) != nil }
+            persistentFiles.removeAll { webGlobal.contains($0.0) }
+            if !webGlobal.isEmpty, !webSlots.isEmpty {
+                pc += webSlots + webGlobal
+            }
             if !pc.isEmpty {
                 slotFiles.removeAll { pc.contains($0) }
                 switch planDesktop(pc, replace: collision == .replace) {
@@ -123,7 +135,7 @@ struct SaveTransfer: Sendable {
                 }
             }
         }
-        let (warnings, refused) = check(slotFiles, manifest: manifest)
+        let (warnings, refused) = check(slotFiles + slotData.map(\.0), manifest: manifest)
         guard refused.isEmpty else { return .nothingRecognised(refused) }
         if !warnings.isEmpty, !confirmed {
             return .needsConfirmation(Array(Set(warnings)).sorted())
@@ -143,13 +155,23 @@ struct SaveTransfer: Sendable {
             occupied.insert(name)
             plan.append((file, location.slots.appending(path: name)))
         }
+        var dataCount = persistentFiles.count
+        for (file, rel) in slotData {
+            let destination = location.slots.appending(path: rel)
+            if collision == .nextFreeSlot, fm.fileExists(atPath: destination.path(percentEncoded: false)) {
+                continue
+            }
+            plan.append((file, destination))
+            dataCount += 1
+        }
         for (file, rel) in persistentFiles {
             plan.append((file, location.persistent.appending(path: rel)))
         }
         try location.ensure()
         let txn = SafePersistTransaction(location: location, identityHash: target.identityHash)
         let (mapping, writes) = (plan, desktop.writes)
-        try await txn.run(targets: mapping.map(\.1) + writes.map(\.1), reason: .imported) { staging in
+        // The snapshot holds the saves from before the import: an ordinary pre-edit backup, pruned like the others.
+        try await txn.run(targets: mapping.map(\.1) + writes.map(\.1)) { staging in
             for (file, destination) in mapping {
                 let staged = staging.url(for: destination)
                 try? FileManager.default.removeItem(at: staged)
@@ -160,7 +182,7 @@ struct SaveTransfer: Sendable {
             }
         }
         OPLog.log(.save, .info, "imported \(plan.count + writes.count) save files into \(target.title)")
-        return .installed(slots: plan.count - persistentFiles.count + desktop.slots, persistent: persistentFiles.count + desktop.persistent)
+        return .installed(slots: plan.count - dataCount + desktop.slots, persistent: dataCount + desktop.persistent)
     }
 
     /// Refusals name files that are not saves; warnings name saves from another engine or another game.
@@ -233,7 +255,10 @@ struct SaveTransfer: Sendable {
                   let web = DesktopWebSaves.webBytes(raw, edition: edition) else {
                 return refuse(DesktopWebSaves.Failure.notASave(file.lastPathComponent).description)
             }
-            switch DesktopWebSaves.name(of: file.lastPathComponent, edition: edition) {
+            switch DesktopWebSaves.name(of: file.lastPathComponent, edition: edition) ?? Self.webName(
+                of: file.lastPathComponent,
+                engine: target.engine
+            ) {
             case let .slot(n)?:
                 guard (try? RPGMakerSaveDocument(data: web)) != nil else {
                     return refuse(DesktopWebSaves.Failure.notASave(file.lastPathComponent).description)
@@ -287,6 +312,21 @@ struct SaveTransfer: Sendable {
         } catch {
             return refuse("The save list could not be written: \(error.localizedDescription)")
         }
+    }
+
+    /// A slot or the save list under the key the web runtime stores (`ls.<base64 of "RPG File3">.rpgsave`,
+    /// `rmmzsave.<id>.global.rmmzsave`), read through the PC name so the same slot bounds apply. Config stays nil.
+    static func webName(of fileName: String, engine: EngineFamily) -> DesktopWebSaves.Name? {
+        let stem = (fileName as NSString).deletingPathExtension
+        let pcStem: String? = switch engine {
+        case .rpgMakerMV: SaveKey.decodeWebStorage(stem).flatMap { $0.hasPrefix("RPG ") ? String($0.dropFirst(4)) : nil }
+        case .rpgMakerMZ: stem.hasPrefix("rmmzsave.") ? stem.split(separator: ".").last.map(String.init) : nil
+        default: nil
+        }
+        guard let pcStem, let edition = desktopEdition(for: engine, gameID: ""),
+              let name = DesktopWebSaves.name(of: pcStem + "." + (fileName as NSString).pathExtension, edition: edition),
+              name != .config else { return nil }
+        return name
     }
 
     /// MZ puts `$dataSystem.advanced.gameId` into every storage key: from a key this game already saved under, else

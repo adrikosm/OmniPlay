@@ -9,6 +9,8 @@ import UniformTypeIdentifiers
 struct SaveBackupsView: View {
     @Environment(AppModel.self) var model
     let game: GameRecord
+    /// The game is open: its page keeps the storage it loaded, so changes made here would be lost or clash with its saves.
+    let running: Bool
     @State var slots: [SaveSlotFile] = []
     @State var previews: [String: SavePreview] = [:]
     @State var details: SaveSlotFile?
@@ -55,6 +57,10 @@ struct SaveBackupsView: View {
                         VStack(alignment: .leading, spacing: 10) { actions }
                     }
                     .rise(1)
+                    if running {
+                        Text("Close the game to restore, import or change saves. Back up and Export still work.")
+                            .font(.footnote).foregroundStyle(Theme.textSecondary).padding(.horizontal, Theme.s1)
+                    }
                     if let message {
                         Text(message).font(.footnote).foregroundStyle(Theme.textSecondary).padding(.horizontal, Theme.s1)
                     }
@@ -78,7 +84,7 @@ struct SaveBackupsView: View {
                                 ListRow(title: store.kind.title, subtitle: Self.storeSummary(store)) {
                                     Button("Reset", role: .destructive) { pendingReset = store }
                                         .buttonStyle(.link)
-                                        .disabled(busy || !store.isPresent)
+                                        .disabled(busy || running || !store.isPresent)
                                 }
                                 .accessibilityElement(children: .combine)
                                 .accessibilityIdentifier("persistentStore.\(store.kind.rawValue)")
@@ -107,9 +113,9 @@ struct SaveBackupsView: View {
                 SaveSlotDetails(
                     slot: slot, preview: previews[slot.id], family: SaveStrategy.forEngine(game.engine, generation: game.generation).family,
                     close: close,
-                    onEdit: slot.isOfflineEditable ? { close(); editing = slot } : nil,
-                    onDuplicate: duplicateName(for: slot) != nil ? { close(); Task { await duplicate(slot) } } : nil,
-                    onDelete: { close(); pendingDelete = slot }
+                    onEdit: slot.isOfflineEditable && !running ? { close(); editing = slot } : nil,
+                    onDuplicate: duplicateName(for: slot) != nil && !running ? { close(); Task { await duplicate(slot) } } : nil,
+                    onDelete: running ? nil : { close(); pendingDelete = slot }
                 )
             }
         }
@@ -224,17 +230,19 @@ struct SaveBackupsView: View {
         }
         Button { showImporter = true } label: { Label("Import", systemImage: "square.and.arrow.down") }
             .buttonStyle(.secondary)
-            .disabled(busy)
+            .disabled(busy || running)
     }
 
     @ViewBuilder func slotMenu(_ slot: SaveSlotFile) -> some View {
-        if slot.isOfflineEditable {
-            Button("Edit", systemImage: "slider.horizontal.3") { editing = slot }
+        if !running {
+            if slot.isOfflineEditable {
+                Button("Edit", systemImage: "slider.horizontal.3") { editing = slot }
+            }
+            if duplicateName(for: slot) != nil {
+                Button("Duplicate", systemImage: "plus.square.on.square") { Task { await duplicate(slot) } }
+            }
+            Button("Delete", systemImage: "trash", role: .destructive) { pendingDelete = slot }
         }
-        if duplicateName(for: slot) != nil {
-            Button("Duplicate", systemImage: "plus.square.on.square") { Task { await duplicate(slot) } }
-        }
-        Button("Delete", systemImage: "trash", role: .destructive) { pendingDelete = slot }
     }
 
     func snapshotRow(_ dir: URL, _ snap: SaveSnapshot) -> some View {
@@ -251,7 +259,7 @@ struct SaveBackupsView: View {
                 Text("Restore").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.accent).frame(minWidth: 44, minHeight: 44)
             }
             .tint(Theme.textPrimary)
-            .disabled(busy)
+            .disabled(busy || running)
         }
     }
 

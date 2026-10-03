@@ -138,7 +138,7 @@ struct GameToolsView: View {
                     variables: VariablesView(tools: tools, categories: capabilities.variableCategories)
                 )
             } else {
-                SaveBackupsView(game: game)
+                SaveBackupsView(game: game, running: model.playing?.id == game.id)
             }
         case .persistentData: PersistentDataView(game: game, running: running, tools: model.tools)
         case .diagnostics: DiagnosticsView(game: game, snapshot: snapshot)

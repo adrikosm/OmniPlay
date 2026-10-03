@@ -74,8 +74,13 @@ public extension SaveVault {
         if case let .stackIntoFreeSlots(pattern) = mode {
             let stagedSlots = staging.appending(path: "slots")
             var occupied = try Set(fm.contentsOfDirectory(atPath: stagedSlots.path(percentEncoded: false)))
-            let files = try fm.contentsOfDirectory(at: dir.appending(path: "slots"), includingPropertiesForKeys: nil)
-                .filter { !$0.lastPathComponent.hasPrefix(".") }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+            // Only slot files stack; Ren'Py's `persistent` and `sync/` stay as they are live, like persistent data.
+            let files = try fm.contentsOfDirectory(at: dir.appending(path: "slots"), includingPropertiesForKeys: [.isRegularFileKey])
+                .filter {
+                    !$0.lastPathComponent.hasPrefix(".") && SaveSlots.isSlot($0.lastPathComponent)
+                        && (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+                }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
             // Reserve original incoming names too, so a renamed collision cannot overwrite the next incoming file.
             let incoming = Set(files.map(\.lastPathComponent))
             for file in files {
