@@ -11,7 +11,8 @@ public struct PEPayload: Sendable, Hashable {
         case appendedRar(offset: Int64)
         case cab(offset: Int64)
         case godotPCK(offset: Int64, size: Int64)
-        case enigmaVB
+        /// Enigma Virtual Box; `offset` is where the `.enigma1` section starts in the file.
+        case enigmaVB(offset: Int64)
     }
 
     public enum Machine: UInt16, Sendable { case x86 = 0x014C, x64 = 0x8664, arm64 = 0xAA64, unknown = 0 }
@@ -30,8 +31,8 @@ public enum PEOverlayScanner {
         guard let pe = parseHeaders(head, fileSize: size) else { return nil }
         let tail = try readTail(url, size: size)
         var kind = PEPayload.Kind.none
-        if pe.sectionNames.contains(".enigma1") {
-            kind = .enigmaVB
+        if let enigma = pe.enigma1 {
+            kind = .enigmaVB(offset: enigma)
         } else if let godot = godotTail(tail, size: size) {
             kind = godot
         } else if let appended = appendedArchive(url, overlayOffset: pe.overlayOffset, size: size, tail: tail) {
@@ -40,14 +41,16 @@ public enum PEOverlayScanner {
         return PEPayload(kind: kind, machine: pe.machine)
     }
 
-    struct Headers { let machine: PEPayload.Machine; let overlayOffset: Int64; let sectionNames: [String] }
+    struct Headers { let machine: PEPayload.Machine; let overlayOffset: Int64; let enigma1: Int64? }
 
     static func parseHeaders(_ h: Data, fileSize: Int64) -> Headers? {
-        func u16(_ o: Int) -> UInt16? { o + 2 <= h.count ? h.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: o, as: UInt16.self) }
-            .littleEndian : nil
+        func u16(_ o: Int) -> UInt16? {
+            o + 2 <= h.count ? h.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: o, as: UInt16.self) }
+                .littleEndian : nil
         }
-        func u32(_ o: Int) -> UInt32? { o + 4 <= h.count ? h.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: o, as: UInt32.self) }
-            .littleEndian : nil
+        func u32(_ o: Int) -> UInt32? {
+            o + 4 <= h.count ? h.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: o, as: UInt32.self) }
+                .littleEndian : nil
         }
         guard h.count >= 0x40, h[h.startIndex] == 0x4D, h[h.startIndex + 1] == 0x5A, let e = u32(0x3C).map(Int.init),
               e + 24 <= h.count, u32(e) == 0x0000_4550 else { return nil }
@@ -55,18 +58,20 @@ public enum PEOverlayScanner {
         guard let sections = u16(e + 6), let optSize = u16(e + 20), let sizeOfHeaders = u32(e + 24 + 60) else { return nil }
         let table = e + 24 + Int(optSize)
         var overlay = Int64(sizeOfHeaders)
-        var names: [String] = []
+        var enigma1: Int64?
         for i in 0 ..< Int(min(sections, 96)) {
             let s = table + i * 40
             guard s + 40 <= h.count, let raw = u32(s + 16), let ptr = u32(s + 20) else { break }
             let name = String(bytes: h[h.startIndex + s ..< h.startIndex + s + 8].prefix { $0 != 0 }, encoding: .ascii) ?? ""
-            names.append(name)
+            if name == ".enigma1" {
+                enigma1 = Int64(ptr)
+            }
             if raw > 0 {
                 overlay = max(overlay, Int64(ptr) + Int64(raw))
             }
         }
         guard overlay <= fileSize else { return nil } // truncated image
-        return Headers(machine: machine, overlayOffset: overlay, sectionNames: names)
+        return Headers(machine: machine, overlayOffset: overlay, enigma1: enigma1)
     }
 
     private static func readTail(_ url: URL, size: Int64) throws -> Data {

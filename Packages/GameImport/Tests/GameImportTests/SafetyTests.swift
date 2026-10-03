@@ -61,6 +61,22 @@ struct SafetyTests {
             ($0 as? SafetyViolation)?.rule == .entryCount
         }
 
+        // Enigma Virtual Box tables are read from the program itself: names, offsets, the format word and aPLib
+        // chunks are all the file's claims.
+        let evbOut = zip64Root.url.appending(path: "evb")
+        func evbRefused(_ data: Data, _ name: String) throws -> Error? {
+            do { _ = try EnigmaVBExtractor().extract(zip64Root.file(name, data), sectionOffset: 0, to: evbOut) } catch { return error }
+            return nil
+        }
+        for name in ["..", "..\\escape.txt"] {
+            #expect(try (evbRefused(evb(name: name, body: Data("x".utf8)), "t.evb") as? SafetyViolation)?.rule == .invalidPath)
+        }
+        #expect(try evbRefused(evb(name: "a", body: Data("hello".utf8)).dropLast(3), "short.evb") is ImportFailure)
+        #expect(try evbRefused(evb(name: "a", body: Data("x".utf8), format: 2), "v2.evb") is ImportFailure)
+        // A chunk table (20 bytes, one 4-byte chunk), then aPLib that keeps copying past the four bytes declared.
+        let bomb = Data([20, 0, 0, 0, 0, 0, 0, 0, 4] + [UInt8](repeating: 0, count: 11) + [0x41, 0xD8, 0x03, 0x03])
+        #expect(try evbRefused(evb(name: "a", body: bomb, original: 4), "bomb.evb") is ImportFailure)
+
         // RPG Maker installers carry cabinets, which libmspack decodes; their names go through the same validator.
         let cabRoot = try TemporaryGameRoot(name: "cab")
         defer { cabRoot.remove() }
@@ -120,11 +136,30 @@ struct SafetyTests {
         + "UEsBAi0ALQAAAAAAAAAAAIamEDb//////////wUAFAAAAAAAAAAAAAAAAAAAAGEuYmluAQAQAAAAAAAAAABABQAAAAAAAABQSwUGAAAAAAEAAQBH"
         + "AAAAPAAAAAAA"
 
+    /// An Enigma Virtual Box table (format 3, as EVB 9.70 to 11.00 write it) with one file in the default folder.
+    private func evb(name: String, body: Data, original: Int? = nil, format: Int = 3) -> Data {
+        func u32(_ v: Int) -> Data {
+            withUnsafeBytes(of: UInt32(v).littleEndian) { Data($0) }
+        }
+        func node(_ name: String, count: Int, type: UInt8, tail: Data) -> Data {
+            u32(0) + Data(count: 8) + u32(count) + Data(name.utf16.flatMap { [UInt8($0 & 0xFF), UInt8($0 >> 8)] }) + [0, 0, type] + tail
+        }
+        let nodes = node("%DEFAULT FOLDER%", count: 1, type: 3, tail: Data(count: 25))
+            + node(name, count: 0, type: 2, tail: Data(count: 2) + u32(original ?? body.count) + Data(count: 43) + u32(body.count))
+        // The table begins on the last byte of the root node, so the root's count is written one byte short.
+        let root = u32(nodes.count - 1 + 12) + Data(count: 8) + u32(1)
+        return Data("EVB\0".utf8) + Data(count: 12) + u32(1) + u32(format) + Data(count: 40) + root.dropLast() + nodes + body
+    }
+
     /// A one-file, uncompressed Microsoft cabinet (MS-CAB: header, folder, file, one data block without checksum).
     private func cabinet(name: String, payload: Data) -> Data {
         var out = Data()
-        func u32(_ v: Int) { withUnsafeBytes(of: UInt32(v).littleEndian) { out.append(contentsOf: $0) } }
-        func u16(_ v: Int) { withUnsafeBytes(of: UInt16(v).littleEndian) { out.append(contentsOf: $0) } }
+        func u32(_ v: Int) {
+            withUnsafeBytes(of: UInt32(v).littleEndian) { out.append(contentsOf: $0) }
+        }
+        func u16(_ v: Int) {
+            withUnsafeBytes(of: UInt16(v).littleEndian) { out.append(contentsOf: $0) }
+        }
         let fileEntry = 16 + name.utf8.count + 1
         let dataStart = 36 + 8 + fileEntry
         out.append(contentsOf: "MSCF".utf8)
@@ -147,7 +182,9 @@ struct SafetyTests {
             defer { key = key &* 7 &+ 3 }
             return key
         }
-        func word(_ value: UInt32) { withUnsafeBytes(of: value.littleEndian) { out.append(contentsOf: $0) } }
+        func word(_ value: UInt32) {
+            withUnsafeBytes(of: value.littleEndian) { out.append(contentsOf: $0) }
+        }
         for (name, payload) in files {
             word(UInt32(name.utf8.count) ^ next())
             for byte in name.utf8 {

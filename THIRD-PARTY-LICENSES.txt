@@ -93,3 +93,9 @@ FluidSynth 2.6.1 — LGPL-2.1-or-later — LICENSES/fluidsynth.txt
 GeneralUser GS 2.0.3 — GeneralUser GS licence (free use, commercial included) — LICENSES/generaluser-gs.txt
   The soundfont FluidSynth renders those games' MIDI with, bundled as Native/prebuilt/soundfont/GeneralUser-GS.sf2.
   https://www.schristiancollins.com/generaluser.php
+
+evbunpack 0.2.6 (mos9527/evbunpack, commit ee7b647) — Apache-2.0 — LICENSES/evbunpack.txt
+  The Enigma Virtual Box file-table layout (formats 1 and 3, stored and chunked entries) ported to Swift in
+  Packages/GameImport/Sources/GameImport/Extractors/EnigmaVBExtractor.swift. Only the virtual file system reader
+  is ported; the executable restoration is not. The aPLib depacker there is written from the published format.
+  https://github.com/mos9527/evbunpack

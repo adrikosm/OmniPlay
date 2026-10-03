@@ -197,7 +197,19 @@ struct ImportPipeline: Sendable {
             totals.declaredBytes = size
             totals.writtenBytes = size
             sourceBytes = size
-        case .enigmaVB: throw ImportFailure.unsupportedContainer(firstBytesHex: "Enigma Virtual Box executable is not supported yet")
+        case let .enigmaVB(offset):
+            // The virtual files are the game; the packed program stays behind like any installer's.
+            let size = fileSize(url) ?? 0
+            try StorageBudget.require(.forArchive(uncompressedSizeHint: size * 4), at: paths.root)
+            await txn.transition(to: .extracting(.init(completedBytes: 0, totalBytes: nil)))
+            let reporter = ProgressReporter(txn: txn, total: nil)
+            do {
+                totals = try EnigmaVBExtractor(limits: limits)
+                    .extract(url, sectionOffset: offset, to: stagedRoot) { reporter.report($0, $1) }
+            } catch let v as SafetyViolation {
+                throw ImportFailure.safetyViolation(v)
+            }
+            sourceBytes = size
         case .appendedRar:
             totals = try await extractRar(url, to: stagedRoot, txn: txn, passphrase: passphrase)
             sourceBytes = fileSize(url)
@@ -222,7 +234,7 @@ struct ImportPipeline: Sendable {
         guard files.count == 1, (try? ContainerSniffer.identify(files[0])) == .pe,
               let payload = try? PEOverlayScanner.scan(files[0]) else { return nil }
         switch payload.kind {
-        case .cab, .appendedZip, .appendedSevenZip, .appendedRar: return files[0]
+        case .cab, .appendedZip, .appendedSevenZip, .appendedRar, .enigmaVB: return files[0]
         default: return nil
         }
     }
