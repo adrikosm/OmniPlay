@@ -71,6 +71,62 @@ extension AppModel {
         return snapshot.resolution
     }
 
+    /// Runs detection again over the installed files, for a game imported before the detectors learned something
+    /// new or whose report is missing. The player's runtime choice is kept. A payload that only lived in the
+    /// imported `.exe` (not in the installed tree) is not seen again.
+    func redetect(_ id: GameID) async throws -> DetectionSnapshot? {
+        guard let store, let record = try store.games.fetch(id: id) else { return nil }
+        let paths = paths
+        let previous = Self.snapshot(for: id, paths: paths)
+        let report = try await Task.detached { () throws -> DetectionReport in
+            let gameRoot = paths.game(id)
+            let original = paths.tier(.original, for: id)
+            let root = record.rootRelPath.isEmpty ? original : original.appending(path: record.rootRelPath, directoryHint: .isDirectory)
+            let sidecars = (try? Data(contentsOf: gameRoot.appending(path: "sidecars.json")))
+                .flatMap { try? JSONDecoder().decode(ImportSidecars.self, from: $0) } ?? ImportSidecars()
+            let ctx = try ScanContext(root: root, sidecars: sidecars)
+            defer { ctx.close() }
+            return DetectionPipeline.standard.run(
+                ctx,
+                title: record.title,
+                identityHash: previous?.report.descriptor.identityHash ?? "",
+                rootRelativePath: record.rootRelPath
+            )
+        }.value
+        let resolution = await RuntimeResolver(registry: registry).resolve(report, override: record.manualRuntimeOverride)
+        let snapshot = DetectionSnapshot(report: report, resolution: resolution)
+        let url = paths.logs(game: id, session: UUID()).deletingLastPathComponent().appending(path: "detection.json")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONEncoder().encode(snapshot).write(to: url, options: .atomic)
+        var updated = record
+        updated.engine = report.descriptor.engine
+        updated.generation = report.descriptor.generation
+        updated.version = report.descriptor.version?.raw
+        updated.runtime = resolution.selectedRuntime
+        updated.runtimeVersion = resolution.selectedRuntimeVersion
+        updated.detectionConfidence = report.confidence
+        updated.compatibilityState = report.outcome.isPlayableClass ? .loadable : .refused
+        updated.compatProfileJson = report.descriptor.profile
+        try store.games.update(updated)
+        _ = try store.detection.saveResult(DetectionResultRecord(
+            gameId: id,
+            outcome: ImportPipeline.outcomeName(report.outcome),
+            confidence: report.confidence,
+            evidence: report.evidence.map(\.record),
+            detectorVersions: report.detectorVersions.mapValues(String.init)
+        ))
+        if let selected = resolution.selectedRuntime {
+            _ = try? store.runtime.saveSelection(.init(gameId: id, selectedRuntime: selected, reason: resolution.reason))
+        }
+        OPLog.log(
+            .ui,
+            .info,
+            "\(record.title) detected again as \(report.descriptor.engine.rawValue)",
+            session: HostSession.shared.sessionID
+        )
+        return snapshot
+    }
+
     /// The stored detection report and resolution for a game, read off the main actor. A report from before plugins
     /// stopped refusing games reads as it would be detected today.
     nonisolated static func snapshot(for id: GameID, paths: AppPaths) -> DetectionSnapshot? {

@@ -12,7 +12,7 @@ import SwiftUI
 struct RuntimePageView: View {
     @Environment(AppModel.self) private var model
     let game: GameRecord
-    let snapshot: DetectionSnapshot?
+    @State var snapshot: DetectionSnapshot?
     @State private var resolution: RuntimeResolution?
     @State private var advanced = false
     @State private var message: String?
@@ -23,7 +23,7 @@ struct RuntimePageView: View {
             VStack(alignment: .leading, spacing: Theme.s4) {
                 if let snapshot {
                     card("Detected") {
-                        row("Engine", game.engine.displayName)
+                        row("Engine", snapshot.report.descriptor.engine.displayName)
                         if let version = snapshot.report.descriptor.version?.raw {
                             row("Version", version)
                         }
@@ -117,6 +117,8 @@ struct RuntimePageView: View {
             Button("Back to automatic choice") { Task { await choose(nil) } }
                 .buttonStyle(.link)
                 .disabled(resolution?.manualOverride != true)
+            Button("Detect the engine again") { Task { await redetect() } }
+                .buttonStyle(.link)
             let available = RuntimeSettings.available(for: resolution?.selectedRuntime, engine: snapshot?.report.descriptor.engine)
             if !available.isEmpty {
                 Divider().padding(.vertical, Theme.s2)
@@ -175,6 +177,17 @@ struct RuntimePageView: View {
     private func reload() async {
         guard let snapshot, let record = try? model.store?.games.fetch(id: game.id) else { return }
         resolution = await model.freshResolution(for: record, snapshot: snapshot)
+    }
+
+    private func redetect() async {
+        do {
+            guard let fresh = try await model.redetect(game.id) else { return }
+            snapshot = fresh
+            resolution = fresh.resolution
+            message = "Detected as \(fresh.report.descriptor.engine.displayName); applies from the next start."
+        } catch {
+            message = "Detection failed: \(error.localizedDescription)"
+        }
     }
 
     private func choose(_ runtime: RuntimeIdentifier?) async {
