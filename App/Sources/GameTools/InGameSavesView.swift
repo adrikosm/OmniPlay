@@ -87,7 +87,7 @@ struct InGameSavesView: View {
         .canvas()
         .navigationTitle("Saves")
         .navigationBarTitleDisplayMode(.inline)
-        .task { reload() }
+        .task { await reload() }
     }
 
     private func editing(_ file: SaveSlotFile) -> some View {
@@ -129,7 +129,7 @@ struct InGameSavesView: View {
                 where !FileManager.default.fileExists(atPath: location.slots.appending(path: name).path(percentEncoded: false)) {
                 try? await Task.sleep(for: .milliseconds(300))
             }
-            reload()
+            await reload()
             message = files.contains { $0.url.lastPathComponent == name }
                 ? "Saved to \(name). It is in the game's own Load screen too."
                 : "The game did not write \(name)."
@@ -138,9 +138,12 @@ struct InGameSavesView: View {
         }
     }
 
-    private func reload() {
-        files = SaveSlotFile.list(in: location.slots)
-        previews = SavePreviewReader.previews(in: location.slots, globals: [])
+    /// Off the main actor: a Ren'Py slot's preview inflates its screenshot out of the save's ZIP.
+    private func reload() async {
+        let slots = location.slots
+        (files, previews) = await Task.detached {
+            (SaveSlotFile.list(in: slots), SavePreviewReader.previews(in: slots, globals: []))
+        }.value
     }
 
     private func load(_ file: SaveSlotFile) async {
@@ -177,7 +180,7 @@ struct InGameSavesView: View {
             }
             message = "Saved and checked: the slot has your changes."
             loaded = nil
-            reload()
+            await reload()
         } catch {
             let failure = "The save did not go through (\(error.localizedDescription))"
             message = await restoreBackup()
@@ -188,10 +191,13 @@ struct InGameSavesView: View {
 
     /// True when the backup is back in place.
     private func restoreBackup() async -> Bool {
-        defer { reload() }
-        guard let backup else { return false }
-        let identity = AppModel.identityHash(for: game.id, paths: model.paths)
-        return await (try? SaveVault.restore(snapshot: backup, into: location, identityHash: identity, mode: .replace)) != nil
+        var restored = false
+        if let backup {
+            let identity = AppModel.identityHash(for: game.id, paths: model.paths)
+            restored = await (try? SaveVault.restore(snapshot: backup, into: location, identityHash: identity, mode: .replace)) != nil
+        }
+        await reload()
+        return restored
     }
 }
 
