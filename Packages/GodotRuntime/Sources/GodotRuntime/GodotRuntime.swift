@@ -16,7 +16,6 @@
     /// game per process: every stop is `.slotSpent`.
     @MainActor
     public final class GodotRuntime: GameRuntime {
-        public var onFailure: (@MainActor (String) -> Void)?
 
         public enum Failure: Error, CustomStringConvertible {
             case notPrepared
@@ -51,13 +50,11 @@
             guard library.isAvailable else { throw GodotEngineLibrary.Failure.alreadySpent }
             self.configuration = configuration
             self.library = library
-            let game = configuration.layers.first { $0.tier == .original }?.root
-                ?? configuration.indexURL.deletingLastPathComponent().appending(path: "Original")
+            let game = configuration.originalRoot
             guard let entry = configuration.entryPoint,
                   FileManager.default.fileExists(atPath: game.appending(path: entry).path(percentEncoded: false))
             else { throw Failure.packMissing }
-            try SaveLocation(savesRoot: configuration.saveDirectory.deletingLastPathComponent()).ensure()
-            try FileManager.default.createDirectory(at: configuration.logDirectory, withIntermediateDirectories: true)
+            try configuration.ensureSessionDirectories()
 
             arguments = [
                 "--main-pack", game.appending(path: entry).path(percentEncoded: false),
@@ -130,23 +127,11 @@
         }
 
         private func observeLifecycle() {
-            let center = NotificationCenter.default
-            let events: [(Notification.Name, Int32)] = [
-                (UIApplication.willResignActiveNotification, 0),
-                (UIApplication.didEnterBackgroundNotification, 1),
-                (UIApplication.willEnterForegroundNotification, 2),
-                (UIApplication.didBecomeActiveNotification, 3),
-                (UIApplication.didReceiveMemoryWarningNotification, 4),
-            ]
-            observers = events.map { name, event in
-                center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.library?.appEvent(event) }
-                }
-            }
+            observers = EngineAppEvents.observe(memoryWarning: true) { [weak self] event in self?.library?.appEvent(event) }
         }
 
         public func pause() async {
-            let frame = snapshot()
+            let frame = window?.rootViewController?.view.frozenFrame()
             library?.request(.pause)
             host?.showFrozenFrame(frame)
         }
@@ -163,13 +148,6 @@
             case let .keyUp(key): library?.key(key.godotName, pressed: false)
             default: break
             }
-        }
-
-        private func snapshot() -> CGImage? {
-            guard let view = window?.rootViewController?.view, view.bounds.width > 0 else { return nil }
-            return UIGraphicsImageRenderer(bounds: view.bounds).image { _ in
-                view.drawHierarchy(in: view.bounds, afterScreenUpdates: false)
-            }.cgImage
         }
 
         public func handleMemoryPressure(_ level: MemoryPressureLevel) {

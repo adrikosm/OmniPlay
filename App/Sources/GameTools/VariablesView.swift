@@ -23,12 +23,9 @@ struct VariablesView: View {
     @State private var loading = false
     @State private var problem: String?
     @State private var rowErrors: [StateTarget: String] = [:]
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.scenePhase) private var scenePhase
 
-    private var wide: Bool { Adaptive.wide(vertical: verticalSizeClass, horizontal: horizontalSizeClass, type: typeSize) }
+    @Wide private var wide
 
     var body: some View {
         ScrollView {
@@ -51,7 +48,7 @@ struct VariablesView: View {
                         tools: tools,
                         showsWas: editingSave,
                         error: rowErrors[entry.target],
-                        apply: { operation in await apply(operation, to: entry) },
+                        apply: { operation in await refresh(tools.apply(operation, to: entry.target)) },
                         save: cheatsFor == nil ? nil : { save(entry) }
                     )
                 }
@@ -249,11 +246,6 @@ struct VariablesView: View {
             guard current else { return }
             problem = "This list is not available: \(error)"
         }
-    }
-
-    private func apply(_ operation: ToolOperation, to entry: StateEntry) async {
-        let result = await tools.apply(operation, to: entry.target)
-        refresh(result)
     }
 
     private func refresh(_ result: StateMutationResult) {

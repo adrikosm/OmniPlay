@@ -9,9 +9,6 @@ import SwiftUI
 struct CheatsView: View {
     let tools: MutationEngine
     let game: GameRecord
-    @Environment(\.verticalSizeClass) var verticalSizeClass
-    @Environment(\.horizontalSizeClass) var horizontalSizeClass
-    @Environment(\.dynamicTypeSize) var typeSize
     @Environment(\.accessibilityReduceMotion) var reduceMotion
     @State var setup: CheatHeader?
     @State var roster: [RosterMember] = []
@@ -30,7 +27,7 @@ struct CheatsView: View {
     @State var undoing = false
     @State var pendingWarning: (cheat: CheatDefinition, parameters: [String: Int])?
 
-    var wide: Bool { Adaptive.wide(vertical: verticalSizeClass, horizontal: horizontalSizeClass, type: typeSize) }
+    @Wide var wide
 
     var catalog: [CheatDefinition] {
         CheatCatalog.bundled.available(for: tools.capabilities)
@@ -117,11 +114,7 @@ struct CheatsView: View {
         }
         .confirmationDialog(
             pendingWarning?.cheat.name ?? "",
-            isPresented: Binding(get: { pendingWarning != nil }, set: {
-                if !$0 {
-                    pendingWarning = nil
-                }
-            }),
+            isPresented: $pendingWarning.isPresent(),
             titleVisibility: .visible
         ) {
             Button("Continue") {
@@ -214,14 +207,14 @@ struct CheatsView: View {
         VStack(alignment: .leading, spacing: 14) {
             SheetHeader(title: header.formTitle, close: close)
             switch header {
-            case .actor(.godMode):
-                godMode
             case let .actor(stat):
                 if let rosterProblem {
                     problem(rosterProblem)
                 } else if roster.isEmpty {
                     Text(readingRoster ? "Reading the party…" : "Nobody is in the party yet. Play past the first scene, then refresh.")
                         .font(.footnote).foregroundStyle(Theme.textSecondary)
+                } else if case .godMode = stat {
+                    godMode
                 } else {
                     ValueForm(stat: stat, roster: roster, tools: tools, known: $known) { lastRun = nil; undoProblem = nil }
                 }
@@ -244,32 +237,25 @@ struct CheatsView: View {
 
     /// Everyone at once, then each character's own switch.
     @ViewBuilder var godMode: some View {
-        if let rosterProblem {
-            problem(rosterProblem)
-        } else if roster.isEmpty {
-            Text(readingRoster ? "Reading the party…" : "Nobody is in the party yet. Play past the first scene, then refresh.")
-                .font(.footnote).foregroundStyle(Theme.textSecondary)
-        } else {
-            let allOn = roster.allSatisfy { known[.actorProperty(actorID: $0.id, .godMode)] == .bool(true) }
-            VStack(spacing: 0) {
-                HStack {
-                    Text("Everyone").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.textPrimary)
-                    Spacer()
-                    Toggle("Everyone", isOn: Binding(get: { allOn }, set: { _ in Task { await bulkGodMode(on: !allOn) } }))
-                        .labelsHidden().disabled(bulkWorking)
-                }
-                .padding(.horizontal, 14).frame(minHeight: 48)
-                ForEach(roster) { member in
-                    let target = StateTarget.actorProperty(actorID: member.id, .godMode)
-                    Rectangle().fill(Theme.separator).frame(height: 0.5).padding(.leading, 14)
-                    CheatRow(
-                        title: member.name, detail: nil, target: target, seed: known[target], tools: tools, revision: revision,
-                        onValue: { known[target] = $0 }, onApplied: { lastRun = nil; undoProblem = nil }
-                    )
-                }
+        let allOn = roster.allSatisfy { known[.actorProperty(actorID: $0.id, .godMode)] == .bool(true) }
+        VStack(spacing: 0) {
+            HStack {
+                Text("Everyone").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.textPrimary)
+                Spacer()
+                Toggle("Everyone", isOn: Binding(get: { allOn }, set: { _ in Task { await bulkGodMode(on: !allOn) } }))
+                    .labelsHidden().disabled(bulkWorking)
             }
-            .background(Theme.fill, in: .rect(cornerRadius: 14, style: .continuous))
+            .padding(.horizontal, 14).frame(minHeight: 48)
+            ForEach(roster) { member in
+                let target = StateTarget.actorProperty(actorID: member.id, .godMode)
+                Rectangle().fill(Theme.separator).frame(height: 0.5).padding(.leading, 14)
+                CheatRow(
+                    title: member.name, detail: nil, target: target, seed: known[target], tools: tools, revision: revision,
+                    onValue: { known[target] = $0 }, onApplied: { lastRun = nil; undoProblem = nil }
+                )
+            }
         }
+        .background(Theme.fill, in: .rect(cornerRadius: 14, style: .continuous))
     }
 
     func problem(_ text: String) -> some View {

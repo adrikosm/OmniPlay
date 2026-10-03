@@ -140,7 +140,7 @@ struct SaveTransfer: Sendable {
         // RPG Maker MV/MZ saves from the PC editions go under the keys the web runtime reads, with their entries in the
         // game's save list (DesktopWebSaves); copied in under their own names they were never found, or stopped the game.
         var desktop = DesktopPlan()
-        if let matcher = Self.desktopEdition(for: target.engine, gameID: "") {
+        if let matcher = Self.desktopEdition(for: target.engine) {
             var pc = slotFiles.filter { DesktopWebSaves.name(of: $0.lastPathComponent, edition: matcher) != nil }
             // An OmniPlay export holds the web keys themselves; its save list never replaces the game's own. With slots it
             // takes the PC path, so the list is merged and colliding slots move to free numbers; without, it is left out.
@@ -271,10 +271,10 @@ struct SaveTransfer: Sendable {
         let reasons: [String]
     }
 
-    static func desktopEdition(for engine: EngineFamily, gameID: String) -> DesktopWebSaves.Edition? {
+    static func desktopEdition(for engine: EngineFamily) -> DesktopWebSaves.Edition? {
         switch engine {
         case .rpgMakerMV: .mv
-        case .rpgMakerMZ: .mz(gameID: gameID)
+        case .rpgMakerMZ: .mz(gameID: "")
         default: nil
         }
     }
@@ -369,7 +369,7 @@ struct SaveTransfer: Sendable {
         case .rpgMakerMZ: stem.hasPrefix("rmmzsave.") ? stem.split(separator: ".").last.map(String.init) : nil
         default: nil
         }
-        guard let pcStem, let edition = desktopEdition(for: engine, gameID: ""),
+        guard let pcStem, let edition = desktopEdition(for: engine),
               let name = DesktopWebSaves.name(of: pcStem + "." + (fileName as NSString).pathExtension, edition: edition),
               name != .config else { return nil }
         return name

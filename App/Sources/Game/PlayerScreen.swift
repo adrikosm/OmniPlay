@@ -117,27 +117,19 @@ struct PlayerScreen: View {
             .onChange(of: model.runtimeNotice) { _, line in
                 guard let line, !leaving else { return }
                 model.runtimeNotice = nil
-                withAnimation(reduceMotion ? nil : Theme.quick) { notice = line }
-                Task {
-                    try? await Task.sleep(for: .seconds(8))
-                    withAnimation(reduceMotion ? nil : Theme.quick) { notice = nil }
-                }
+                flash(line, seconds: 8)
             }
             // A save the game made could not be written: said at once, not only when leaving (FIX-F008).
             .onChange(of: model.saveWarning != nil) { _, failed in
                 guard failed, !leaving else { return }
-                withAnimation(reduceMotion ? nil : Theme.quick) { notice = "A save could not be written. Try saving again." }
-                Task {
-                    try? await Task.sleep(for: .seconds(8))
-                    withAnimation(reduceMotion ? nil : Theme.quick) { notice = nil }
-                }
+                flash("A save could not be written. Try saving again.", seconds: 8)
             }
             .overlay {
                 if editingControls {
                     ControlsEditorView(
                         layouts: overlay.layouts,
                         builtIn: builtInControls,
-                        padVisible: Binding(get: { overlay.padVisible }, set: { overlay.padVisible = $0 })
+                        padVisible: $overlay.padVisible
                     ) { edited in
                         model.setControlsLayouts(edited, for: game.id)
                         overlay.layouts = edited
@@ -158,7 +150,7 @@ struct PlayerScreen: View {
                     backdrop: pausedFrame,
                     played: Self.played(since: startedAt),
                     hasTouchControls: overlay.hasPad,
-                    controlsVisible: Binding(get: { overlay.padVisible }, set: { overlay.padVisible = $0 }),
+                    controlsVisible: $overlay.padVisible,
                     controlsOpacity: $controlsOpacity,
                     controllerConnected: overlay.controllers > 0,
                     logURL: model.sessionLog,
@@ -166,14 +158,14 @@ struct PlayerScreen: View {
                     speed: overlay.speed ?? .multipliers,
                     onFastForward: { multiplier in
                         overlay.fastForward = multiplier
-                        Task { await model.setFastForward(multiplier) }
+                        Task { await model.coordinator?.setFastForward(multiplier) }
                     },
                     engineMenu: overlay.engineMenu,
                     onEngineMenu: {
                         closeMenu() // dismissing resumes; the engine opens its menu once running again
                         Task {
                             try? await Task.sleep(for: .milliseconds(600))
-                            await model.openEngineMenu()
+                            await model.coordinator?.openEngineMenu()
                         }
                     },
                     gameTools: GameToolsView(game: game, snapshot: snapshot),
@@ -192,11 +184,7 @@ struct PlayerScreen: View {
                 model.runtimeFailure = nil
                 fail(message, category: crashCategory)
             }
-            .alert(leaving ? "Save could not be confirmed" : "Game problem", isPresented: Binding(get: { failure != nil }, set: {
-                if !$0 {
-                    failure = nil
-                }
-            })) {
+            .alert(leaving ? "Save could not be confirmed" : "Game problem", isPresented: $failure.isPresent()) {
                 Button("Back to library") {
                     if leaving {
                         dismiss()

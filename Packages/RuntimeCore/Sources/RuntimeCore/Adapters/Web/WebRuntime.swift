@@ -176,12 +176,7 @@
             webView.navigationDelegate = bridge
             webView.customUserAgent = Self.userAgent(profile.userAgent)
             host.containerView.addSubview(webView)
-            NSLayoutConstraint.activate([
-                webView.topAnchor.constraint(equalTo: host.containerView.topAnchor),
-                webView.bottomAnchor.constraint(equalTo: host.containerView.bottomAnchor),
-                webView.leadingAnchor.constraint(equalTo: host.containerView.leadingAnchor),
-                webView.trailingAnchor.constraint(equalTo: host.containerView.trailingAnchor),
-            ])
+            webView.pinEdges(to: host.containerView)
             self.webView = webView
             let entry = entryPage
             guard let url = URL(string: "http://127.0.0.1:\(port)/\(entry)") else { throw Failure.navigation("bad entry \(entry)") }
@@ -221,12 +216,7 @@
 
         public func setFastForward(_ multiplier: Int) {
             fastForward = max(1, min(8, multiplier))
-            webView?.callAsyncJavaScript(
-                "document.dispatchEvent(new CustomEvent('omniplay:speed', { detail: n }))",
-                arguments: ["n": fastForward],
-                in: nil,
-                in: .page
-            ) { _ in }
+            dispatch("omniplay:speed", detail: fastForward)
         }
 
         /// RPG Maker's scene loop can be sped up; other web games pace themselves, so they get no speed row.
@@ -235,22 +225,16 @@
         /// Translations for lines the page asked about; it shows them from the next time each line is drawn.
         public func deliverTranslations(_ translations: [String: String]) {
             guard !translations.isEmpty else { return }
-            webView?.callAsyncJavaScript(
-                "document.dispatchEvent(new CustomEvent('omniplay:translated', { detail: map }))",
-                arguments: ["map": translations],
-                in: nil,
-                in: .page
-            ) { _ in }
+            dispatch("omniplay:translated", detail: translations)
         }
 
-        /// Fires a plain DOM event in the page world; the page scripts do the engine-specific work.
-        func dispatch(_ name: String) {
-            webView?.callAsyncJavaScript(
-                "document.dispatchEvent(new Event(name))",
-                arguments: ["name": name],
-                in: nil,
-                in: .page
-            ) { _ in }
+        /// Fires a DOM event in the page world (a `CustomEvent` when there is a detail); the page scripts do the
+        /// engine-specific work.
+        func dispatch(_ name: String, detail: Any? = nil) {
+            let script = detail == nil
+                ? "document.dispatchEvent(new Event(name))"
+                : "document.dispatchEvent(new CustomEvent(name, { detail }))"
+            webView?.callAsyncJavaScript(script, arguments: ["name": name, "detail": detail ?? NSNull()], in: nil, in: .page) { _ in }
         }
 
         /// Batched per frame: one script call carries every event queued since the last flush.
@@ -266,15 +250,10 @@
 
         func flushInput() {
             inputFlushScheduled = false
-            guard !pendingInput.isEmpty, let webView else { pendingInput.removeAll(); return }
+            guard !pendingInput.isEmpty, webView != nil else { pendingInput.removeAll(); return }
             let batch = WebInputEncoder.json(pendingInput)
             pendingInput.removeAll(keepingCapacity: true)
-            webView.callAsyncJavaScript(
-                "document.dispatchEvent(new CustomEvent('omniplay:input', { detail: batch }))",
-                arguments: ["batch": batch],
-                in: nil,
-                in: .page
-            ) { _ in }
+            dispatch("omniplay:input", detail: batch)
         }
 
         func autosave() async {
@@ -331,7 +310,7 @@
                 await consoleSink.close()
             }
             consoleSink = nil
-            if reason == .userExit || reason == .memoryPressure || reason == .switchingGame || reason == .hostShutdown {
+            if reason == .userExit || reason == .hostShutdown {
                 await autosave()
             }
             // The dictionary's hit and miss counts go in the session log, which Diagnostics shows (TRANS-003).

@@ -1,6 +1,5 @@
 import GameCore
 import GameStore
-import LocalAuthentication
 import SwiftUI
 
 /// One cover on the shelf: 130 × 172 art, title and engine under it. The featured cover carries the accent line.
@@ -8,7 +7,7 @@ struct ShelfCover: View {
     let game: GameRecord
     var featured = false
     var restartNeeded = false
-    var zoom: Namespace.ID?
+    let zoom: Namespace.ID
     var marker: Namespace.ID?
     var width: CGFloat = 130
 
@@ -17,7 +16,7 @@ struct ShelfCover: View {
             CoverImage(path: game.artworkPath, engine: game.engine, maxPixels: 400, title: game.title)
                 .frame(width: width, height: width / Theme.coverAspect)
                 .coverEdge()
-                .zoomSource(game.id, in: zoom)
+                .matchedTransitionSource(id: game.id, in: zoom) { $0.clipShape(.rect(cornerRadius: Theme.coverRadius, style: .continuous)) }
                 .overlay(alignment: .bottom) {
                     if featured, let marker {
                         Capsule().fill(Theme.accent).frame(height: 2).offset(y: 5)
@@ -31,7 +30,7 @@ struct ShelfCover: View {
                     .lineLimit(1)
                 Text(status)
                     .font(.footnote)
-                    .foregroundStyle(game.compatibilityState == .refused ? Theme.danger : Theme.textSecondary)
+                    .foregroundStyle(game.compatibilityState.tint)
                     .lineLimit(1)
             }
             .padding(.top, 2)
@@ -133,15 +132,5 @@ struct SearchResults: View {
         }
         .canvas()
         .onChange(of: query, initial: true) { _, text in viewModel.query = text }
-    }
-}
-
-extension View {
-    @ViewBuilder func zoomSource(_ id: GameID, in namespace: Namespace.ID?) -> some View {
-        if let namespace {
-            matchedTransitionSource(id: id, in: namespace) { $0.clipShape(.rect(cornerRadius: Theme.coverRadius, style: .continuous)) }
-        } else {
-            self
-        }
     }
 }

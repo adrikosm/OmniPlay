@@ -37,6 +37,18 @@ public enum LazyDirectoryWalker {
         }
     }
 
+    /// Every non-directory entry under `root`, collected first so callers can await between files.
+    public static func files(under root: URL) throws -> [RelativeEntry] {
+        var files: [RelativeEntry] = []
+        try walk(root: root) { entry in
+            if !entry.isDirectory {
+                files.append(entry)
+            }
+            return .continue
+        }
+        return files
+    }
+
     /// The same walk pulled one entry at a time, for callers that await between entries: one enumerator for the whole
     /// tree, so slicing never re-walks from the root.
     public final class Cursor {

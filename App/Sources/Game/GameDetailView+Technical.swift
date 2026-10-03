@@ -257,9 +257,8 @@ extension GameDetailView {
             // Newest first from the database: an unordered page of rows loses the latest once a game has many sessions.
             out.sourceName = (try? store.imports.recent(game: id, limit: 1))?.first?.sourceName
             if let last = (try? store.sessions.recent(game: id, limit: 1))?.first {
-                let crashed = last.teardownVerdict == "endedUnexpectedly" || (last.notes ?? "").hasPrefix("crash")
-                out.sessionFailed = crashed
-                out.lastSession = last.teardownVerdict == nil ? "Running" : crashed ? "Closed unexpectedly" : "Ended normally"
+                out.sessionFailed = last.crashed
+                out.lastSession = last.endingLabel
             }
             out.snapshot = SaveVault.snapshots(location: SaveLocation.forGame(id, paths: paths)).first
                 .map { SaveBackupsView.label($0.manifest.provenance.origin) }

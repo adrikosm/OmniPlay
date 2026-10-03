@@ -10,7 +10,7 @@ public enum DetectionThresholds {
 
 /// Combines detector reports: highest family claim wins, refusal ≥ 0.9 overrides, blockers force unsupported,
 /// close competing families → unknownEngine, missing version → unknownVersion. UNKNOWN never becomes "closest runtime".
-public struct OutcomeAggregator: Aggregating {
+public struct OutcomeAggregator: Sendable {
     public init() {}
 
     public func aggregate(

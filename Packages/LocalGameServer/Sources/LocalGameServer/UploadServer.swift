@@ -49,12 +49,9 @@ public actor UploadServer {
 
     /// Binds any interface on a random high port and advertises `_omniplay._tcp` over Bonjour.
     @discardableResult
-    public func start(port requested: UInt16? = nil) async throws -> UInt16 {
+    public func start() async throws -> UInt16 {
         let params = NWParameters.tcp
         params.allowLocalEndpointReuse = true
-        if let requested {
-            params.requiredLocalEndpoint = .hostPort(host: .ipv4(.any), port: NWEndpoint.Port(rawValue: requested)!)
-        }
         let listener = try NWListener(using: params)
         listener.service = NWListener.Service(name: "OmniPlay", type: "_omniplay._tcp")
         listener.newConnectionHandler = { [weak self] connection in
@@ -260,49 +257,14 @@ public actor UploadServer {
     }
 
     private static func receive(_ nw: NWConnection, timeout: Duration = idleTimeout) async throws -> Data? {
-        try await withThrowingTaskGroup(of: Data?.self) { group in
-            group.addTask {
-                try await withTaskCancellationHandler {
-                    try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data?, Error>) in
-                        nw.receive(minimumIncompleteLength: 1, maximumLength: chunk) { data, _, complete, error in
-                            if let error {
-                                cont.resume(throwing: error)
-                            } else if complete,
-                                      data == nil {
-                                cont.resume(returning: nil)
-                            } else {
-                                cont.resume(returning: data ?? Data())
-                            }
-                        }
-                    }
-                } onCancel: {
-                    // The group still joins this child after the deadline; cancelling the socket makes receive return.
-                    nw.cancel()
-                }
-            }
-            group.addTask {
-                try await Task.sleep(for: timeout)
-                throw CancellationError()
-            }
-            let first = try await group.next()!
-            group.cancelAll()
-            return first
-        }
+        try await nw.receiveChunk(max: chunk, timeout: timeout)
     }
 
     private static func write(_ nw: NWConnection, _ status: Int, _ type: String, _ body: Data) async throws {
         var head = "HTTP/1.1 \(status) \(HTTPResponse.reason(status))\r\nContent-Type: \(type)\r\n"
         head += "Content-Length: \(body.count)\r\nConnection: close\r\n"
         head += "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n\r\n"
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            nw.send(content: Data(head.utf8) + body, completion: .contentProcessed { error in
-                if let error {
-                    cont.resume(throwing: error)
-                } else {
-                    cont.resume()
-                }
-            })
-        }
+        try await nw.sendAll(Data(head.utf8) + body)
     }
 
     /// The uploader: a folder or files picker; each file posts raw with its relative path, then `done`.

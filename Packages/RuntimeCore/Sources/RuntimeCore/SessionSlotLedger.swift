@@ -81,6 +81,4 @@ public actor SessionSlotLedger {
     public var spentSlots: Set<SessionSlot> {
         Set(states.filter { $0.value == .spent }.map(\.key))
     }
-
-    public var activeSlots: [SessionSlot: UUID] { active }
 }

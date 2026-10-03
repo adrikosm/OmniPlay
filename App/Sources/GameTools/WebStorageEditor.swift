@@ -67,7 +67,7 @@ struct WebStorageEditor: View {
         let key: String
         var text: String
         /// As loaded, for Revert and "edited".
-        let original: String
+        var original: String
         let packed: Bool
         let json: Bool
         var id: String { path }
@@ -293,14 +293,7 @@ struct WebStorageEditor: View {
                 }
             failed = false
             if let i = entries.firstIndex(where: { $0.id == entry.id }) {
-                entries[i] = Entry(
-                    path: entry.path,
-                    key: entry.key,
-                    text: entry.text,
-                    original: entry.text,
-                    packed: entry.packed,
-                    json: entry.json
-                )
+                (entries[i].text, entries[i].original) = (entry.text, entry.text)
             }
             message = "Saved \(entry.key). The snapshot taken first keeps the old value."
         } catch {

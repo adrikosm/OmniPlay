@@ -71,14 +71,7 @@ enum CoverExtractor {
     /// gets a new name, because the library and the game page reload a cover only when its stored path changes: a
     /// picture written over the same `cover.jpg` kept showing the old one. Older covers are removed.
     static func write(source: URL, game id: GameID, paths: AppPaths) -> String? {
-        guard let src = CGImageSourceCreateWithURL(source as CFURL, nil), CGImageSourceGetCount(src) > 0 else { return nil }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixels,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-        ]
-        guard let image = CGImageSourceCreateThumbnailAtIndex(src, 0, options as CFDictionary), image.width >= 16,
-              image.height >= 16 else { return nil }
+        guard let image = CoverImage.thumbnail(source, maxPixels: maxPixels), image.width >= 16, image.height >= 16 else { return nil }
         let dir = paths.tier(.artwork, for: id)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let name = "cover-\(UUID().uuidString.prefix(8).lowercased()).jpg"

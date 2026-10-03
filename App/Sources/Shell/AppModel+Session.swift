@@ -37,28 +37,13 @@ extension AppModel {
 
     func isLowMemory(_ id: GameID) -> Bool { hint("devicePixelRatio", for: id) == "1" }
 
-    /// 2...9 makes the engine's own frame limiter pace faster; 1 is off. Runtimes that cannot are a no-op.
-    func setFastForward(_ multiplier: Int) async { await coordinator?.setFastForward(multiplier) }
-
-    var engineMenuTitle: String? {
-        get async { await coordinator?.engineMenuTitle }
-    }
-
-    func openEngineMenu() async { await coordinator?.openEngineMenu() }
-
-    func captureScreen() async -> CGImage? { await coordinator?.captureScreen() }
-
-    var speedChoices: SpeedChoices? {
-        get async { await coordinator?.speedChoices }
-    }
-
     /// Stores a per-game runtime choice, re-resolves against it and persists the new selection.
     func chooseRuntime(_ runtime: RuntimeIdentifier?, for id: GameID) async -> RuntimeResolution? {
         guard let store, var snapshot = Self.snapshot(for: id, paths: paths) else { return nil }
         let value = runtime.flatMap { try? String(data: JSONEncoder().encode($0), encoding: .utf8) }
         try? store.overrides.set(game: id, key: "runtime", valueJson: value ?? "null")
         snapshot.resolution = await RuntimeResolver(registry: registry).resolve(snapshot.report, override: runtime)
-        let url = paths.logs(game: id, session: UUID()).deletingLastPathComponent().appending(path: "detection.json")
+        let url = Self.detectionFile(for: id, paths: paths)
         try? JSONEncoder().encode(snapshot).write(to: url, options: .atomic)
         if var record = try? store.games.fetch(id: id) {
             record.runtime = snapshot.resolution.selectedRuntime
@@ -95,7 +80,7 @@ extension AppModel {
         }.value
         let resolution = await RuntimeResolver(registry: registry).resolve(report, override: record.manualRuntimeOverride)
         let snapshot = DetectionSnapshot(report: report, resolution: resolution)
-        let url = paths.logs(game: id, session: UUID()).deletingLastPathComponent().appending(path: "detection.json")
+        let url = Self.detectionFile(for: id, paths: paths)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try JSONEncoder().encode(snapshot).write(to: url, options: .atomic)
         var updated = record
@@ -129,8 +114,18 @@ extension AppModel {
 
     /// The stored detection report and resolution for a game, read off the main actor. A report from before plugins
     /// stopped refusing games reads as it would be detected today.
+    /// The detected identity hash save backups are keyed by, or the game id before detection has run.
+    nonisolated static func identityHash(for id: GameID, paths: AppPaths) -> String {
+        snapshot(for: id, paths: paths)?.report.descriptor.identityHash ?? id.description
+    }
+
+    /// `Logs/<game>/detection.json`: the stored detection report and runtime resolution.
+    nonisolated static func detectionFile(for id: GameID, paths: AppPaths) -> URL {
+        paths.logsRoot().appending(path: id.description, directoryHint: .isDirectory).appending(path: "detection.json")
+    }
+
     nonisolated static func snapshot(for id: GameID, paths: AppPaths) -> DetectionSnapshot? {
-        let url = paths.logs(game: id, session: UUID()).deletingLastPathComponent().appending(path: "detection.json")
+        let url = Self.detectionFile(for: id, paths: paths)
         guard let data = try? Data(contentsOf: url), var snapshot = try? JSONDecoder().decode(DetectionSnapshot.self, from: data)
         else { return nil }
         snapshot.report = snapshot.report.liftingPluginBlockers()
@@ -154,7 +149,7 @@ extension AppModel {
         for (game, stored) in refused {
             var snapshot = stored
             snapshot.resolution = await RuntimeResolver(registry: registry).resolve(snapshot.report, override: game.manualRuntimeOverride)
-            let url = paths.logs(game: game.id, session: UUID()).deletingLastPathComponent().appending(path: "detection.json")
+            let url = Self.detectionFile(for: game.id, paths: paths)
             try? JSONEncoder().encode(snapshot).write(to: url, options: .atomic)
             guard var record = try? store.games.fetch(id: game.id) else { continue }
             record.compatibilityState = .loadable

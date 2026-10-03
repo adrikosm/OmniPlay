@@ -2,22 +2,22 @@
 # Builds liblzma (xz), libzstd and libarchive as static libraries for iphoneos, iphonesimulator and macosx
 # (all arm64) and merges them into Packages/GameImport/Native/libarchive.xcframework with a module map.
 # zlib, bzip2 and iconv come from the Apple SDKs. Everything under Native/build and the xcframework is gitignored.
-set -euo pipefail
-cd "$(dirname "$0")/.."
+source "$(dirname "$0")/native/common.sh"
+cd "$NATIVE_ROOT"
 ROOT="$PWD"; BUILD="$ROOT/Native/build"; OUT="$ROOT/Packages/GameImport/Native"
-for tool in cmake ninja; do command -v $tool >/dev/null || { echo "$tool missing: run Scripts/bootstrap-mac.sh" >&2; exit 1; }; done
+require_tools cmake ninja
 for sub in libarchive xz zstd/build/cmake; do [[ -f "$ROOT/Native/$sub/CMakeLists.txt" ]] || { echo "Native/$sub is empty: git submodule update --init" >&2; exit 1; }; done
 
 # platform  cmake-system  sdk-name          deployment-flag
 targets=(
-  "iphoneos        iOS     iphoneos         -DCMAKE_OSX_DEPLOYMENT_TARGET=27.0"
-  "iphonesimulator iOS     iphonesimulator  -DCMAKE_OSX_DEPLOYMENT_TARGET=27.0"
-  "macosx          Darwin  macosx           -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0"
+  "iphoneos        iOS     iphoneos         -DCMAKE_OSX_DEPLOYMENT_TARGET=$IOS_MIN"
+  "iphonesimulator iOS     iphonesimulator  -DCMAKE_OSX_DEPLOYMENT_TARGET=$IOS_MIN"
+  "macosx          Darwin  macosx           -DCMAKE_OSX_DEPLOYMENT_TARGET=$MACOS_MIN"
 )
 libs=()
 for t in $targets; do
   read -r plat sysname sdk deploy <<< "$t"
-  sysroot="$(xcrun --sdk $sdk --show-sdk-path)"
+  sysroot="$(sdk_path $sdk)"
   prefix="$BUILD/$plat/install"
   common=(-G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_SYSTEM_NAME=$sysname -DCMAKE_OSX_SYSROOT="$sysroot"
           -DCMAKE_OSX_ARCHITECTURES=arm64 $deploy -DCMAKE_INSTALL_PREFIX="$prefix" -DBUILD_SHARED_LIBS=OFF
@@ -57,5 +57,4 @@ done
 mkdir -p "$OUT"; /bin/rm -rf "$OUT/libarchive.xcframework"
 xcodebuild -create-xcframework "${libs[@]}" -output "$OUT/libarchive.xcframework" >/dev/null
 echo "built $OUT/libarchive.xcframework"
-ls "$OUT/libarchive.xcframework"
 Scripts/native/manifest.sh libarchive Packages/GameImport/Native/libarchive.xcframework Native/libarchive Native/xz Native/zstd

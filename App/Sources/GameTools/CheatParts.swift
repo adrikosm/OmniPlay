@@ -100,12 +100,11 @@ enum CheatHeader: Identifiable, Hashable {
 
     var formTitle: String {
         switch self {
-        case .actor(.godMode): "God mode"
         case .actor(.level): "Set level"
         case .actor(.exp): "Set experience"
-        case let .actor(stat): "Set \(CheatHeader.actor(stat).title)"
+        case .actor(.godMode), .catalog: title
+        case .actor: "Set \(title)"
         case .gold: "Set gold"
-        case let .catalog(cheat): cheat.name
         }
     }
 

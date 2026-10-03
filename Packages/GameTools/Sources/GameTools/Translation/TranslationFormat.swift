@@ -26,10 +26,10 @@ public enum TranslationFormat: String, Sendable, Codable, CaseIterable {
 public struct TranslationDetection: Sendable, Hashable {
     public var format: TranslationFormat
     /// `tl/<language>` for Ren'Py packs; empty when the pack does not say.
-    public var language: String
+    public var language = ""
     /// The MTool dictionary, relative to the pack's root.
     public var dictionary: String?
-    public var entries: Int
+    public var entries = 0
     public var refusal: String?
 }
 
@@ -48,29 +48,23 @@ public enum TranslationFormatDetector {
             }
             let language = named?[2] ?? ""
             if language.isEmpty {
-                return TranslationDetection(
-                    format: .renpyTL,
-                    language: "",
-                    dictionary: nil,
-                    entries: 0,
-                    refusal: "Its tl folder names no language."
-                )
+                return TranslationDetection(format: .renpyTL, refusal: "Its tl folder names no language.")
             }
-            return TranslationDetection(format: .renpyTL, language: language, dictionary: nil, entries: files.count, refusal: nil)
+            return TranslationDetection(format: .renpyTL, language: language, entries: files.count)
         }
         let jsons = files.filter { $0.lowercased().hasSuffix(".json") }
         // MTool: a JSON that is not one of the game's own data files and holds a flat string-to-string object.
         for json in jsons where !gameHas(json) {
             if let count = mtoolEntries(root.appending(path: json)) {
-                return TranslationDetection(format: .mtoolJSON, language: "", dictionary: json, entries: count, refusal: nil)
+                return TranslationDetection(format: .mtoolJSON, dictionary: json, entries: count)
             }
         }
         let mirrored = files.filter(gameHas)
         if !mirrored.isEmpty, mirrored.count * 2 >= files.count {
-            return TranslationDetection(format: .patchedTree, language: "", dictionary: nil, entries: mirrored.count, refusal: nil)
+            return TranslationDetection(format: .patchedTree, entries: mirrored.count)
         }
         if files.isEmpty {
-            return TranslationDetection(format: .genericOverlay, language: "", dictionary: nil, entries: 0, refusal: "It holds no files.")
+            return TranslationDetection(format: .genericOverlay, refusal: "It holds no files.")
         }
         let assets = lower
             .filter {
@@ -78,10 +72,10 @@ public enum TranslationFormatDetector {
                     .contains(($0 as NSString).pathExtension)
             }
         if assets.count * 2 >= files.count {
-            return TranslationDetection(format: .genericOverlay, language: "", dictionary: nil, entries: assets.count, refusal: nil)
+            return TranslationDetection(format: .genericOverlay, entries: assets.count)
         }
         return TranslationDetection(
-            format: .genericOverlay, language: "", dictionary: nil, entries: 0,
+            format: .genericOverlay,
             refusal: "This is not a translation OmniPlay recognises: no tl folder, no text dictionary, "
                 + "and its files do not match the game's (\(files.prefix(3).joined(separator: ", "))…)."
         )
@@ -89,8 +83,7 @@ public enum TranslationFormatDetector {
 
     /// The number of entries when `url` is a flat `{string: string}` JSON object within the size limit.
     public static func mtoolEntries(_ url: URL) -> Int? {
-        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= dictionaryLimit,
-              let data = try? Data(contentsOf: url),
+        guard let data = try? SmallFileGuard.read(url, maxBytes: dictionaryLimit),
               let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], !object.isEmpty,
               object.values.allSatisfy({ $0 is String }) else { return nil }
         return object.count

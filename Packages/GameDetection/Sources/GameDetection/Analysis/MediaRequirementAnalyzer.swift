@@ -21,7 +21,7 @@ public struct MediaRequirementAnalyzer: Analyzer {
         var seen = Set<String>()
         var files: [IndexedEntry] = []
         for p in patterns where files.count < Self.fileCap {
-            for e in ctx.glob(p, limit: Self.fileCap) where !e.isDir && !seen.contains(e.key) && Self.isMedia(e.key) {
+            for e in ctx.glob(p, limit: Self.fileCap) where !e.isDir && !seen.contains(e.key) && MediaRules.kind(of: e.key) != nil {
                 seen.insert(e.key)
                 files.append(e)
                 if files.count >= Self.fileCap {
@@ -56,17 +56,13 @@ public struct MediaRequirementAnalyzer: Analyzer {
         if transcodes > 0 {
             partial.warnings.append(.mediaTranscodeRequired(count: transcodes))
         }
-        if midi,
-           [.easyrpg]
-           .contains(runtime) || {
-               if case .rgss = runtime {
-                   true
-               } else {
-                   false
-               }
-           }() { partial.warnings.append(.soundfontRequired) }
-        if files.count >= Self
-            .fileCap {
+        if midi {
+            switch runtime {
+            case .easyrpg, .rgss: partial.warnings.append(.soundfontRequired)
+            default: break
+            }
+        }
+        if files.count >= Self.fileCap {
             partial.warnings.append(.note("more than \(Self.fileCap) media files; only the first were analysed"))
         }
         evidence.append(DetectionEvidence(
@@ -77,8 +73,6 @@ public struct MediaRequirementAnalyzer: Analyzer {
             "\(files.count) media files checked, \(transcodes) need conversion"
         ))
     }
-
-    static func isMedia(_ key: String) -> Bool { MediaRules.kind(of: key) != nil }
 
     static func engine(for runtime: RuntimeIdentifier) -> MediaEngine? {
         switch runtime {

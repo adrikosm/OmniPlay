@@ -25,7 +25,7 @@ enum GameDeletion {
         guard ImportPipeline.claim(game.id) else { return "An import is replacing this game. Delete it once the import finishes." }
         defer { ImportPipeline.release(game.id) }
         do {
-            let titleHash = AppModel.snapshot(for: game.id, paths: paths)?.report.descriptor.identityHash ?? game.id.description
+            let titleHash = AppModel.identityHash(for: game.id, paths: paths)
             let location = SaveLocation.forGame(game.id, paths: paths)
             let rescued = keepSaves
                 ? try RescuedSaves.rescue(location: location, titleHash: titleHash, title: game.title, paths: paths)

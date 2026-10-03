@@ -22,14 +22,6 @@ public enum Fixtures {
     }()
 
     public static func url(_ name: String) -> URL { repositoryRoot.appending(path: "Fixtures/synthetic/\(name)") }
-
-    /// A real sample project placed locally under `Fixtures/private/`, or nil when absent (tests then skip).
-    public static func privateURL(_ name: String) -> URL? {
-        let url = repositoryRoot.appending(path: "Fixtures/private/\(name)")
-        return FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) ? url : nil
-    }
-
-    public static func hasPrivate(_ name: String) -> Bool { privateURL(name) != nil }
 }
 
 /// A throwaway directory tree removed when the value is deinitialised.
@@ -48,15 +40,6 @@ public final class TemporaryGameRoot: Sendable {
         let target = url.appending(path: relativePath)
         try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
         try contents.write(to: target)
-        return target
-    }
-
-    /// A sparse file of `bytes` length (reads as zeros, occupies no space until written).
-    public func sparseFile(_ relativePath: String, bytes: UInt64) throws -> URL {
-        let target = try file(relativePath)
-        let h = try FileHandle(forWritingTo: target)
-        try h.truncate(atOffset: bytes)
-        try h.close()
         return target
     }
 

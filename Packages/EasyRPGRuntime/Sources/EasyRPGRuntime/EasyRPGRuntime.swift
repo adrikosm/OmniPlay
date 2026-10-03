@@ -50,8 +50,7 @@
         private var exitStatus: Int32?
         private var stopping = false
         private var adopted = false
-        private var lastFrames: UInt = 0
-        private var lastRead = ContinuousClock.now
+        private var fps = FrameRateSampler()
 
         public init() {}
 
@@ -64,11 +63,9 @@
             self.library = library
 
             let fm = FileManager.default
-            let game = configuration.layers.first { $0.tier == .original }?.root
-                ?? configuration.indexURL.deletingLastPathComponent().appending(path: "Original")
+            let game = configuration.originalRoot
             let saves = configuration.saveDirectory
-            try SaveLocation(savesRoot: saves.deletingLastPathComponent()).ensure()
-            try fm.createDirectory(at: configuration.logDirectory, withIntermediateDirectories: true)
+            try configuration.ensureSessionDirectories()
             let work = configuration.cacheDirectory.appending(path: "easyrpg", directoryHint: .isDirectory)
             try fm.createDirectory(at: work, withIntermediateDirectories: true)
             snapshotURL = work.appending(path: "pause.png")
@@ -154,45 +151,27 @@
 
         /// SDL hears about the app's lifecycle from its own app delegate, which OmniPlay is not.
         private func observeLifecycle() {
-            let center = NotificationCenter.default
-            let events: [(Notification.Name, Int32)] = [
-                (UIApplication.willResignActiveNotification, 0),
-                (UIApplication.didEnterBackgroundNotification, 1),
-                (UIApplication.willEnterForegroundNotification, 2),
-                (UIApplication.didBecomeActiveNotification, 3),
-            ]
-            observers = events.map { name, event in
-                center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated {
-                        guard let library = self?.library, library.phase == .running else { return }
-                        library.appEvent(event)
-                    }
-                }
+            observers = EngineAppEvents.observe { [weak self] event in
+                guard let library = self?.library, library.phase == .running else { return }
+                library.appEvent(event)
             }
         }
 
         /// The Player has no hang flag of its own; its frame count, read every two seconds, stands in.
         private func startWatchdog() {
-            lastRead = .now
+            fps = FrameRateSampler()
             let watchdog = NativeWatchdog(read: { [weak self] in
                 guard let self, let library else {
                     return NativeWatchdog.Reading(terminated: true, paused: false, framesPerSecond: 0)
                 }
-                let now = ContinuousClock.now, frames = library.frames, elapsed = (now - lastRead) / .seconds(1)
-                let fps = elapsed > 0 ? Double(frames &- lastFrames) / elapsed : 0
-                (lastFrames, lastRead) = (frames, now)
                 return NativeWatchdog.Reading(
                     terminated: library.status == .exited,
                     paused: library.status == .paused || stopping,
-                    framesPerSecond: fps
+                    framesPerSecond: fps.sample(library.frames)
                 )
             }, onStall: { [weak self] stalled in
                 guard let self else { return }
-                host?.runtimeDidEmit(.watchdogStalled(seconds: stalled))
-                OPLog.log(.runtime, .error, "easyrpg unresponsive for \(Int(stalled))s", session: configuration?.sessionID)
-                if stalled >= NativeWatchdog.hangLimit {
-                    onFailure?("The game stopped responding. Leaving the game will need OmniPlay to restart.")
-                }
+                NativeWatchdog.report(stalled, engine: "easyrpg", host: host, session: configuration?.sessionID, onFailure: onFailure)
             })
             watchdog.start()
             self.watchdog = watchdog
@@ -217,10 +196,8 @@
         }
 
         private func snapshotImage() -> CGImage? {
-            guard let library, let snapshotURL, library.snapshot(to: snapshotURL),
-                  let image = UIImage(contentsOfFile: snapshotURL.path(percentEncoded: false)) else { return nil }
-            try? FileManager.default.removeItem(at: snapshotURL)
-            return image.cgImage
+            guard let library, let snapshotURL, library.snapshot(to: snapshotURL) else { return nil }
+            return .takeFrame(at: snapshotURL)
         }
 
         public func send(_ input: GameInputEvent) {
@@ -257,9 +234,7 @@
                 try? await Task.sleep(for: .milliseconds(50))
             }
             let verdict: TeardownVerdict = library?.phase == .running ? .restartRequired : .slotSpent
-            host?.releaseEngineWindow()
-            engineWindow?.isHidden = true
-            engineWindow?.windowScene = nil
+            host?.releaseEngineWindow(engineWindow)
             OPLog.log(
                 .runtime,
                 verdict == .restartRequired ? .error : .info,

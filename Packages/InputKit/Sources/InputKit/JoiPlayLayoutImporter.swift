@@ -23,8 +23,6 @@ public enum JoiPlayLayoutImporter {
     public struct Result: Sendable {
         public var layouts: ControlsLayoutSet
         public var notes: [String]
-        /// JoiPlay's "hide the gamepad" switch.
-        public var hidden: Bool
     }
 
     /// JoiPad's buttons with their default keys (JoiPlay `commons` GamePad) and places in the arrangement JoiPad's
@@ -74,19 +72,16 @@ public enum JoiPlayLayoutImporter {
                     )
                 continue
             }
-            let size = 52 * scale
-            landscape.append(.init(
-                id: "joiplay.\(slot.id)",
-                label: label(for: key, slot: slot.label),
-                keys: [key],
-                anchor: .init(x: slot.landscape.0, y: slot.landscape.1, size: size)
-            ))
-            portrait.append(.init(
-                id: "joiplay.\(slot.id)",
-                label: label(for: key, slot: slot.label),
-                keys: [key],
-                anchor: .init(x: slot.portrait.0, y: slot.portrait.1, size: size)
-            ))
+            let control = { (at: (Double, Double)) in
+                ControlsLayout.Control(
+                    id: "joiplay.\(slot.id)",
+                    label: label(for: key, slot: slot.label),
+                    keys: [key],
+                    anchor: .init(x: at.0, y: at.1, size: 52 * scale)
+                )
+            }
+            landscape.append(control(slot.landscape))
+            portrait.append(control(slot.portrait))
         }
         if bool("diagonalMovement") == true {
             notes.append("JoiPlay's diagonal movement setting has no equivalent; the D-pad moves in four directions.")
@@ -97,7 +92,7 @@ public enum JoiPlayLayoutImporter {
             opacity: opacity,
             source: "joiplay"
         )
-        return Result(layouts: set, notes: notes, hidden: bool("hideGamepad") ?? false)
+        return Result(layouts: set, notes: notes)
     }
 
     /// The key's own name where it has one (Enter, Esc, F2); otherwise JoiPad's button letter.

@@ -5,26 +5,12 @@ import GameCore
 /// with a different extension needs no alias. Aliases cover siblings that keep the extension but live elsewhere.
 public struct MediaPlan: Sendable, Hashable {
     public var aliases: [String: String] = [:]
-    public var pendingTranscodes: [MediaRequirement] = []
 
     public init(requirements: [MediaRequirement]) {
         for r in requirements {
-            switch r.action {
-            case let .useSibling(sibling) where Self.ext(sibling) == Self.ext(r.sourceRel) && sibling != r.sourceRel:
+            if case let .useSibling(sibling) = r.action, Self.ext(sibling) == Self.ext(r.sourceRel), sibling != r.sourceRel {
                 aliases[r.sourceRel] = sibling
-            case .transcode:
-                pendingTranscodes.append(r)
-            default: break
             }
-        }
-    }
-
-    /// Player-facing line for the launch notice, or nil when everything plays as shipped.
-    public var notice: String? {
-        switch pendingTranscodes.count {
-        case 0: nil
-        case 1: "One video needs converting and may not play yet."
-        case let n: "\(n) videos need converting and may not play yet."
         }
     }
 

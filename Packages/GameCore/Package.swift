@@ -8,14 +8,8 @@ let package = Package(
         .library(name: "GameCore", targets: ["GameCore"]),
         .library(name: "TestSupport", targets: ["TestSupport"]),
     ],
-    dependencies: [
-    ],
     targets: [
-        .target(
-            name: "GameCore",
-            dependencies: [
-            ]
-        ),
+        .target(name: "GameCore"),
         .target(name: "TestSupport", dependencies: ["GameCore"]),
     ],
     swiftLanguageModes: [.v6]

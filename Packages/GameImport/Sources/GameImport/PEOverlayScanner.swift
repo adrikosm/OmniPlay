@@ -18,10 +18,6 @@ public struct PEPayload: Sendable, Hashable {
 
     public let kind: Kind
     public let machine: Machine
-    public let overlayOffset: Int64
-    public let sectionNames: [String]
-    public let resourceRange: Range<Int64>?
-    public let hasNodeDLLs: Bool
 }
 
 public enum PEOverlayScanner {
@@ -41,21 +37,10 @@ public enum PEOverlayScanner {
         } else if let appended = appendedArchive(url, overlayOffset: pe.overlayOffset, size: size, tail: tail) {
             kind = appended
         }
-        let dir = url.deletingLastPathComponent()
-        let hasNode = ["nw.dll", "node.dll", "nw_elf.dll"]
-            .contains { FileManager.default.fileExists(atPath: dir.appending(path: $0).path(percentEncoded: false)) }
-        return PEPayload(
-            kind: kind,
-            machine: pe.machine,
-            overlayOffset: pe.overlayOffset,
-            sectionNames: pe.sectionNames,
-            resourceRange: pe.resourceRange,
-            hasNodeDLLs: hasNode
-        )
+        return PEPayload(kind: kind, machine: pe.machine)
     }
 
-    struct Headers { let machine: PEPayload.Machine; let overlayOffset: Int64; let sectionNames: [String]; let resourceRange: Range<Int64>?
-    }
+    struct Headers { let machine: PEPayload.Machine; let overlayOffset: Int64; let sectionNames: [String] }
 
     static func parseHeaders(_ h: Data, fileSize: Int64) -> Headers? {
         func u16(_ o: Int) -> UInt16? { o + 2 <= h.count ? h.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: o, as: UInt16.self) }
@@ -71,22 +56,17 @@ public enum PEOverlayScanner {
         let table = e + 24 + Int(optSize)
         var overlay = Int64(sizeOfHeaders)
         var names: [String] = []
-        var rsrc: Range<Int64>?
         for i in 0 ..< Int(min(sections, 96)) {
             let s = table + i * 40
             guard s + 40 <= h.count, let raw = u32(s + 16), let ptr = u32(s + 20) else { break }
             let name = String(bytes: h[h.startIndex + s ..< h.startIndex + s + 8].prefix { $0 != 0 }, encoding: .ascii) ?? ""
             names.append(name)
-            let end = Int64(ptr) + Int64(raw)
             if raw > 0 {
-                overlay = max(overlay, end)
-            }
-            if name == ".rsrc", raw > 0 {
-                rsrc = Int64(ptr) ..< end
+                overlay = max(overlay, Int64(ptr) + Int64(raw))
             }
         }
         guard overlay <= fileSize else { return nil } // truncated image
-        return Headers(machine: machine, overlayOffset: overlay, sectionNames: names, resourceRange: rsrc)
+        return Headers(machine: machine, overlayOffset: overlay, sectionNames: names)
     }
 
     private static func readTail(_ url: URL, size: Int64) throws -> Data {

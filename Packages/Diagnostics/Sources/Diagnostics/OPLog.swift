@@ -7,7 +7,6 @@ import Synchronization
 public enum OPLog {
     public static let subsystem = "com.omniplay.app"
 
-    private static let loggers = Mutex<[LogCategory: Logger]>([:])
     private static let sinks = Mutex<[SessionID: FileLogSink]>([:])
     private static let fallback = Mutex<SessionID?>(nil)
 
@@ -19,16 +18,8 @@ public enum OPLog {
 
     private static let timestamp = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
 
-    public static func logger(_ category: LogCategory) -> Logger {
-        loggers.withLock { cache in
-            if let l = cache[category] {
-                return l
-            }
-            let l = Logger(subsystem: subsystem, category: category.rawValue)
-            cache[category] = l
-            return l
-        }
-    }
+    /// `os_log_create` keeps its own cache, so a fresh value per call costs nothing extra.
+    public static func logger(_ category: LogCategory) -> Logger { Logger(subsystem: subsystem, category: category.rawValue) }
 
     public static func log(_ category: LogCategory, _ level: OSLogType = .default, _ message: String, session: SessionID? = nil) {
         logger(category).log(level: level, "\(message, privacy: .public)")

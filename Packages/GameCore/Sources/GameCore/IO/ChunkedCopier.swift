@@ -8,9 +8,7 @@ public enum ChunkedCopier {
 
     public static func copy(
         from source: URL,
-        to destination: URL,
-        chunk: Int = defaultChunk,
-        progress: (@Sendable (Int64) -> Void)? = nil
+        to destination: URL
     ) async throws {
         let temp = destination.deletingLastPathComponent().appending(path: ".\(destination.lastPathComponent).part-\(UUID().uuidString)")
         let fm = FileManager.default
@@ -19,16 +17,13 @@ public enum ChunkedCopier {
         defer { try? input.close() }
         _ = fm.createFile(atPath: temp.path(percentEncoded: false), contents: nil)
         let output = try FileHandle(forWritingTo: temp)
-        var copied: Int64 = 0
         do {
             // Each chunk lives in its own autorelease pool: FileHandle returns autoreleased NSData and a
             // long loop would otherwise hold every chunk until the pool drains.
             while try autoreleasepool(invoking: { () throws -> Bool in
-                guard let data = try input.read(upToCount: chunk), !data.isEmpty else { return false }
+                guard let data = try input.read(upToCount: defaultChunk), !data.isEmpty else { return false }
                 try Task.checkCancellation()
                 try output.write(contentsOf: data)
-                copied += Int64(data.count)
-                progress?(copied)
                 return true
             }) {}
             try output.synchronize()
@@ -48,21 +43,14 @@ public enum ChunkedCopier {
 }
 
 public enum StreamingHasher {
-    public static func sha256(
-        of url: URL,
-        chunk: Int = ChunkedCopier.defaultChunk,
-        progress: (@Sendable (Int64) -> Void)? = nil
-    ) throws -> SHA256Digest {
+    public static func sha256(of url: URL) throws -> SHA256Digest {
         let input = try FileHandle(forReadingFrom: url)
         defer { try? input.close() }
         var hasher = SHA256()
-        var read: Int64 = 0
         while try autoreleasepool(invoking: { () throws -> Bool in
-            guard let data = try input.read(upToCount: chunk), !data.isEmpty else { return false }
+            guard let data = try input.read(upToCount: ChunkedCopier.defaultChunk), !data.isEmpty else { return false }
             try Task.checkCancellation()
             hasher.update(data: data)
-            read += Int64(data.count)
-            progress?(read)
             return true
         }) {}
         return hasher.finalize()

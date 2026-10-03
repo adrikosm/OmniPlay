@@ -14,11 +14,7 @@ source "$(dirname "$0")/common.sh"
 cd "$NATIVE_ROOT"
 require_xcode
 require_tools scons python3
-if [[ "$NATIVE_ROOT" == *" "* && -z "${OMNIPLAY_NATIVE_LINKED:-}" ]]; then
-  link="$HOME/.omniplay-native"
-  [[ -L "$link" && "$(readlink "$link")" == "$NATIVE_ROOT" ]] || { /bin/rm -f "$link"; ln -s "$NATIVE_ROOT" "$link"; }
-  OMNIPLAY_NATIVE_LINKED=1 exec zsh "$link/Scripts/native/build-godot3.sh" "$@"
-fi
+relink_without_spaces "${0:t}" "$@"
 
 SRC="$NATIVE_ROOT/Native/godot3/src"
 WORK="$NATIVE_ROOT/Native/build/godot3"

@@ -182,7 +182,7 @@ struct StorageSummary: Sendable {
     nonisolated static func compute(paths: AppPaths, store: GameStore?) -> StorageSummary {
         var s = StorageSummary()
         s.available = try? VolumeSpace.available(at: paths.root)
-        s.caches = size(of: paths.caches())
+        s.caches = size(of: paths.cachesRoot)
         guard let store, let records = try? store.games.fetchAll(limit: 10000) else { return s }
         for game in records {
             s.games += game.installBytes

@@ -150,11 +150,9 @@ extension StateCapabilities {
 /// The bundled catalog (`Resources/cheats.json`), checked entry by entry: a broken entry is skipped with a log line,
 /// never loaded half-right.
 public struct CheatCatalog: Sendable {
-    public let version: Int
     public let cheats: [CheatDefinition]
 
     private struct File: Decodable {
-        var version: Int
         var cheats: [CheatDefinition]
     }
 
@@ -163,7 +161,7 @@ public struct CheatCatalog: Sendable {
     static func load(_ url: URL?) -> CheatCatalog {
         guard let url, let data = try? Data(contentsOf: url) else {
             OPLog.log(.runtime, .error, "cheat catalog missing")
-            return CheatCatalog(version: 0, cheats: [])
+            return CheatCatalog(cheats: [])
         }
         do {
             let file = try JSONDecoder().decode(File.self, from: data)
@@ -176,10 +174,10 @@ public struct CheatCatalog: Sendable {
                 seen.insert(cheat.id)
                 return true
             }
-            return CheatCatalog(version: file.version, cheats: valid)
+            return CheatCatalog(cheats: valid)
         } catch {
             OPLog.log(.runtime, .error, "cheat catalog unreadable: \(error)")
-            return CheatCatalog(version: 0, cheats: [])
+            return CheatCatalog(cheats: [])
         }
     }
 

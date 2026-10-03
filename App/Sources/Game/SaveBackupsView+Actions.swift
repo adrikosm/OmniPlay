@@ -8,7 +8,7 @@ import UniformTypeIdentifiers
 extension SaveBackupsView {
     func reload() async {
         let location = location
-        let kinds = SaveStrategy.forEngine(game.engine, generation: game.generation).persistentStores
+        let kinds = strategy.persistentStores
             .compactMap { PersistentStoreKind(rawValue: $0.rawValue) }
         let (slotList, previewList, snapList, storeList) = await Task.detached {
             (
@@ -30,8 +30,8 @@ extension SaveBackupsView {
     var transfer: SaveTransfer {
         SaveTransfer(paths: model.paths, target: .init(
             id: game.id, title: game.title, engine: game.engine,
-            family: SaveStrategy.forEngine(game.engine, generation: game.generation).family,
-            slotPattern: slotPattern, identityHash: identityHash,
+            family: strategy.family,
+            slotPattern: strategy.slotPattern, identityHash: identityHash,
             gameRoot: game.rootRelPath.isEmpty ? model.paths.tier(.original, for: game.id)
                 : model.paths.tier(.original, for: game.id).appending(path: game.rootRelPath, directoryHint: .isDirectory)
         ))
@@ -109,7 +109,7 @@ extension SaveBackupsView {
     }
 
     func duplicateName(for slot: SaveSlotFile) -> String? {
-        SlotNaming.duplicateName(for: slot.id, existing: Set(slots.map(\.id)), pattern: slotPattern)
+        SlotNaming.duplicateName(for: slot.id, existing: Set(slots.map(\.id)), pattern: strategy.slotPattern)
     }
 
     /// A copy in the next free slot: nothing existing is touched, so no snapshot is needed.

@@ -32,14 +32,7 @@ public extension PersistentStoreKind {
                 .filter { FileManager.default.fileExists(atPath: location.root.appending(path: $0).path(percentEncoded: false)) }
         default:
             let folder = location.persistent.appending(path: directoryName, directoryHint: .isDirectory)
-            var out: [String] = []
-            try? LazyDirectoryWalker.walk(root: folder) { entry in
-                if !entry.isDirectory {
-                    out.append("persistent/\(directoryName)/\(entry.relativePath)")
-                }
-                return .continue
-            }
-            return out
+            return ((try? LazyDirectoryWalker.files(under: folder)) ?? []).map { "persistent/\(directoryName)/\($0.relativePath)" }
         }
     }
 

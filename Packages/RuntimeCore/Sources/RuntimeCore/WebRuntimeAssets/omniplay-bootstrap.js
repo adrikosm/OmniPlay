@@ -10,13 +10,10 @@
       write: (key, value) => post("omniplay.save", { op: "write", kind: "ls", key: String(key), value: String(value) }),
       remove: (key) => post("omniplay.save", { op: "remove", kind: "ls", key: String(key) }),
     },
-    state: {
-      report: (path, json) => post("omniplay.state", { path: String(path), json: String(json) }),
-    },
     trimCaches: () => { try { document.dispatchEvent(new Event("omniplay:trimcaches")); } catch (_) {} },
     booted: () => post("omniplay.heartbeat", { booted: true, t: Date.now() }),
   };
-  Object.freeze(api.save); Object.freeze(api.state); Object.freeze(api);
+  Object.freeze(api.save); Object.freeze(api);
   window.OmniPlay = api;
   // A line the page's dictionary missed, for live translation; plain text, never evaluated.
   document.addEventListener("omniplay:missed", (e) => {

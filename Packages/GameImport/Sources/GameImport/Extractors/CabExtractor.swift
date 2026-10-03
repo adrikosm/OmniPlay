@@ -1,5 +1,4 @@
 import CMspack
-import Darwin
 import Foundation
 
 /// Microsoft cabinets through libmspack: plain `.cab` files and self-extracting installers with cabinets inside
@@ -30,10 +29,10 @@ public struct CabExtractor: Sendable {
     public func extract(_ url: URL, to destination: URL, progress: (@Sendable (Int64, String) -> Void)? = nil) throws -> RunningTotals {
         let cab = try open(url)
         defer { op_cab_close(cab) }
-        let fm = FileManager.default
-        try fm.createDirectory(at: destination, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
         let validator = EntryValidator(limits: limits)
-        let sink = try CabSink(
+        let sink = try StreamingSink(
+            label: "cabinet",
             validator: validator,
             sourceBytes: Int64(url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0),
             progress: progress
@@ -45,35 +44,13 @@ public struct CabExtractor: Sendable {
             case let .reject(error): throw error
             case .skip: continue
             case let .extract(relative):
-                let target = destination.appending(path: relative)
-                let rootPath = destination.resolvingSymlinksInPath().pathComponents
-                let targetPath = target.resolvingSymlinksInPath().pathComponents
-                guard targetPath.count > rootPath.count, targetPath.starts(with: rootPath) else {
-                    throw SafetyViolation(rule: .invalidPath, entryPath: relative, detail: "symlink escapes staging")
-                }
-                if fm.fileExists(atPath: target.path(percentEncoded: false)) {
-                    sink.totals.declaredBytes -= header.declaredSize ?? 0
-                    sink.totals.skipped += 1
+                let target = try StreamingSink.target(relative, in: destination)
+                if sink.skipsDuplicate(target, declaredSize: header.declaredSize) {
                     continue
                 }
-                try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-                let fd = Darwin.open(target.path(percentEncoded: false), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
-                guard fd >= 0 else { throw ExtractionError.write(path: relative, errno: errno) }
-                defer { Darwin.close(fd) }
-                sink.fd = fd
-                sink.path = relative
-                sink.remaining = header.declaredSize ?? 0
-                let code = op_cab_extract(cab, Int32(index), { context, bytes, count in
-                    guard let context, let bytes else { return -1 }
-                    let sink = Unmanaged<CabSink>.fromOpaque(context).takeUnretainedValue()
-                    do { try sink.write(bytes, count: count); return 0 } catch { sink.failure = error; return -1 }
-                }, Unmanaged.passUnretained(sink).toOpaque())
-                if let failure = sink.failure {
-                    throw failure
-                }
-                guard code == 0 else { throw ExtractionError.entry(path: relative, message: "cabinet error \(code)") }
-                guard sink.remaining == 0 else {
-                    throw SafetyViolation(rule: .sizeMismatch, entryPath: relative, detail: "cabinet entry shorter than declared")
+                try sink.stream(to: target, path: relative, declaredSize: header.declaredSize) { callback, context in
+                    let code = op_cab_extract(cab, Int32(index), callback, context)
+                    guard code == 0 else { throw ExtractionError.entry(path: relative, message: "cabinet error \(code)") }
                 }
             }
         }
@@ -105,42 +82,5 @@ public struct CabExtractor: Sendable {
             throw ExtractionError.entry(path: "(header)", message: "cabinet entry \(index) has an invalid filename encoding")
         }
         return ArchiveEntryHeader(path: path, kind: .file, declaredSize: Int64(entry.size))
-    }
-}
-
-private final class CabSink {
-    let validator: EntryValidator
-    let sourceBytes: Int64
-    let progress: (@Sendable (Int64, String) -> Void)?
-    var totals = RunningTotals()
-    var fd: Int32 = -1
-    var path = ""
-    var remaining: Int64 = 0
-    var failure: Error?
-
-    init(validator: EntryValidator, sourceBytes: Int64, progress: (@Sendable (Int64, String) -> Void)?) {
-        self.validator = validator; self.sourceBytes = sourceBytes; self.progress = progress
-    }
-
-    func write(_ bytes: UnsafeRawPointer, count: Int) throws {
-        try Task.checkCancellation()
-        guard count <= remaining else {
-            throw SafetyViolation(rule: .sizeMismatch, entryPath: path, detail: "cabinet entry exceeds declared size")
-        }
-        totals.writtenBytes += Int64(count)
-        if let violation = validator.checkWritten(totals, sourceBytes: sourceBytes) {
-            throw violation
-        }
-        var offset = 0
-        while offset < count {
-            let written = Darwin.write(fd, bytes.advanced(by: offset), count - offset)
-            if written < 0, errno == EINTR {
-                continue
-            }
-            guard written > 0 else { throw ExtractionError.write(path: path, errno: errno) }
-            offset += written
-        }
-        remaining -= Int64(count)
-        progress?(totals.writtenBytes, path)
     }
 }

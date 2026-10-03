@@ -57,7 +57,7 @@ final class TouchpadView: UIView, UIGestureRecognizerDelegate {
         let pan = UIPanGestureRecognizer(target: self, action: #selector(panned(_:)))
         pan.maximumNumberOfTouches = 1
         let tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
-        let rightTap = UITapGestureRecognizer(target: self, action: #selector(rightTapped))
+        let rightTap = UITapGestureRecognizer(target: self, action: #selector(tapped))
         rightTap.numberOfTouchesRequired = 2
         let hold = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
         hold.minimumPressDuration = 0.35
@@ -95,16 +95,12 @@ final class TouchpadView: UIView, UIGestureRecognizerDelegate {
         lastPan = point
     }
 
-    @objc private func tapped() {
+    /// One finger clicks; two fingers right-click.
+    @objc private func tapped(_ tap: UITapGestureRecognizer) {
         guard let cursor else { return }
-        send(.pointerDown(.primary, x: cursor.x, y: cursor.y))
-        send(.pointerUp(.primary, x: cursor.x, y: cursor.y))
-    }
-
-    @objc private func rightTapped() {
-        guard let cursor else { return }
-        send(.pointerDown(.secondary, x: cursor.x, y: cursor.y))
-        send(.pointerUp(.secondary, x: cursor.x, y: cursor.y))
+        let button: PointerButton = tap.numberOfTouchesRequired == 2 ? .secondary : .primary
+        send(.pointerDown(button, x: cursor.x, y: cursor.y))
+        send(.pointerUp(button, x: cursor.x, y: cursor.y))
     }
 
     @objc private func held(_ hold: UILongPressGestureRecognizer) {

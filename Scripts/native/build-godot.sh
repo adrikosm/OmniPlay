@@ -16,11 +16,7 @@ cd "$NATIVE_ROOT"
 require_xcode
 require_tools scons python3
 # SCons and Godot's build handle a path with spaces poorly; re-run through the space-free symlink.
-if [[ "$NATIVE_ROOT" == *" "* && -z "${OMNIPLAY_NATIVE_LINKED:-}" ]]; then
-  link="$HOME/.omniplay-native"
-  [[ -L "$link" && "$(readlink "$link")" == "$NATIVE_ROOT" ]] || { /bin/rm -f "$link"; ln -s "$NATIVE_ROOT" "$link"; }
-  OMNIPLAY_NATIVE_LINKED=1 exec zsh "$link/Scripts/native/build-godot.sh" "$@"
-fi
+relink_without_spaces "${0:t}" "$@"
 
 SRC="$NATIVE_ROOT/Native/godot/src"
 MODULES="$NATIVE_ROOT/Native/godot/modules"

@@ -12,9 +12,7 @@ struct GameToolsView: View {
     let game: GameRecord
     let snapshot: DetectionSnapshot?
     @State private var open: ToolsSection?
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @Environment(\.dynamicTypeSize) private var typeSize
+    @Wide private var wide
 
     private var running: Bool { model.playing?.id == game.id && model.tools != nil }
 
@@ -46,7 +44,7 @@ struct GameToolsView: View {
                 }
                 .rise(0)
                 // Live changes, then the game's files, then how it runs; landscape sets them side by side.
-                if Adaptive.wide(vertical: verticalSizeClass, horizontal: horizontalSizeClass, type: typeSize) {
+                if wide {
                     HStack(alignment: .top, spacing: Theme.s4) {
                         VStack(spacing: Theme.s4) { ForEach(Array(groups.enumerated()).filter { $0.offset != 1 }, id: \.offset) { section(
                             $0.element,

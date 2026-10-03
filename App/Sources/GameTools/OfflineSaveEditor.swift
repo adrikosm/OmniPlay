@@ -140,7 +140,7 @@ struct OfflineSaveEditor: View {
                 OPLog.log(.save, .info, "EDITPROBE \(key): \(result.result.rawValue) \(result.oldValue) → \(result.effectiveValue)")
             }
             do {
-                let hash = Self.snapshot(for: game.id, paths: paths)?.report.descriptor.identityHash ?? game.id.description
+                let hash = Self.identityHash(for: game.id, paths: paths)
                 try await OfflineSaveEditor.commit(inspector, to: slot.url, location: location, identityHash: hash)
                 OPLog.log(.save, .info, "EDITPROBE committed \(slot.displayName)")
             } catch {

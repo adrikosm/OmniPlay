@@ -158,6 +158,17 @@ public struct RuntimeConfiguration: Sendable {
         self.sessionID = sessionID
     }
 
+    /// The imported game folder (the original layer), or where it would be.
+    public var originalRoot: URL {
+        layers.first { $0.tier == .original }?.root ?? indexURL.deletingLastPathComponent().appending(path: "Original")
+    }
+
+    /// The save folders and the session's log folder, created if missing.
+    public func ensureSessionDirectories() throws {
+        try SaveLocation(savesRoot: saveDirectory.deletingLastPathComponent()).ensure()
+        try FileManager.default.createDirectory(at: logDirectory, withIntermediateDirectories: true)
+    }
+
     /// Layers, directories and entry point for a game as the store and detection recorded them.
     public static func forGame(
         _ descriptor: GameDescriptor,

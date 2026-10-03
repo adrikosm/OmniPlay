@@ -155,7 +155,7 @@ public enum MediaPreparation {
         let base = gameRoot.standardizedFileURL.path(percentEncoded: false)
         var found: [Conversion] = []
         var aliases: [String: String] = [:]
-        var siblingsByDirectory: [URL: Set<String>] = [:]
+        var siblingsByDirectory: [URL: [String: String]] = [:]
         for case let url as URL in walker {
             if Task.isCancelled {
                 break
@@ -172,8 +172,11 @@ public enum MediaPreparation {
                 // A game that ships a playable form beside the file (intro.webm and intro.mp4) needs nothing.
                 let directory = url.deletingLastPathComponent()
                 let names = siblingsByDirectory[directory] ?? {
-                    let listed = Set(((try? fm.contentsOfDirectory(atPath: directory.path(percentEncoded: false))) ?? [])
-                        .map { $0.lowercased() })
+                    // Lower-cased name -> name as on disk; the first listed wins.
+                    let listed = Dictionary(
+                        ((try? fm.contentsOfDirectory(atPath: directory.path(percentEncoded: false))) ?? []).map { ($0.lowercased(), $0) },
+                        uniquingKeysWith: { first, _ in first }
+                    )
                     siblingsByDirectory[directory] = listed
                     return listed
                 }()
@@ -181,9 +184,7 @@ public enum MediaPreparation {
                 let stem = url.deletingPathExtension().lastPathComponent.lowercased()
                 for ext in MediaRules.playableSiblings(for: kind, engine: engine) {
                     let sibling = stem + "." + ext
-                    guard sibling != name, names.contains(sibling),
-                          let real = (try? fm.contentsOfDirectory(atPath: directory.path(percentEncoded: false)))?
-                          .first(where: { $0.lowercased() == sibling }) else { continue }
+                    guard sibling != name, let real = names[sibling] else { continue }
                     let siblingProbe = MediaRules.needsProbe(real, engine: engine)
                         ? MediaProbe.probe(directory.appending(path: real), relativePath: real) : nil
                     if MediaRules.conversion(for: real, engine: engine, probe: siblingProbe) == nil {
@@ -196,7 +197,7 @@ public enum MediaPreparation {
                 // Generated sits in front of the game: an output named like another of its files would replace that
                 // file for every read, so it keeps the source's extension too (intro.webm.mp4 beside intro.mp4).
                 let outputName = (output as NSString).lastPathComponent.lowercased()
-                if outputName != name, names.contains(outputName) {
+                if outputName != name, names[outputName] != nil {
                     output = rel + "." + target.fileExtension
                 }
                 found.append(Conversion(source: rel, output: output, target: target))

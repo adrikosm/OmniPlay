@@ -36,9 +36,7 @@ extension AppModel {
         if let binary = validation.nativeBinaries.first {
             throw ModFailure.refused("It contains a program for another platform (\(binary)); packs can only replace game files.")
         }
-        let original = Self.snapshot(for: game.id, paths: paths).flatMap { snapshot in
-            LayerSetBuilder.forGame(snapshot.report.descriptor.withID(game.id), paths: paths).first { $0.tier == .original }?.root
-        } ?? paths.tier(.original, for: game.id)
+        let original = detectedOriginal(for: game.id) ?? paths.tier(.original, for: game.id)
         let detection = await Task.detached {
             TranslationFormatDetector.detect(root: staging, files: validation.files, engine: engine) { rel in
                 FileManager.default.fileExists(atPath: original.appending(path: rel).path(percentEncoded: false))

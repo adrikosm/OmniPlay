@@ -9,16 +9,16 @@ enum RuntimeTeardown {
         _ operation: @escaping @Sendable () async -> TeardownVerdict
     ) async -> TeardownVerdict {
         let pending = Mutex<CheckedContinuation<TeardownVerdict, Never>?>(nil)
+        let take: @Sendable () -> CheckedContinuation<TeardownVerdict, Never>? = { pending.withLock { value in
+            defer { value = nil }
+            return value
+        } }
         return await withCheckedContinuation { continuation in
             pending.withLock { $0 = continuation }
             // Independent of the main actor: a blocked engine must not also block its deadline.
             let timer = Task.detached {
                 do { try await Task.sleep(for: timeout) } catch { return }
-                let continuation = pending.withLock { value in
-                    defer { value = nil }
-                    return value
-                }
-                if let continuation {
+                if let continuation = take() {
                     OPLog.log(.runtime, .error, "runtime stop timed out; restart required, adapter retained")
                     continuation.resume(returning: .restartRequired)
                 }
@@ -26,11 +26,7 @@ enum RuntimeTeardown {
             Task {
                 let verdict = await operation()
                 timer.cancel()
-                let continuation = pending.withLock { value in
-                    defer { value = nil }
-                    return value
-                }
-                continuation?.resume(returning: verdict)
+                take()?.resume(returning: verdict)
             }
         }
     }

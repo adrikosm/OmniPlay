@@ -8,28 +8,16 @@ public struct StructureFacts: Sendable, Hashable {
         case unityPlayer, gameAssembly, unityData, engineDir, dataWin, mainLua, nscriptDat, swf, acsetupCfg, xp3
     }
 
-    public var topLevelNames: [String] = []
     public var hasWWW = false
     public var indexHTMLCandidates: [String] = []
     public var exeNames: [String] = []
-    public var dllNames: [String] = []
     public var markers: Set<Marker> = []
-    public var entryCount = 0
 
     public static func inspect(_ ctx: ScanContext) -> StructureFacts {
         var f = StructureFacts()
-        let top = ctx.children("", limit: 512)
-        f.topLevelNames = top.map(\.realRel)
-        f.entryCount = ctx.count()
         f.hasWWW = ctx.entry("www")?.isDir == true
-        for e in top where !e.isDir {
-            let lower = e.key
-            if lower.hasSuffix(".exe") {
-                f.exeNames.append(e.realRel)
-            }
-            if lower.hasSuffix(".dll"), f.dllNames.count < 64 {
-                f.dllNames.append(e.realRel)
-            }
+        for e in ctx.children("", limit: 512) where !e.isDir && e.key.hasSuffix(".exe") {
+            f.exeNames.append(e.realRel)
         }
         for candidate in ["index.html", "www/index.html", "index.htm"]
             where ctx.exists(candidate) {

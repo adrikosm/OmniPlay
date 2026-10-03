@@ -120,10 +120,6 @@ public final class ScummVMEngineLibrary: @unchecked Sendable {
         return api
     }
 
-    public func reportedVersion() throws -> String {
-        try load().version().map { String(cString: $0) } ?? "unknown"
-    }
-
     /// The path ScummVM sees for `url`: relative to the app's home directory, with a leading slash; files in the
     /// app bundle go through the backend's `appbundle:` drive.
     public static func scummPath(_ url: URL) -> String {

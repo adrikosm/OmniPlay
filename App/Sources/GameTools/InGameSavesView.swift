@@ -147,7 +147,7 @@ struct InGameSavesView: View {
         busy = true
         defer { busy = false }
         do {
-            let identity = AppModel.snapshot(for: game.id, paths: model.paths)?.report.descriptor.identityHash ?? game.id.description
+            let identity = AppModel.identityHash(for: game.id, paths: model.paths)
             _ = try await SaveVault.snapshot(location: location, identityHash: identity, reason: .beforeEdit)
             backup = SaveVault.snapshots(location: location).first?.directory
             try await slots.loadSlot(file: file.url.lastPathComponent)
@@ -190,7 +190,7 @@ struct InGameSavesView: View {
     private func restoreBackup() async -> Bool {
         defer { reload() }
         guard let backup else { return false }
-        let identity = AppModel.snapshot(for: game.id, paths: model.paths)?.report.descriptor.identityHash ?? game.id.description
+        let identity = AppModel.identityHash(for: game.id, paths: model.paths)
         return await (try? SaveVault.restore(snapshot: backup, into: location, identityHash: identity, mode: .replace)) != nil
     }
 }

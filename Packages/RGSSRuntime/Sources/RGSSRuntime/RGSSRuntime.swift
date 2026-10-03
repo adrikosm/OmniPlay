@@ -15,7 +15,7 @@
     /// `mkxp_setGamePath`, callbacks from the engine thread hopped onto the main actor after. No C++ crosses
     /// into Swift, and Swift never reaches around the bridge into SDL.
     @MainActor
-    public final class RGSSRuntime: NSObject, GameRuntime, FastForwardCapable {
+    public final class RGSSRuntime: GameRuntime, FastForwardCapable {
         public let ruby: RubyLine
         /// `Assets.bundle` inside the app: the engine's shaders, fonts and preload/postload Ruby.
         public let assets: URL
@@ -56,7 +56,6 @@
         public init(ruby: RubyLine, assets: URL) {
             self.ruby = ruby
             self.assets = assets
-            super.init()
         }
 
         // MARK: GameRuntime
@@ -66,8 +65,7 @@
             guard RGSSEngineProcess.phase == .notStarted else { throw Failure.engineAlreadySpent }
             self.configuration = configuration
 
-            let original = configuration.layers.first { $0.tier == .original }?.root
-                ?? configuration.indexURL.deletingLastPathComponent().appending(path: "Original")
+            let original = configuration.originalRoot
             let soundFont = configuration.profile.overrides["midiSoundFont"].map { URL(filePath: $0) }
             var session = RGSSSessionConfig(
                 descriptor: configuration.descriptor,
@@ -96,17 +94,14 @@
             )
             self.session = session
             let configFile = try session.write(to: managed)
-            try SaveLocation(savesRoot: configuration.saveDirectory.deletingLastPathComponent()).ensure()
-            try FileManager.default.createDirectory(at: configuration.logDirectory, withIntermediateDirectories: true)
+            try configuration.ensureSessionDirectories()
 
             mkxp_resetSessionState()
-            mkxp_setManagedConfigDir(managed.path(percentEncoded: false))
-            // RGSS writes `Save01.rvdata` with a relative name; the engine routes those here instead of the cwd.
-            mkxp_setUserDataDirectory(configuration.saveDirectory.path(percentEncoded: false))
-            mkxp_setSharedFontsDirectory(assets.appending(path: "Fonts").path(percentEncoded: false))
             mkxp_setCABundlePath(assets.appending(path: "cacert.pem").path(percentEncoded: false))
             mkxp_setLauncherIdentity("OmniPlay")
             mkxp_setDebugLogPath(configuration.logDirectory.appending(path: "engine.log").path(percentEncoded: false))
+            // Managed config, fonts, Ruby, network, and the save folder: RGSS writes `Save01.rvdata` with a relative
+            // name, and the engine routes those to the user-data directory instead of the cwd.
             applySessionConfig(session, managedConfigDir: managed)
             // The host owns controllers (InputKit reads them and sends key events), touch reaches the game as a
             // mouse only while a profile asks for it, and nothing this app runs may open a socket by itself.
@@ -114,7 +109,6 @@
             // Touches are the mouse only in direct mode; the host's touchpad layer sends its own pointer events.
             let mouseMode = configuration.profile.overrides["mouseMode"]
             mkxp_setTouchMouseEnabled(mouseMode == nil ? configuration.profile.overrides["touchMouse"] != "false" : mouseMode == "direct")
-            mkxp_setNetworkEnabled(session.networkEnabled)
             mkxp_setCheatsEnabled(configuration.profile.overrides["cheats"] == "true")
             mkxp_installFatalErrorHandlers()
             OPLog.log(
@@ -264,7 +258,7 @@
             case let .pointerUp(_, x, y): injectPointer(x, y, MKXP_POINTER_UP)
             // SDL's window is the key window, so the engine raises its own keyboard; this is for host-sent text.
             case let .text(text): mkxp_pushTextInput(text)
-            case .controllerButton, .controllerAxis, .scroll:
+            case .controllerButton, .controllerAxis:
                 // InputKit already turns pad input into keys for keyboard engines; raw pad events are not ours.
                 break
             }
@@ -381,11 +375,9 @@
                 )
             }, onStall: { [weak self] stalled in
                 guard let self else { return }
-                host?.runtimeDidEmit(.watchdogStalled(seconds: stalled))
-                OPLog.log(.ruby, .error, "engine unresponsive for \(Int(stalled))s", session: configuration?.sessionID)
-                if stalled >= NativeWatchdog.hangLimit {
-                    onFailure?("The game stopped responding. Leaving the game will need OmniPlay to restart.")
-                }
+                NativeWatchdog.report(
+                    stalled, engine: "engine", category: .ruby, host: host, session: configuration?.sessionID, onFailure: onFailure
+                )
             })
             watchdog.start()
             self.watchdog = watchdog

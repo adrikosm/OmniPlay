@@ -59,20 +59,13 @@ public actor MemoryRecorder {
         encoder.dateEncodingStrategy = .iso8601
     }
 
-    public var lineCount: Int { lines }
-
     /// Returns false when the sample was dropped by the rate or line cap.
     @discardableResult
     public func record(_ sample: MemorySample, force: Bool = false) -> Bool {
         guard lines < Self.maxLines, force || sample.timestamp.timeIntervalSince(lastWrite) >= 1 else { return false }
         do {
             if handle == nil {
-                try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-                if !FileManager.default.fileExists(atPath: fileURL.path(percentEncoded: false)) {
-                    try Data().write(to: fileURL)
-                }
-                handle = try FileHandle(forWritingTo: fileURL)
-                _ = try handle?.seekToEnd()
+                handle = try FileHandle.appending(to: fileURL).0
             }
             try handle?.write(contentsOf: encoder.encode(sample) + Data([UInt8(ascii: "\n")]))
             lines += 1

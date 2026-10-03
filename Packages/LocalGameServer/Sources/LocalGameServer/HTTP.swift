@@ -93,24 +93,6 @@ public struct HTTPResponse: Sendable {
     }
 }
 
-public protocol Router: Sendable {
-    func route(_ request: HTTPRequest) async -> HTTPResponse
-    /// POST, with the body read in full. Refused unless a router registers the path.
-    func post(_ request: HTTPRequest) async -> HTTPResponse
-    /// Whether `post` has a route for this path; the server reads a POST body only when it does.
-    func acceptsPost(_ path: String) -> Bool
-}
-
-public extension Router {
-    func acceptsPost(_: String) -> Bool { false }
-
-    func post(_: HTTPRequest) async -> HTTPResponse {
-        var response = HTTPResponse.text(405, "method not allowed")
-        response.headers.append(("Allow", "GET, HEAD"))
-        return response
-    }
-}
-
 public enum HTTPParseError: Error, Equatable, Sendable {
     case headersTooLarge
     case bodyTooLarge

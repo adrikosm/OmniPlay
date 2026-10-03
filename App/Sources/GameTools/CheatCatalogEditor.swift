@@ -58,18 +58,6 @@ struct CheatCatalogEditor: View {
         .onChange(of: revision) { _, _ in Task { await read() } }
     }
 
-    /// A label and a control on the quiet fill the form's rows share.
-    private func formRow(_ label: String, @ViewBuilder trailing: () -> some View) -> some View {
-        HStack {
-            Text(label).font(.subheadline).foregroundStyle(Theme.textPrimary)
-            Spacer(minLength: Theme.s2)
-            trailing()
-        }
-        .padding(.horizontal, 14)
-        .frame(minHeight: 48)
-        .background(Theme.fill, in: .rect(cornerRadius: 14, style: .continuous))
-    }
-
     private func field(_ parameter: CheatDefinition.Parameter) -> some View {
         VStack(alignment: .leading, spacing: Theme.s1) {
             if parameter.kind == .amount {
@@ -191,16 +179,14 @@ extension CheatDefinition.Parameter.Kind {
     }
 }
 
-extension CheatDefinition.Category {
-    var title: String {
-        switch self {
-        case .currency: "Money"
-        case .items: "Items"
-        case .party: "Party"
-        case .progress: "Progress"
-        case .movement: "Movement"
-        case .battle: "Battle"
-        case .system: "System"
-        }
+/// A label and a control on the quiet fill the cheat forms' rows share.
+@MainActor func formRow(_ label: String, @ViewBuilder trailing: () -> some View) -> some View {
+    HStack {
+        Text(label).font(.subheadline).foregroundStyle(Theme.textPrimary)
+        Spacer(minLength: Theme.s2)
+        trailing()
     }
+    .padding(.horizontal, 14)
+    .frame(minHeight: 48)
+    .background(Theme.fill, in: .rect(cornerRadius: 14, style: .continuous))
 }

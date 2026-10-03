@@ -14,8 +14,6 @@ public struct LocatedRoot: Sendable, Hashable {
     /// Game root relative to the staging tree (`""` when it is the tree itself).
     public let relativePath: String
     public let sidecars: ImportSidecars
-    public let strippedItems: [String]
-    public let candidates: [String]
 }
 
 /// Finds the canonical game root inside a staged tree and strips known wrappers. Staging is ours,
@@ -43,7 +41,7 @@ public enum GameRootLocator {
     /// `chosen` is the candidate the user picked after a `multipleRoots` failure.
     public static func locate(stagingRoot: URL, chosen: String? = nil) throws -> LocatedRoot {
         let fm = FileManager.default
-        var stripped = try stripJunk(under: stagingRoot)
+        try stripJunk(under: stagingRoot)
         var sidecars = ImportSidecars()
         var root = stagingRoot
 
@@ -57,7 +55,6 @@ public enum GameRootLocator {
                         sidecars.files[file.lastPathComponent] = text
                     }
                     try fm.removeItem(at: file)
-                    stripped.append(rel(file, in: stagingRoot))
                 }
                 continue
             }
@@ -72,20 +69,20 @@ public enum GameRootLocator {
             root = only
         }
 
-        root = try unwrapAPK(root, sidecars: &sidecars, stripped: &stripped)
+        root = try unwrapAPK(root, sidecars: &sidecars)
 
         let rootRel = rel(root, in: stagingRoot)
         // Candidates are found under the unwrapped root but reported against the staging tree, like the root itself:
         // `Game/{Game.exe, readme, gamedata/}` must give `Game/gamedata`, not `gamedata`.
         let candidates = try candidateRoots(under: root).map { $0.isEmpty ? rootRel : rootRel.isEmpty ? $0 : rootRel + "/" + $0 }
         if hasMarker(root) || candidates.isEmpty {
-            return LocatedRoot(relativePath: rootRel, sidecars: sidecars, strippedItems: stripped, candidates: candidates)
+            return LocatedRoot(relativePath: rootRel, sidecars: sidecars)
         }
         if candidates.count == 1 {
-            return LocatedRoot(relativePath: candidates[0], sidecars: sidecars, strippedItems: stripped, candidates: candidates)
+            return LocatedRoot(relativePath: candidates[0], sidecars: sidecars)
         }
         if let chosen, candidates.contains(chosen) {
-            return LocatedRoot(relativePath: chosen, sidecars: sidecars, strippedItems: stripped, candidates: candidates)
+            return LocatedRoot(relativePath: chosen, sidecars: sidecars)
         }
         throw ImportFailure.multipleRoots(candidates)
     }
@@ -111,7 +108,7 @@ public enum GameRootLocator {
     }
 
     /// Android APK: `assets/x-game` (Ren'Py, prefixed) becomes `assets/game`; `assets/game` or `assets/www` (MV) is used as is.
-    private static func unwrapAPK(_ root: URL, sidecars: inout ImportSidecars, stripped: inout [String]) throws -> URL {
+    private static func unwrapAPK(_ root: URL, sidecars: inout ImportSidecars) throws -> URL {
         let fm = FileManager.default
         let assets = root.appending(path: "assets")
         if fm.fileExists(atPath: assets.appending(path: "x-game").path(percentEncoded: false)) {
@@ -122,7 +119,6 @@ public enum GameRootLocator {
                     try fm.moveItem(at: assets.appending(path: extra), to: assets.appending(path: "renpy"))
                 } else {
                     try fm.removeItem(at: assets.appending(path: extra))
-                    stripped.append("assets/\(extra)")
                 }
             }
             sidecars.notes.append("Android APK unwrapped (x- prefixes stripped)")
@@ -136,8 +132,7 @@ public enum GameRootLocator {
 
     // MARK: - Helpers
 
-    private static func stripJunk(under root: URL) throws -> [String] {
-        var removed: [String] = []
+    private static func stripJunk(under root: URL) throws {
         var victims: [URL] = []
         try LazyDirectoryWalker.walk(root: root, skipHidden: false) { entry in
             let name = entry.url.lastPathComponent
@@ -148,13 +143,11 @@ public enum GameRootLocator {
             return .continue
         }
         for v in victims {
-            removed.append(rel(v, in: root))
             try FileManager.default.removeItem(at: v)
         }
-        if !removed.isEmpty {
-            OPLog.log(.importer, .info, "stripped \(removed.count) junk items")
+        if !victims.isEmpty {
+            OPLog.log(.importer, .info, "stripped \(victims.count) junk items")
         }
-        return removed
     }
 
     private static func stripAPKPrefixes(in dir: URL) throws {
@@ -217,7 +210,7 @@ public enum GameRootLocator {
             }
             return .continue
         }
-        return found.map { $0.isEmpty ? "" : $0 }
+        return found
     }
 
     static func rel(_ url: URL, in root: URL) -> String {

@@ -8,20 +8,10 @@ struct PillButtonStyle: ButtonStyle {
     enum Kind { case accent, primary, secondary, destructive }
     var kind: Kind
     var height: CGFloat = 48
-
-    func makeBody(configuration: Configuration) -> some View {
-        PillBody(configuration: configuration, kind: kind, height: height)
-    }
-}
-
-private struct PillBody: View {
-    let configuration: ButtonStyleConfiguration
-    let kind: PillButtonStyle.Kind
-    let height: CGFloat
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    var body: some View {
+    func makeBody(configuration: Configuration) -> some View {
         let pressed = configuration.isPressed
         let small = height < 40
         configuration.label
@@ -83,18 +73,9 @@ extension ButtonStyle where Self == PillButtonStyle {
 /// A round glass button (back, favourite, sort, controller, pause). Shrinks and brightens while pressed.
 struct RoundButtonStyle: ButtonStyle {
     var size: CGFloat = 44
-
-    func makeBody(configuration: Configuration) -> some View {
-        RoundBody(configuration: configuration, size: size)
-    }
-}
-
-private struct RoundBody: View {
-    let configuration: ButtonStyleConfiguration
-    let size: CGFloat
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    var body: some View {
+    func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 17, weight: .semibold))
             .foregroundStyle(Theme.textPrimary)

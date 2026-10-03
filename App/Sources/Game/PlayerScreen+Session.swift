@@ -14,7 +14,7 @@ extension PlayerScreen {
     func screenshot() async -> String {
         var image = host.frozenFrameView.isHidden ? nil : host.frozenFrameView.image?.cgImage
         if image == nil {
-            image = await model.captureScreen()
+            image = await model.coordinator?.captureScreen()
         }
         if image == nil, let view = host.view {
             let renderer = UIGraphicsImageRenderer(bounds: view.bounds)
@@ -61,7 +61,7 @@ extension PlayerScreen {
         model.runtimeFailure = nil
         overlay.layouts = model.controlsLayouts(for: game.id) ?? builtInControls
         overlay.padKey = "omniplay.controls.visible.\(game.id)"
-        if MouseMode(profile: model.profileValue("mouseMode", for: game.id)) == .touchpad {
+        if model.profileValue("mouseMode", for: game.id).flatMap(MouseMode.init(rawValue:)) == .touchpad {
             overlay.touchpadSpeed = model.profileValue("mouseSpeed", for: game.id).flatMap(Double.init) ?? 1
         }
         // Every engine gets the overlay: engines that read the screen themselves show only its eye.
@@ -156,11 +156,7 @@ extension PlayerScreen {
             }
             OPLog.log(.ui, .info, "launch timing: runtime started after \(Self.ms(since: startedAt)) ms")
             if let line = model.launchNotice {
-                withAnimation(reduceMotion ? nil : Theme.quick) { notice = line }
-                Task {
-                    try? await Task.sleep(for: .seconds(6))
-                    withAnimation(reduceMotion ? nil : Theme.quick) { notice = nil }
-                }
+                flash(line, seconds: 6)
             }
             #if DEBUG
                 if let delay = DebugLaunch.probeStateDelay {
@@ -174,8 +170,8 @@ extension PlayerScreen {
                     await pause()
                 }
             #endif
-            overlay.speed = await model.speedChoices
-            overlay.engineMenu = await model.engineMenuTitle
+            overlay.speed = await model.coordinator?.speedChoices
+            overlay.engineMenu = await model.coordinator?.engineMenuTitle
             // A retry on a sibling runtime that plays through the boot window becomes this game's runtime.
             if model.pendingFallback[game.id] != nil {
                 Task {
@@ -241,7 +237,7 @@ extension PlayerScreen {
             overlay: overlay,
             onHitRegions: { [weak surface] regions in surface?.regions = regions },
             onEditControls: { Task { await editControls() } },
-            onFastForward: { multiplier in Task { await model.setFastForward(multiplier) } },
+            onFastForward: { multiplier in Task { await model.coordinator?.setFastForward(multiplier) } },
             send: { model.send($0) }
         ))
         controller.view.backgroundColor = .clear
@@ -283,13 +279,21 @@ extension PlayerScreen {
         // The menu brings its own entrance; the system slide would fight it.
         withTransaction(\.disablesAnimations, true) { menuShown = true }
         // The menu opens at once; the game's frame, blurred once off the main thread, fades in behind it.
-        let frame = host.frozenFrameView.isHidden ? await model.captureScreen() : host.frozenFrameView.image?.cgImage
+        let frame = host.frozenFrameView.isHidden ? await model.coordinator?.captureScreen() : host.frozenFrameView.image?.cgImage
         pausedFrame = await Task.detached { PauseBackdrop.make(frame) }.value
     }
 
     static func ms(since start: ContinuousClock.Instant) -> Int {
-        let d = (ContinuousClock.now - start).components
-        return Int(d.seconds * 1000 + d.attoseconds / 1_000_000_000_000_000)
+        Int((ContinuousClock.now - start) / .milliseconds(1))
+    }
+
+    /// Shows a line over the game for a while, then clears it.
+    func flash(_ line: String, seconds: Int) {
+        withAnimation(reduceMotion ? nil : Theme.quick) { notice = line }
+        Task {
+            try? await Task.sleep(for: .seconds(seconds))
+            withAnimation(reduceMotion ? nil : Theme.quick) { notice = nil }
+        }
     }
 
     static func played(since start: ContinuousClock.Instant) -> String {

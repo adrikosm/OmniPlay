@@ -183,8 +183,6 @@ public extension GameStore {
                 }
             }
         }
-
-        public func fetch(game: GameID) throws -> [PersistentStoreRecord] { try store.fetchAll(PersistentStoreRecord.self, game: game) }
     }
 
     /// The `saves_meta` index: one row per slot file, rebuilt from the file system after every session.
@@ -217,7 +215,6 @@ public extension GameStore {
             $0,
             key: id.description
         ) } }
-        public func count() throws -> Int { try store.read("games.count") { try GameRecord.fetchCount($0) } }
 
         public func fetchAll(limit: Int = 200, offset: Int = 0) throws -> [GameRecord] {
             try store.read("games.fetchAll") { try GameRecord.order(sql: "title COLLATE NOCASE").limit(limit, offset: offset).fetchAll($0) }
@@ -240,23 +237,11 @@ public extension GameStore {
     struct Detection: Sendable {
         let store: GameStore
         public func saveResult(_ result: DetectionResultRecord) throws -> DetectionResultRecord { try store.insert(result) }
-        public func latest(for game: GameID) throws -> DetectionResultRecord? {
-            try store.read("detection.latest") {
-                try DetectionResultRecord.filter(sql: "game_id = ?", arguments: [game.description]).order(sql: "created_at DESC, id DESC")
-                    .fetchOne($0)
-            }
-        }
     }
 
     struct RuntimeSelections: Sendable {
         let store: GameStore
         public func saveSelection(_ selection: RuntimeSelectionRecord) throws -> RuntimeSelectionRecord { try store.insert(selection) }
-        public func latest(for game: GameID) throws -> RuntimeSelectionRecord? {
-            try store.read("runtime.latest") {
-                try RuntimeSelectionRecord.filter(sql: "game_id = ?", arguments: [game.description]).order(sql: "created_at DESC, id DESC")
-                    .fetchOne($0)
-            }
-        }
     }
 
     struct Overrides: Sendable {
@@ -322,7 +307,6 @@ public extension GameStore {
 
     struct Imports: Sendable {
         let store: GameStore
-        public func record(_ record: ImportRecord) throws -> ImportRecord { try store.insert(record) }
         public func recent(limit: Int = 50) throws -> [ImportRecord] {
             try store.read("imports.recent") { try ImportRecord.order(sql: "created_at DESC, id DESC").limit(limit).fetchAll($0) }
         }

@@ -177,11 +177,8 @@ extension ControlsEditorView {
     func current(_ landscape: Bool) -> ControlsLayout { landscape ? set.landscape : set.portrait }
 
     func edit(_ landscape: Bool, _ change: (inout ControlsLayout) -> Void) {
-        if landscape {
-            change(&set.landscape)
-        } else {
-            change(&set.portrait)
-        }
+        let side: WritableKeyPath<ControlsLayoutSet, ControlsLayout> = landscape ? \.landscape : \.portrait
+        change(&set[keyPath: side])
     }
 
     func remember() {

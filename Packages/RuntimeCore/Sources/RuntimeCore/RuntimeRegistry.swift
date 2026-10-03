@@ -64,14 +64,6 @@ public actor RuntimeRegistry {
 
     public func descriptor(for id: RuntimeIdentifier) -> RuntimeDescriptor? { descriptors[id] }
 
-    public func descriptors(for family: EngineFamily, generation: EngineGeneration? = nil) -> [RuntimeDescriptor] {
-        descriptors.values
-            .filter { $0.supportedFamilies.contains(family) && (generation == nil || $0.supportedGenerations.contains(generation!)) }
-            .sorted { $0.version > $1.version }
-    }
-
-    public var all: [RuntimeDescriptor] { descriptors.values.sorted { "\($0.id)" < "\($1.id)" } }
-
     /// Every runtime the roadmap plans, none built yet.
     public static let planned: [RuntimeDescriptor] = [
         .init(

@@ -10,15 +10,9 @@ public struct WebEngineDetector: Detector {
     public func probe(_ ctx: ScanContext, facts: StructureFacts) throws -> DetectorReport {
         var r = DetectorReport()
         guard let entry = facts.indexHTMLCandidates.first else {
-            if !ctx.glob("*.swf", limit: 1).isEmpty {
+            if let swf = ctx.glob("*.swf", limit: 1).first {
                 r.claimFamily(.flash, 0.8)
-                r.add(
-                    id,
-                    .present(path: ctx.glob("*.swf", limit: 1)[0].realRel),
-                    0.8,
-                    .fileName,
-                    "Flash movie; runs through Ruffle in WebKit"
-                )
+                r.add(id, .present(path: swf.realRel), 0.8, .fileName, "Flash movie; runs through Ruffle in WebKit")
                 r.partial.runtimeCandidates = [RuntimeCandidate(runtime: .web, confidence: 0.7, reason: "Ruffle inside WebKit")]
             }
             return r
@@ -40,7 +34,7 @@ public struct WebEngineDetector: Detector {
             if !ctx.glob("*unityloader.js", limit: 1).isEmpty {
                 hints["legacyUnityLoader"] = "true"
             }
-        } else if !ctx.glob("*.pck", limit: 1).isEmpty, !ctx.glob("*.wasm", limit: 1).isEmpty {
+        } else if facts.markers.contains(.pck), !ctx.glob("*.wasm", limit: 1).isEmpty {
             sub = Sub(name: "godotWeb", family: .godotWeb, confidence: 0.95); hints["godotAudioStream"] = "true"
             if !ctx.glob("*.worker.js", limit: 1).isEmpty {
                 hints["coopCoep"] = "true"
@@ -60,10 +54,9 @@ public struct WebEngineDetector: Detector {
             sub = Sub(name: "gamemakerHTML5", family: .html5, confidence: 0.9)
         } else if ctx.exists("renpy.wasm") {
             sub = Sub(name: "renpyWeb", family: .html5, confidence: 0.9); hints["coopCoep"] = "true"
-        } else if ctx.exists("js/rpg_core.js") || ctx.exists("www/js/rpg_core.js") || ctx.exists("js/rmmz_core.js") || ctx
-            .exists("www/js/rmmz_core.js") {
-            return r
-        } // MV/MZ detector owns it
+        } else if facts.markers.contains(.rpgCoreJS) || facts.markers.contains(.rmmzCoreJS) {
+            return r // MV/MZ detector owns it
+        }
         let name = sub?.name ?? "generic", family = sub?.family ?? .html5, confidence = sub?.confidence ?? 0.6
         r.claimFamily(family, confidence)
         if let sub {

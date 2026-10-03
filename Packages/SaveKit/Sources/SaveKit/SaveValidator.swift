@@ -27,14 +27,6 @@ public struct SaveValidation: Sendable, Hashable {
     public let warnings: [String]
     /// Refuse outright: the bytes are not a save we recognise.
     public var isAcceptable: Bool { format != .unknown }
-    /// Needs the player's explicit confirmation before it touches the game's saves.
-    public var needsConfirmation: Bool { !matchesFamily || {
-        if case .foreign = titleMatch {
-            true
-        } else {
-            false
-        }
-    }() }
 }
 
 /// Recognises save files by bounded header reads. Loading a foreign or wrong-family save is the realistic attack

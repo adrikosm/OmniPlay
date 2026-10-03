@@ -1,81 +1,32 @@
 import GameCore
 
-/// Where a game keeps saves and persistent data, and how the host redirects them.
+/// Where a game keeps saves and persistent data.
 public struct SaveStrategy: Sendable, Hashable, Codable {
-    public enum PersistentStoreKind: String, Sendable, Codable,
-        CaseIterable { case webLocalStorage, webIndexedDB, mvGlobalConfig, renpyPersistent, rgssNone }
-    public enum Redirect: String, Sendable, Codable,
-        CaseIterable { case webStorageShim, mkxpUserDataDirectory, renpySavedir, easyrpgSavePath, scummvmSavepath, godotUserDir, none }
+    public enum PersistentStoreKind: String, Sendable, Codable {
+        case webLocalStorage, webIndexedDB, mvGlobalConfig, renpyPersistent, rgssNone
+    }
 
     public let family: SaveFamily
     public let slotPattern: String?
     public let persistentStores: [PersistentStoreKind]
-    public let redirect: Redirect
-    public let importableFromPC: Bool
-    public var canManageSaves: Bool { family != .unknown }
 
     public static func forEngine(_ engine: EngineFamily, generation: EngineGeneration?) -> SaveStrategy {
         switch engine {
-        case .rpgMakerMV: .init(
-                family: .webLocalStorage,
-                slotPattern: "file%d.rpgsave",
-                persistentStores: [.webLocalStorage, .mvGlobalConfig],
-                redirect: .webStorageShim,
-                importableFromPC: true
-            )
-        case .rpgMakerMZ: .init(
-                family: .webIndexedDB,
-                slotPattern: "file%d.rmmzsave",
-                persistentStores: [.webIndexedDB, .mvGlobalConfig],
-                redirect: .webStorageShim,
-                importableFromPC: true
-            )
-        case .rpgMakerXP: .init(
-                family: .rgssMarshal,
-                slotPattern: "Save%d.rxdata",
-                persistentStores: [.rgssNone],
-                redirect: .mkxpUserDataDirectory,
-                importableFromPC: true
-            )
-        case .rpgMakerVX: .init(
-                family: .rgssMarshal,
-                slotPattern: "Save%d.rvdata",
-                persistentStores: [.rgssNone],
-                redirect: .mkxpUserDataDirectory,
-                importableFromPC: true
-            )
-        case .rpgMakerVXAce: .init(
-                family: .rgssMarshal,
-                slotPattern: "Save%02d.rvdata2",
-                persistentStores: [.rgssNone],
-                redirect: .mkxpUserDataDirectory,
-                importableFromPC: true
-            )
-        case .renpy: .init(
-                family: .renpySave,
-                slotPattern: "%d-LT1.save",
-                persistentStores: [.renpyPersistent],
-                redirect: .renpySavedir,
-                importableFromPC: true
-            )
-        case .rpgMaker2000, .rpgMaker2003: .init(
-                family: .easyrpgLSD,
-                slotPattern: "Save%02d.lsd",
-                persistentStores: [],
-                redirect: .easyrpgSavePath,
-                importableFromPC: true
-            )
-        case .scummvm: .init(family: .scummvm, slotPattern: nil, persistentStores: [], redirect: .scummvmSavepath, importableFromPC: true)
-        case .godot: .init(family: .godotUserDir, slotPattern: nil, persistentStores: [], redirect: .godotUserDir, importableFromPC: true)
-        case .love: .init(family: .love, slotPattern: nil, persistentStores: [], redirect: .none, importableFromPC: false)
-        case .html5, .unityWeb, .godotWeb, .flash: .init(
-                family: .webLocalStorage,
-                slotPattern: nil,
-                persistentStores: [.webLocalStorage, .webIndexedDB],
-                redirect: .webStorageShim,
-                importableFromPC: false
-            )
-        default: .init(family: .unknown, slotPattern: nil, persistentStores: [], redirect: .none, importableFromPC: false)
+        case .rpgMakerMV:
+            .init(family: .webLocalStorage, slotPattern: "file%d.rpgsave", persistentStores: [.webLocalStorage, .mvGlobalConfig])
+        case .rpgMakerMZ:
+            .init(family: .webIndexedDB, slotPattern: "file%d.rmmzsave", persistentStores: [.webIndexedDB, .mvGlobalConfig])
+        case .rpgMakerXP: .init(family: .rgssMarshal, slotPattern: "Save%d.rxdata", persistentStores: [.rgssNone])
+        case .rpgMakerVX: .init(family: .rgssMarshal, slotPattern: "Save%d.rvdata", persistentStores: [.rgssNone])
+        case .rpgMakerVXAce: .init(family: .rgssMarshal, slotPattern: "Save%02d.rvdata2", persistentStores: [.rgssNone])
+        case .renpy: .init(family: .renpySave, slotPattern: "%d-LT1.save", persistentStores: [.renpyPersistent])
+        case .rpgMaker2000, .rpgMaker2003: .init(family: .easyrpgLSD, slotPattern: "Save%02d.lsd", persistentStores: [])
+        case .scummvm: .init(family: .scummvm, slotPattern: nil, persistentStores: [])
+        case .godot: .init(family: .godotUserDir, slotPattern: nil, persistentStores: [])
+        case .love: .init(family: .love, slotPattern: nil, persistentStores: [])
+        case .html5, .unityWeb, .godotWeb, .flash:
+            .init(family: .webLocalStorage, slotPattern: nil, persistentStores: [.webLocalStorage, .webIndexedDB])
+        default: .init(family: .unknown, slotPattern: nil, persistentStores: [])
         }
     }
 }

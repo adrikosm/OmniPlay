@@ -117,72 +117,40 @@ public struct LibArchiveExtractor: Sendable {
             }
             let declared: Int64? = archive_entry_size_is_set(entry) != 0 ? Int64(archive_entry_size(entry)) : nil
             let header = ArchiveEntryHeader(path: rawPath, kind: Self.kind(archive_entry_filetype(entry)), declaredSize: declared)
-            let decision = validator.validate(header, running: &totals)
-            let ctx = EntryContext(
-                archive: a,
-                entry: entry,
-                header: header,
-                destination: destination,
-                sourceBytes: sourceBytes,
-                validator: validator
-            )
-            try place(ctx, decision: decision, totals: &totals, progress: progress)
+            switch validator.validate(header, running: &totals) {
+            case let .reject(v): throw v
+            case .skip: archive_read_data_skip(a)
+            case let .extract(rel):
+                let target = destination.appending(path: rel)
+                if header.kind == .directory {
+                    try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+                    continue
+                }
+                if FileManager.default.fileExists(atPath: target.path(percentEncoded: false)) {
+                    OPLog.log(.importer, .default, "duplicate entry \(rel): keeping the first")
+                    // Its size is not on disk; the audit compares declared with written bytes (CAB and RAR do the same).
+                    totals.declaredBytes -= header.declaredSize ?? 0
+                    totals.skipped += 1
+                    archive_read_data_skip(a)
+                    continue
+                }
+                try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+                // The running limits are judged per block, so one huge zero entry stops near the ratio floor, not at 16 GiB.
+                var running = totals
+                let before = totals.writtenBytes
+                totals.writtenBytes += try writeEntry(a, to: target, declared: header.declaredSize, path: rel) { written in
+                    running.writtenBytes = before + written
+                    return validator.checkWritten(running, sourceBytes: sourceBytes)
+                }
+                let mtime = archive_entry_mtime(entry)
+                if mtime > 0 {
+                    let date = Date(timeIntervalSince1970: TimeInterval(mtime))
+                    try? FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: target.path(percentEncoded: false))
+                }
+                progress?(totals.writtenBytes, rel)
+            }
         }
         return totals
-    }
-
-    private struct EntryContext {
-        let archive: OpaquePointer, entry: OpaquePointer, header: ArchiveEntryHeader, destination: URL
-        let sourceBytes: Int64?, validator: EntryValidator
-    }
-
-    /// Applies one validated entry: creates a directory, skips links and duplicates, or streams a file.
-    private func place(
-        _ ctx: EntryContext,
-        decision: EntryDecision,
-        totals: inout RunningTotals,
-        progress: (@Sendable (Int64, String) -> Void)?
-    ) throws {
-        let (a, entry, header, destination, sourceBytes, validator) = (
-            ctx.archive,
-            ctx.entry,
-            ctx.header,
-            ctx.destination,
-            ctx.sourceBytes,
-            ctx.validator
-        )
-        switch decision {
-        case let .reject(v): throw v
-        case .skip: archive_read_data_skip(a)
-        case let .extract(rel):
-            let target = destination.appending(path: rel)
-            if header.kind == .directory {
-                try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
-                return
-            }
-            if FileManager.default.fileExists(atPath: target.path(percentEncoded: false)) {
-                OPLog.log(.importer, .default, "duplicate entry \(rel): keeping the first")
-                // Its size is not on disk; the audit compares declared with written bytes (CAB and RAR do the same).
-                totals.declaredBytes -= header.declaredSize ?? 0
-                totals.skipped += 1
-                archive_read_data_skip(a)
-                return
-            }
-            try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-            // The running limits are judged per block, so one huge zero entry stops near the ratio floor, not at 16 GiB.
-            var running = totals
-            let before = totals.writtenBytes
-            totals.writtenBytes += try writeEntry(a, to: target, declared: header.declaredSize, path: rel) { written in
-                running.writtenBytes = before + written
-                return validator.checkWritten(running, sourceBytes: sourceBytes)
-            }
-            let mtime = archive_entry_mtime(entry)
-            if mtime > 0 {
-                let date = Date(timeIntervalSince1970: TimeInterval(mtime))
-                try? FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: target.path(percentEncoded: false))
-            }
-            progress?(totals.writtenBytes, rel)
-        }
     }
 
     // MARK: - Internals

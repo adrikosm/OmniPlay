@@ -99,11 +99,6 @@ public final class EasyRPGEngineLibrary {
         return api
     }
 
-    /// The Player release the framework reports; loads it on first use.
-    public func reportedVersion() throws -> String {
-        try load().version().map { String(cString: $0) } ?? "unknown"
-    }
-
     public var isAvailable: Bool { phase == .notStarted }
 
     /// Hands the main thread to the Player and returns at once; `exited` follows when the Player's call returns.

@@ -118,14 +118,13 @@ struct DiagnosticsView: View {
                     ListRow(title: "No sessions yet", dimmed: true)
                 }
                 ForEach(data.sessions.prefix(6)) { s in
-                    let crashed = s.teardownVerdict == "endedUnexpectedly" || (s.notes ?? "").hasPrefix("crash")
                     ListRow(
                         title: s.startedAt.dayAndTime,
                         subtitle: s.peakFootprint.map { "Peak \(Self.mib($0))" }
                             .map { data.crashReports.contains(s.id) ? $0 + " · crash report" : $0 }
                     ) {
-                        Text(s.teardownVerdict == nil ? "Running" : crashed ? "Closed unexpectedly" : "Ended normally")
-                            .font(.footnote).foregroundStyle(crashed ? Theme.danger : Theme.textSecondary)
+                        Text(s.endingLabel)
+                            .font(.footnote).foregroundStyle(s.crashed ? Theme.danger : Theme.textSecondary)
                             .multilineTextAlignment(.trailing)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -143,7 +142,7 @@ struct DiagnosticsView: View {
             }
             ForEach(data.consoleErrors.prefix(4), id: \.self) { line in
                 Text(line.split(separator: "\t").last.map(String.init) ?? line)
-                    .font(Theme.mono).foregroundStyle(Color(hex: 0xFFB3AE)).lineLimit(2)
+                    .font(Theme.mono).foregroundStyle(Theme.dangerText).lineLimit(2)
                     .padding(.horizontal, Theme.s4).padding(.vertical, 6)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Theme.danger.opacity(0.12))
@@ -305,4 +304,9 @@ private struct MemoryBars: View {
         .frame(maxWidth: .infinity)
         .onAppear { grown = true }
     }
+}
+
+extension SessionRecord {
+    var crashed: Bool { teardownVerdict == "endedUnexpectedly" || (notes ?? "").hasPrefix("crash") }
+    var endingLabel: String { teardownVerdict == nil ? "Running" : crashed ? "Closed unexpectedly" : "Ended normally" }
 }

@@ -109,11 +109,7 @@ struct TranslationsView: View {
         }
         .confirmationDialog(
             "Remove \(pendingRemoval?.name ?? "this pack")?",
-            isPresented: Binding(get: { pendingRemoval != nil }, set: {
-                if !$0 {
-                    pendingRemoval = nil
-                }
-            }),
+            isPresented: $pendingRemoval.isPresent(),
             titleVisibility: .visible
         ) {
             Button("Remove", role: .destructive) {
@@ -161,14 +157,10 @@ struct TranslationsView: View {
 
     private static let liveLanguages = ["ja", "zh-Hans", "zh-Hant", "ko"]
 
-    private var target: String {
-        "English"
-    }
-
     private var liveSection: some View {
         GlassSection(
             "Live translation",
-            footer: "Lines no pack covers are translated into \(target) on this iPhone as they appear. Nothing leaves the device."
+            footer: "Lines no pack covers are translated into English on this iPhone as they appear. Nothing leaves the device."
         ) {
             ListRow(title: "Game's language", subtitle: liveStatus) {
                 Picker("Game's language", selection: $liveSource) {
@@ -199,7 +191,7 @@ struct TranslationsView: View {
         switch await LiveTranslator.status(from: .init(identifier: liveSource)) {
         case .installed: liveStatus = "Ready. Applies the next time the game starts."
         case .supported: liveStatus = "iOS will download this language first."
-        case .unsupported: liveStatus = "This language cannot be translated into \(target) on this iPhone."
+        case .unsupported: liveStatus = "This language cannot be translated into English on this iPhone."
         @unknown default: liveStatus = nil
         }
     }

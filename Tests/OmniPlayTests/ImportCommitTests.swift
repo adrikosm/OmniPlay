@@ -47,7 +47,7 @@ struct ImportCommitTests {
             game.appending(path: "game.json"),
             game.appending(path: "original.manifest"),
             sidecars,
-            paths.logs(game: id, session: UUID()).deletingLastPathComponent().appending(path: "detection.json"),
+            AppModel.detectionFile(for: id, paths: paths),
         ]
         let before = try metadata.map { try Data(contentsOf: $0) } // tiny synthetic metadata
         // Media converted from the replaced release must not outlive it, or its cached plan is served again.
@@ -55,7 +55,11 @@ struct ImportCommitTests {
         try Data("{}".utf8).write(to: mediaPlan)
         try fm.removeItem(at: source.appending(path: "old.txt"))
         try Data("new data".utf8).write(to: source.appending(path: "new.txt"))
-        try failImports(store)
+        try await store.pool.write {
+            try $0.execute(
+                sql: "CREATE TRIGGER fail_import BEFORE INSERT ON import_records BEGIN SELECT RAISE(ABORT, 'injected failure'); END"
+            )
+        }
         let options = ImportPipeline.Options(duplicates: .replace(id))
         do {
             _ = try await pipeline.run(ImportTransaction(source: .folder(source), paths: paths), options: options)
@@ -110,26 +114,14 @@ struct ImportCommitTests {
     /// Real WebKit → isolated bridge → atomic files, including an unwritable destination. The save
     /// boundary belongs in this existing data-integrity case, not a new mock runtime test.
     @MainActor private func verifyWebSaveAcknowledgement(paths: AppPaths, id: GameID) async throws {
-        let model = AppModel(paths: paths)
-        await model.launch()
-        let record = try #require(try model.store?.games.fetch(id: id))
-        let snapshot = try #require(AppModel.snapshot(for: id, paths: paths))
-        let host = RuntimeHostViewController(sessionID: SessionID(), orientation: .any)
-        host.loadViewIfNeeded()
+        let (model, record, snapshot, host) = try await launched(paths: paths, id: id)
         host.view.frame = CGRect(x: 0, y: 0, width: 440, height: 956)
         host.view.layoutIfNeeded()
         _ = try await model.play(record, snapshot: snapshot, host: host)
         let web = try #require(host.containerView.subviews.compactMap { $0 as? WKWebView }.first)
-        let deadline = ContinuousClock.now + .seconds(10)
-        while ContinuousClock.now < deadline {
-            if await (try? web.callAsyncJavaScript(
-                "return typeof window.__omniplayFlushSaves === 'function'",
-                in: nil,
-                contentWorld: .page
-            )) as? Bool == true {
-                break
-            }
-            try await Task.sleep(for: .milliseconds(50))
+        _ = try await eventually {
+            await (try? web.callAsyncJavaScript("return typeof window.__omniplayFlushSaves === 'function'", in: nil, contentWorld: .page))
+                as? Bool == true
         }
         _ = try await web.callAsyncJavaScript("""
         localStorage.setItem('proof', 'first');
@@ -158,17 +150,11 @@ struct ImportCommitTests {
         window.__oldPage = true;
         """, in: nil, contentWorld: .page)
         web.reload()
-        let reloadDeadline = ContinuousClock.now + .seconds(10)
-        var continued = false
-        while ContinuousClock.now < reloadDeadline {
-            continued = await (try? web.callAsyncJavaScript("""
+        let continued = try await eventually {
+            await (try? web.callAsyncJavaScript("""
             return !window.__oldPage && localStorage.getItem('proof') === 'after recovery' &&
                 localStorage.getItem('__proto__') === 'prototype key';
             """, in: nil, contentWorld: .page)) as? Bool == true
-            if continued {
-                break
-            }
-            try await Task.sleep(for: .milliseconds(50))
         }
         #expect(continued)
         await model.stopPlaying(reason: .hostShutdown)
@@ -204,12 +190,7 @@ struct ImportCommitTests {
             try? FileManager.default.removeItem(at: largeA)
             try? FileManager.default.removeItem(at: largeB)
         }
-        let model = AppModel(paths: paths)
-        await model.launch()
-        let record = try #require(try model.store?.games.fetch(id: id))
-        let snapshot = try #require(AppModel.snapshot(for: id, paths: paths))
-        let host = RuntimeHostViewController(sessionID: SessionID(), orientation: .any)
-        host.loadViewIfNeeded()
+        let (model, record, snapshot, host) = try await launched(paths: paths, id: id)
         do {
             _ = try await model.play(record, snapshot: snapshot, host: host)
             await model.stopPlaying(reason: .hostShutdown)
@@ -230,18 +211,10 @@ struct ImportCommitTests {
         let bytes = Data(repeating: 65, count: SaveFileStore.maxBytes)
         try bytes.write(to: file)
         defer { try? FileManager.default.removeItem(at: file) }
-        let model = AppModel(paths: paths)
-        await model.launch()
-        let record = try #require(try model.store?.games.fetch(id: id))
-        let snapshot = try #require(AppModel.snapshot(for: id, paths: paths))
-        let host = RuntimeHostViewController(sessionID: SessionID(), orientation: .any)
-        host.loadViewIfNeeded()
+        let (model, record, snapshot, host) = try await launched(paths: paths, id: id)
         _ = try await model.play(record, snapshot: snapshot, host: host)
         let web = try #require(host.containerView.subviews.compactMap { $0 as? WKWebView }.first)
-        let deadline = ContinuousClock.now + .seconds(10)
-        while model.runtimeFailure == nil, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(50))
-        }
+        _ = try await eventually { model.runtimeFailure != nil }
         #expect(model.runtimeFailure?.contains("saves could not all be loaded") == true)
         let blocked = try await web.callAsyncJavaScript("""
         try { localStorage.setItem('large', 'overwrite'); return false; } catch (_) { return true; }
@@ -258,12 +231,27 @@ struct ImportCommitTests {
         return root
     }
 
-    private func failImports(_ store: GameStore) throws {
-        try store.pool.write {
-            try $0
-                .execute(
-                    sql: "CREATE TRIGGER fail_import BEFORE INSERT ON import_records BEGIN SELECT RAISE(ABORT, 'injected failure'); END"
-                )
+    /// A launched model with the game's record and snapshot, and a loaded host to play it in.
+    @MainActor private func launched(paths: AppPaths, id: GameID) async throws
+        -> (AppModel, GameRecord, DetectionSnapshot, RuntimeHostViewController) { // swiftlint:disable:this large_tuple
+        let model = AppModel(paths: paths)
+        await model.launch()
+        let record = try #require(try model.store?.games.fetch(id: id))
+        let snapshot = try #require(AppModel.snapshot(for: id, paths: paths))
+        let host = RuntimeHostViewController(sessionID: SessionID(), orientation: .any)
+        host.loadViewIfNeeded()
+        return (model, record, snapshot, host)
+    }
+
+    /// Polls every 50 ms for up to ten seconds.
+    @MainActor private func eventually(_ condition: () async -> Bool) async throws -> Bool {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
+            if await condition() {
+                return true
+            }
+            try await Task.sleep(for: .milliseconds(50))
         }
+        return false
     }
 }

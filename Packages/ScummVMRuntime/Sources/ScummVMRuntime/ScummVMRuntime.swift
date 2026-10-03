@@ -49,8 +49,7 @@
         private var stopping = false
         /// Between willResignActive and didBecomeActive ScummVM sits in its suspend loop and counts no frames.
         private var inactive = false
-        private var lastFrames: UInt = 0
-        private var lastRead = ContinuousClock.now
+        private var fps = FrameRateSampler()
 
         /// `configFile` is ScummVM's process-wide settings file (the one detection uses too); `soundFont` the MIDI
         /// soundfont OmniPlay uses for every engine (the player's import, else the bundled one).
@@ -65,10 +64,8 @@
             guard let library = ScummVMEngineLibrary.bundled() else { throw Failure.engineMissing }
             self.configuration = configuration
             self.library = library
-            let game = configuration.layers.first { $0.tier == .original }?.root
-                ?? configuration.indexURL.deletingLastPathComponent().appending(path: "Original")
-            try SaveLocation(savesRoot: configuration.saveDirectory.deletingLastPathComponent()).ensure()
-            try FileManager.default.createDirectory(at: configuration.logDirectory, withIntermediateDirectories: true)
+            let game = configuration.originalRoot
+            try configuration.ensureSessionDirectories()
 
             settings = [
                 "path": ScummVMEngineLibrary.scummPath(game),
@@ -150,25 +147,12 @@
         }
 
         private func releaseWindow() {
-            host?.releaseEngineWindow()
-            engineWindow?.isHidden = true
-            engineWindow?.windowScene = nil
+            host?.releaseEngineWindow(engineWindow)
             engineWindow = nil
         }
 
         private func observeLifecycle() {
-            let center = NotificationCenter.default
-            let events: [(Notification.Name, Int32)] = [
-                (UIApplication.willResignActiveNotification, 0),
-                (UIApplication.didEnterBackgroundNotification, 1),
-                (UIApplication.willEnterForegroundNotification, 2),
-                (UIApplication.didBecomeActiveNotification, 3),
-            ]
-            observers = events.map { name, event in
-                center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.lifecycle(event) }
-                }
-            }
+            observers = EngineAppEvents.observe { [weak self] event in self?.lifecycle(event) }
         }
 
         private func lifecycle(_ event: Int32) {
@@ -179,33 +163,25 @@
             if event == 3 {
                 inactive = false
                 // Measure from now, not across the suspension.
-                (lastFrames, lastRead) = (library?.frames ?? 0, .now)
+                fps = FrameRateSampler(frames: library?.frames ?? 0)
             }
         }
 
         /// ScummVM polls events at least once a frame; the shim counts polls, read every two seconds.
         private func startWatchdog() {
-            lastRead = .now
-            lastFrames = library?.frames ?? 0
+            fps = FrameRateSampler(frames: library?.frames ?? 0)
             let watchdog = NativeWatchdog(read: { [weak self] in
                 guard let self, let library else {
                     return NativeWatchdog.Reading(terminated: true, paused: false, framesPerSecond: 0)
                 }
-                let now = ContinuousClock.now, frames = library.frames, elapsed = (now - lastRead) / .seconds(1)
-                let fps = elapsed > 0 ? Double(frames &- lastFrames) / elapsed : 0
-                (lastFrames, lastRead) = (frames, now)
                 return NativeWatchdog.Reading(
                     terminated: library.status == .exited,
                     paused: library.status != .playing || stopping || inactive,
-                    framesPerSecond: fps
+                    framesPerSecond: fps.sample(library.frames)
                 )
             }, onStall: { [weak self] stalled in
                 guard let self else { return }
-                host?.runtimeDidEmit(.watchdogStalled(seconds: stalled))
-                OPLog.log(.runtime, .error, "scummvm unresponsive for \(Int(stalled))s", session: configuration?.sessionID)
-                if stalled >= NativeWatchdog.hangLimit {
-                    onFailure?("The game stopped responding. Leaving the game will need OmniPlay to restart.")
-                }
+                NativeWatchdog.report(stalled, engine: "scummvm", host: host, session: configuration?.sessionID, onFailure: onFailure)
             })
             watchdog.start()
             self.watchdog = watchdog
@@ -237,7 +213,7 @@
 
         public func pause() async {
             guard let library, library.status == .playing else { return }
-            let frame = snapshot()
+            let frame = engineWindow?.rootViewController?.view.frozenFrame()
             library.request(.pause)
             host?.showFrozenFrame(frame)
         }
@@ -245,12 +221,6 @@
         public func resume() async {
             host?.hideFrozenFrame()
             library?.request(.run)
-        }
-
-        private func snapshot() -> CGImage? {
-            guard let view = engineWindow?.rootViewController?.view, view.bounds.width > 0 else { return nil }
-            let renderer = UIGraphicsImageRenderer(bounds: view.bounds)
-            return renderer.image { _ in view.drawHierarchy(in: view.bounds, afterScreenUpdates: false) }.cgImage
         }
 
         public func handleMemoryPressure(_ level: MemoryPressureLevel) {

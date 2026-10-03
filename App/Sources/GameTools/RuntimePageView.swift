@@ -166,10 +166,10 @@ struct RuntimePageView: View {
 
     private func binding(for setting: RuntimeSetting) -> Binding<String> {
         Binding {
-            settings[setting.key] ?? model.runtimeSetting(setting, for: game.id)
+            settings[setting.key] ?? model.profileValue(setting.key, for: game.id) ?? ""
         } set: { value in
             settings[setting.key] = value
-            model.setRuntimeSetting(setting, to: value, for: game.id)
+            model.setProfileValue(setting.key, value, for: game.id)
             message = "\(setting.title) applies from the next start."
         }
     }

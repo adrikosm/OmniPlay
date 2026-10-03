@@ -23,7 +23,6 @@
     @MainActor
     public final class RenPyRuntime: GameRuntime {
         public let engine: RenPyEngine
-        public var onFailure: (@MainActor (String) -> Void)?
 
         public enum Failure: Error, CustomStringConvertible {
             case notPrepared
@@ -86,11 +85,9 @@
             self.library = library
 
             let fm = FileManager.default
-            let original = configuration.layers.first { $0.tier == .original }?.root
-                ?? configuration.indexURL.deletingLastPathComponent().appending(path: "Original")
+            let original = configuration.originalRoot
             let saves = configuration.saveDirectory
-            try SaveLocation(savesRoot: saves.deletingLastPathComponent()).ensure()
-            try fm.createDirectory(at: configuration.logDirectory, withIntermediateDirectories: true)
+            try configuration.ensureSessionDirectories()
             // Writable space the engine needs outside the sealed game tree: the host script and its .rpyc, the
             // caches Ren'Py builds (bytecode, shaders), and the frame shown while paused.
             let work = configuration.cacheDirectory.appending(path: "renpy", directoryHint: .isDirectory)
@@ -219,20 +216,9 @@
         /// SDL hears about the app's lifecycle from its own app delegate, which OmniPlay is not. Ren'Py saves and
         /// pauses its audio when told the app is leaving the foreground, so the four events are passed on.
         func observeLifecycle() {
-            let center = NotificationCenter.default
-            let events: [(Notification.Name, Int32)] = [
-                (UIApplication.willResignActiveNotification, 0),
-                (UIApplication.didEnterBackgroundNotification, 1),
-                (UIApplication.willEnterForegroundNotification, 2),
-                (UIApplication.didBecomeActiveNotification, 3),
-            ]
-            observers = events.map { name, event in
-                center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated {
-                        guard let library = self?.library, library.phase == .running, library.status != .parked else { return }
-                        library.appEvent(event)
-                    }
-                }
+            observers = EngineAppEvents.observe { [weak self] event in
+                guard let library = self?.library, library.phase == .running, library.status != .parked else { return }
+                library.appEvent(event)
             }
         }
 
@@ -270,9 +256,7 @@
         }
 
         func snapshotImage() -> CGImage? {
-            guard let snapshot, let image = UIImage(contentsOfFile: snapshot.path(percentEncoded: false)) else { return nil }
-            try? FileManager.default.removeItem(at: snapshot)
-            return image.cgImage
+            snapshot.flatMap(CGImage.takeFrame(at:))
         }
 
         public func handleMemoryPressure(_ level: MemoryPressureLevel) {
@@ -306,10 +290,8 @@
             case (.running?, _): .restartRequired
             default: .slotSpent
             }
-            host?.releaseEngineWindow()
             // SDL leaves its window up with the last frame after Ren'Py quits; it must not outlive the session.
-            engineWindow?.isHidden = true
-            engineWindow?.windowScene = nil
+            host?.releaseEngineWindow(engineWindow)
             OPLog.log(
                 .python,
                 verdict == .restartRequired ? .error : .info,

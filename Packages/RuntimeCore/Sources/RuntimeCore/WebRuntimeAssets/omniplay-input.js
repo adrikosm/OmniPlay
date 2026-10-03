@@ -32,7 +32,6 @@
     switch (e.t) {
       case "key": key(e); break;
       case "pointer": mouse(e.phase === "move" ? "mousemove" : e.phase === "down" ? "mousedown" : "mouseup", e); break;
-      case "scroll": (document.body || document).dispatchEvent(new WheelEvent("wheel", { deltaX: e.dx, deltaY: e.dy, bubbles: true, cancelable: true })); break;
       case "pad": { activatePad(); const i = BUTTON[e.button]; if (i !== undefined) { pad.buttons[i] = { pressed: e.pressed, touched: e.pressed, value: e.pressed ? 1 : 0 }; pad.timestamp = performance.now(); } break; }
       case "axis": { activatePad(); const i = AXIS[e.axis]; if (i !== undefined) { pad.axes[i] = i === 1 || i === 3 ? -e.value : e.value; pad.timestamp = performance.now(); } break; }
       case "text": for (const ch of String(e.text)) document.dispatchEvent(new KeyboardEvent("keypress", { key: ch, charCode: ch.charCodeAt(0), bubbles: true })); break;

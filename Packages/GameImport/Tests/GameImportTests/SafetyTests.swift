@@ -1,5 +1,5 @@
 import Foundation
-import GameCore
+@testable import GameCore
 import GameImport
 import Testing
 import TestSupport

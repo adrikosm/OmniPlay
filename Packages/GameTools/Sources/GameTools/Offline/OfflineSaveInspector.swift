@@ -1,4 +1,5 @@
 import Foundation
+import GameCore
 import RuntimeCore
 import SaveKit
 
@@ -13,8 +14,6 @@ public struct RPGMakerNames: Sendable {
 
     public init() {}
 
-    static let fileLimit = 8 << 20
-
     /// `gameRoot` is the game's own folder; MV ships its data under `www/data` when deployed, MZ and MV projects
     /// under `data`.
     public static func load(gameRoot: URL) -> RPGMakerNames {
@@ -23,8 +22,7 @@ public struct RPGMakerNames: Sendable {
         guard let data else { return RPGMakerNames() }
         func json(_ name: String) -> Any? {
             let url = data.appending(path: name)
-            guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= fileLimit,
-                  let bytes = try? Data(contentsOf: url) else { return nil }
+            guard let bytes = try? SmallFileGuard.read(url) else { return nil }
             return try? JSONSerialization.jsonObject(with: bytes)
         }
         func names(_ file: String) -> [String] {

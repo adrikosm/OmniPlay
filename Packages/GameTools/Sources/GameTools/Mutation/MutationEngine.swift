@@ -18,7 +18,6 @@ public enum ToolOperation: Sendable, Hashable {
 /// One applied change, kept for undo. Values only: nothing here holds engine objects.
 public struct MutationRecord: Sendable, Hashable, Identifiable {
     public let id: UUID
-    public let date: Date
     public let target: StateTarget
     public let before: StateValue
     public let after: StateValue
@@ -40,13 +39,10 @@ public final class MutationEngine {
     public typealias BackupHook = @MainActor () async throws -> Void
 
     public private(set) var records: [MutationRecord] = []
-    public private(set) var lastResult: StateMutationResult?
     /// Values the engine holds every frame, as the game accepted them. Live only: they end with the session.
     public private(set) var frozen: [StateTarget: StateValue] = [:]
     /// Watched targets and their latest values; the visible UI owns refreshes, so hidden tools do no polling.
     public private(set) var watched: [StateTarget: StateValue] = [:]
-    /// When the saves were snapshotted before this session's first persistent change.
-    public private(set) var lastBackup: Date?
 
     @ObservationIgnored public let inspector: any StateInspecting
     @ObservationIgnored private let backup: BackupHook?
@@ -194,7 +190,6 @@ public final class MutationEngine {
         do {
             try await backup()
             backedUp = true
-            lastBackup = .now
             return true
         } catch {
             return false
@@ -212,10 +207,9 @@ public final class MutationEngine {
     }
 
     private func finish(_ result: StateMutationResult, record: Bool) -> StateMutationResult {
-        lastResult = result
         if record, result.result != .rejected, result.oldValue != result.effectiveValue {
             records.append(MutationRecord(
-                id: UUID(), date: .now, target: result.target, before: result.oldValue, after: result.effectiveValue,
+                id: UUID(), target: result.target, before: result.oldValue, after: result.effectiveValue,
                 persistent: result.persistent
             ))
             if records.count > Self.undoLimit {
@@ -269,7 +263,7 @@ public final class MutationEngine {
             guard case .bool = existing else { throw MutationError("Only on/off values can be toggled.") }
             return
         case .add:
-            guard existing.isNumber else { throw MutationError("Only numbers can be increased.") }
+            guard existing.number != nil else { throw MutationError("Only numbers can be increased.") }
         case .unfreeze:
             return
         case .set, .freeze:
@@ -327,8 +321,6 @@ extension StateValue {
         default: nil
         }
     }
-
-    var isNumber: Bool { number != nil }
 
     var kindName: String {
         switch self {

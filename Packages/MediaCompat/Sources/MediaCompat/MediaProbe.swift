@@ -1,5 +1,4 @@
 import Foundation
-import GameCore
 
 /// Media facts that drive per-runtime normalisation. The load-bearing one: WKWebView on iPhone does not play
 /// VP9 WebM, so MZ titles with WebM cutscenes need a transcode or an MP4 sibling before first launch.
@@ -30,14 +29,6 @@ public struct MediaProbeResult: Codable, Sendable, Hashable {
         self.hasAlpha = hasAlpha
         self.bytes = bytes
     }
-}
-
-/// What the pipeline decided to do with one asset. Results land in `Generated/`.
-public enum MediaDecision: Sendable, Hashable {
-    case playNative
-    case useSibling(path: String)
-    case transcode(container: MediaContainer, video: VideoCodec?, audio: AudioCodec?)
-    case unsupported(reason: String)
 }
 
 /// Header-only identification: at most 2 MiB from the head and, for MP4 with a trailing `moov`, 2 MiB from the tail.
@@ -111,13 +102,7 @@ public enum MediaProbe {
             if body.range(of: Data([0x80] + "theora".utf8)) != nil {
                 return MediaProbeResult(path: path, container: .ogv, video: .theora, audio: vorbis ? .vorbis : opus ? .opus : nil)
             }
-            if vorbis {
-                return MediaProbeResult(path: path, container: .ogg, video: nil, audio: .vorbis)
-            }
-            if opus {
-                return MediaProbeResult(path: path, container: .ogg, video: nil, audio: .opus)
-            }
-            return MediaProbeResult(path: path, container: .ogg, video: nil, audio: .unknown)
+            return MediaProbeResult(path: path, container: .ogg, video: nil, audio: vorbis ? .vorbis : opus ? .opus : .unknown)
         }
         if d
             .starts(with: "ID3".utf8) ||
@@ -234,7 +219,6 @@ public enum MediaProbe {
         }
     }
 
-    /// ISO BMFF box walker: moov → trak → mdia → minf → stbl → stsd → sample entry four-character codes.
     /// The first video and audio stream of an AVI, from their `strf` headers (BITMAPINFOHEADER compression,
     /// WAVEFORMATEX format tag).
     enum AVI {
@@ -293,6 +277,7 @@ public enum MediaProbe {
         }
     }
 
+    /// ISO BMFF box walker: moov → trak → mdia → minf → stbl → stsd → sample entry four-character codes.
     enum MP4 {
         static let containers: Set<String> = ["moov", "trak", "mdia", "minf", "stbl"]
         /// Sample entries that are not video: audio, subtitles, timecode, metadata.

@@ -1,8 +1,5 @@
 import Foundation
 
-/// Limits every extractor and content installer enforces; `ImportLimits` is the same struct under its older name.
-public typealias SafetyLimits = ImportLimits
-
 public struct SafetyViolation: Error, Sendable, Hashable {
     public enum Rule: String, Sendable, Codable {
         case invalidPath, entryCount, declaredSize, entryRatio, overallRatio, symlinkPresent, sizeMismatch, nestingDepth

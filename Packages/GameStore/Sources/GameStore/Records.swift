@@ -108,18 +108,6 @@ public struct RuntimeSelectionRecord: AutoIDRecord {
     }
 }
 
-public struct CompatProfileRecord: StoreRecord {
-    public static let databaseTableName = "compat_profiles"
-    public var id: String
-    public var gameId: GameID
-    public var json: CompatibilityProfile
-    public init(id: String, gameId: GameID, json: CompatibilityProfile) {
-        self.id = id
-        self.gameId = gameId
-        self.json = json
-    }
-}
-
 public struct SessionRecord: StoreRecord, Identifiable {
     public static let databaseTableName = "sessions"
     public var id: UUID
@@ -218,7 +206,6 @@ public struct SaveMetaRecord: AutoIDRecord {
     public var bytes: Int64
     public var modifiedAt: Date
     public var provenanceHash: String
-    public var backupOf: Int64?
 
     public init(
         gameId: GameID,
@@ -227,8 +214,7 @@ public struct SaveMetaRecord: AutoIDRecord {
         family: String,
         bytes: Int64,
         modifiedAt: Date,
-        provenanceHash: String,
-        backupOf: Int64? = nil
+        provenanceHash: String
     ) {
         self.gameId = gameId
         self.slotKey = slotKey
@@ -237,7 +223,6 @@ public struct SaveMetaRecord: AutoIDRecord {
         self.bytes = bytes
         self.modifiedAt = modifiedAt
         self.provenanceHash = provenanceHash
-        self.backupOf = backupOf
     }
 }
 

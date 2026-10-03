@@ -11,7 +11,7 @@ public struct RefusalDetectors: Detector {
     public func probe(_ ctx: ScanContext, facts: StructureFacts) throws -> DetectorReport {
         var r = DetectorReport()
         if let unity = unity(ctx, facts) {
-            apply(&r, unity.0, unity.1, refused: true)
+            apply(&r, unity.0, unity.1)
         } else if facts.markers.contains(.engineDir), !ctx.glob("*/content/paks/*.pak", limit: 1).isEmpty || !ctx.glob(
             "*/content/paks/*.utoc",
             limit: 1
@@ -21,11 +21,9 @@ public struct RefusalDetectors: Detector {
                 RefusalReason(
                     engine: .unreal,
                     humanMessage: "Unreal Engine games are native Windows programs and cannot run on iPhone.",
-                    technicalDetail: "Engine/ with Content/Paks",
-                    alternatives: []
+                    technicalDetail: "Engine/ with Content/Paks"
                 ),
-                0.95,
-                refused: true
+                0.95
             )
         } else if facts.markers.contains(.dataWin), let e = ctx.glob("data.win", limit: 1).first ?? ctx.glob("game.unx", limit: 1).first,
                   ctx.header(
@@ -40,8 +38,7 @@ public struct RefusalDetectors: Detector {
                     technicalDetail: "\(e.realRel) with FORM chunk",
                     alternatives: ["GameMaker HTML5 export"]
                 ),
-                0.95,
-                refused: true
+                0.95
             )
         } else if !ctx.glob("*.ccn", limit: 1).isEmpty {
             apply(
@@ -51,17 +48,15 @@ public struct RefusalDetectors: Detector {
                     humanMessage: "Clickteam Fusion games are native Windows programs.",
                     technicalDetail: ".ccn present"
                 ),
-                0.9,
-                refused: true
+                0.9
             )
         } else if !ctx.glob("*.ypf", limit: 1).isEmpty {
             apply(
                 &r,
                 RefusalReason(engine: .yuris, humanMessage: "YU-RIS games are native Windows programs.", technicalDetail: ".ypf archives"),
-                0.9,
-                refused: true
+                0.9
             )
-        } else if !ctx.glob("*.pfs", limit: 1).isEmpty, ctx.glob("*.pck", limit: 1).isEmpty {
+        } else if !ctx.glob("*.pfs", limit: 1).isEmpty, !facts.markers.contains(.pck) {
             apply(
                 &r,
                 RefusalReason(
@@ -69,8 +64,7 @@ public struct RefusalDetectors: Detector {
                     humanMessage: "Artemis engine games are native Windows programs.",
                     technicalDetail: ".pfs archives"
                 ),
-                0.85,
-                refused: true
+                0.85
             )
         } else if ctx.exists("Scene.pck"), ctx.exists("Gameexe.dat") {
             apply(
@@ -80,14 +74,13 @@ public struct RefusalDetectors: Detector {
                     humanMessage: "SiglusEngine games are native Windows programs.",
                     technicalDetail: "Scene.pck + Gameexe.dat"
                 ),
-                0.9,
-                refused: true
+                0.9
             )
         }
         return r
     }
 
-    private func apply(_ r: inout DetectorReport, _ reason: RefusalReason, _ confidence: Double, refused: Bool) {
+    private func apply(_ r: inout DetectorReport, _ reason: RefusalReason, _ confidence: Double) {
         r.claimFamily(reason.engine, confidence)
         r.refusal = reason
         r.add(id, .text(path: "", excerpt: reason.technicalDetail), confidence, .directoryStructure, reason.humanMessage)
@@ -95,10 +88,10 @@ public struct RefusalDetectors: Detector {
 
     /// Unity native: player library plus data folder; version from globalgamemanagers; backend from IL2CPP/Mono files.
     private func unity(_ ctx: ScanContext, _ facts: StructureFacts) -> (RefusalReason, Double)? {
-        guard facts.markers.contains(.unityPlayer) || !ctx.glob("*_data/globalgamemanagers", limit: 1).isEmpty || ctx
-            .exists("data.unity3d") else { return nil }
+        let ggm = ctx.glob("*_data/globalgamemanagers", limit: 1).first
+        guard facts.markers.contains(.unityPlayer) || ggm != nil || ctx.exists("data.unity3d") else { return nil }
         var version = "unknown version"
-        if let ggm = ctx.glob("*_data/globalgamemanagers", limit: 1).first, let h = ctx.header(ggm.realRel, bytes: 64), h.count >= 0x40 {
+        if let ggm, let h = ctx.header(ggm.realRel, bytes: 64), h.count >= 0x40 {
             let headerVersion = h.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 8, as: UInt32.self) }.bigEndian
             let at = headerVersion >= 22 ? 0x30 : 0x14
             let raw = h[h.startIndex + at ..< h.endIndex].prefix { $0 != 0 }

@@ -17,13 +17,8 @@ public enum TeardownVerdict: Sendable, Equatable {
 
 public enum RuntimeStopReason: Sendable, Equatable {
     case userExit
-    case switchingGame
-    case memoryPressure
-    case thermal
     case crash(detail: String)
-    case hostBackground
     case hostShutdown
-    case fallback
 }
 
 public enum RuntimeEvent: Sendable {

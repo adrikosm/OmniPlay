@@ -29,11 +29,9 @@ struct SaveBackupsView: View {
     @State var busy = false
 
     var location: SaveLocation { SaveLocation.forGame(game.id, paths: model.paths) }
-    var identityHash: String {
-        AppModel.snapshot(for: game.id, paths: model.paths)?.report.descriptor.identityHash ?? game.id.description
-    }
+    var identityHash: String { AppModel.identityHash(for: game.id, paths: model.paths) }
 
-    var slotPattern: String? { SaveStrategy.forEngine(game.engine, generation: game.generation).slotPattern }
+    var strategy: SaveStrategy { SaveStrategy.forEngine(game.engine, generation: game.generation) }
 
     var body: some View {
         ScrollView {
@@ -104,14 +102,10 @@ struct SaveBackupsView: View {
                 Task { await reload() }
             }
         }
-        .centeredSheet(isPresented: Binding(get: { details != nil }, set: {
-            if !$0 {
-                details = nil
-            }
-        }), width: 560) { close in
+        .centeredSheet(isPresented: $details.isPresent(), width: 560) { close in
             if let slot = details {
                 SaveSlotDetails(
-                    slot: slot, preview: previews[slot.id], family: SaveStrategy.forEngine(game.engine, generation: game.generation).family,
+                    slot: slot, preview: previews[slot.id], family: strategy.family,
                     close: close,
                     onEdit: slot.isOfflineEditable && !running ? { close(); editing = slot } : nil,
                     onDuplicate: duplicateName(for: slot) != nil && !running ? { close(); Task { await duplicate(slot) } } : nil,
@@ -121,11 +115,7 @@ struct SaveBackupsView: View {
         }
         .confirmationDialog(
             "Delete \(pendingDelete.map { previews[$0.id]?.title ?? $0.displayName } ?? "this save")?",
-            isPresented: Binding(get: { pendingDelete != nil }, set: {
-                if !$0 {
-                    pendingDelete = nil
-                }
-            }),
+            isPresented: $pendingDelete.isPresent(),
             titleVisibility: .visible
         ) {
             Button("Delete", role: .destructive) {
@@ -138,11 +128,7 @@ struct SaveBackupsView: View {
         }
         .confirmationDialog(
             "Reset \(pendingReset?.kind.title ?? "this data")?",
-            isPresented: Binding(get: { pendingReset != nil }, set: {
-                if !$0 {
-                    pendingReset = nil
-                }
-            }),
+            isPresented: $pendingReset.isPresent(),
             titleVisibility: .visible
         ) {
             Button("Reset", role: .destructive) {
@@ -164,11 +150,7 @@ struct SaveBackupsView: View {
         }
         .confirmationDialog(
             "Where should the saves go?",
-            isPresented: Binding(get: { pickedImport != nil }, set: {
-                if !$0 {
-                    pickedImport = nil
-                }
-            }),
+            isPresented: $pickedImport.isPresent(),
             titleVisibility: .visible
         ) {
             Button("Replace same-numbered slots") {
@@ -197,11 +179,7 @@ struct SaveBackupsView: View {
         }
         .confirmationDialog(
             "Restore this snapshot?",
-            isPresented: Binding(get: { pendingRestore != nil }, set: {
-                if !$0 {
-                    pendingRestore = nil
-                }
-            }),
+            isPresented: $pendingRestore.isPresent(),
             titleVisibility: .visible
         ) {
             Button("Restore", role: .destructive) {
@@ -253,7 +231,7 @@ struct SaveBackupsView: View {
             Menu {
                 Button("Replace current saves", systemImage: "arrow.uturn.backward") { pendingRestore = (dir, .replace) }
                 Button("Add into free slots", systemImage: "square.stack.3d.up") {
-                    pendingRestore = (dir, .stackIntoFreeSlots(slotPattern: slotPattern))
+                    pendingRestore = (dir, .stackIntoFreeSlots(slotPattern: strategy.slotPattern))
                 }
             } label: {
                 Text("Restore").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.accent).frame(minWidth: 44, minHeight: 44)
@@ -279,15 +257,5 @@ struct SaveBackupsView: View {
         case .preModBackup: "Before mod"
         case .preCheatBackup: "Before cheat"
         }
-    }
-}
-
-extension SaveFileStore {
-    /// Every slot file regardless of extension, for display.
-    func keysAnyExtension() -> [(key: String, bytes: Int64)] {
-        let items = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.fileSizeKey])) ?? []
-        return items.filter { !$0.lastPathComponent.hasPrefix(".") }
-            .map { ($0.deletingPathExtension().lastPathComponent, Int64((try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)) }
-            .sorted { $0.0 < $1.0 }
     }
 }

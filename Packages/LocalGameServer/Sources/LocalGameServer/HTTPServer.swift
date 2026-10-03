@@ -10,7 +10,7 @@ public actor HTTPServer {
     public static let idleTimeout: Duration = .seconds(30)
     public static let chunk = 256 << 10
 
-    public let router: any Router
+    public let router: GameFileRouter
     public private(set) var port: UInt16 = 0
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: HTTPConnection] = [:]
@@ -18,7 +18,7 @@ public actor HTTPServer {
     /// False once the listener failed or was cancelled (sockets are torn down while the app is suspended).
     public var isListening: Bool { listener != nil }
 
-    public init(router: any Router) { self.router = router }
+    public init(router: GameFileRouter) { self.router = router }
 
     /// Binds the requested port, or a random one in 20000…60000 when nil or taken. Returns the bound port.
     @discardableResult
@@ -128,8 +128,6 @@ public actor HTTPServer {
         OPLog.log(.web, .info, "loopback server stopped")
     }
 
-    public var activeConnections: Int { connections.count }
-
     private func accept(_ nw: NWConnection) {
         guard connections.count < Self.maxConnections else {
             let refused = HTTPConnection(nw, router: router) { _ in }
@@ -149,11 +147,11 @@ import Synchronization
 /// One client connection: parse → route → write, repeated while keep-alive holds.
 final class HTTPConnection: Sendable {
     private let nw: NWConnection
-    private let router: any Router
+    private let router: GameFileRouter
     private let onClose: @Sendable (ObjectIdentifier) -> Void
     private let task = Mutex<Task<Void, Never>?>(nil)
 
-    init(_ nw: NWConnection, router: any Router, onClose: @escaping @Sendable (ObjectIdentifier) -> Void) {
+    init(_ nw: NWConnection, router: GameFileRouter, onClose: @escaping @Sendable (ObjectIdentifier) -> Void) {
         self.nw = nw
         self.router = router
         self.onClose = onClose
@@ -249,47 +247,10 @@ final class HTTPConnection: Sendable {
     // MARK: I/O
 
     private func receive() async throws -> Data? {
-        try await withThrowingTaskGroup(of: Data?.self) { group in
-            group.addTask { [nw] in
-                try await withTaskCancellationHandler {
-                    try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data?, Error>) in
-                        nw.receive(minimumIncompleteLength: 1, maximumLength: 64 << 10) { data, _, complete, error in
-                            if let error {
-                                cont.resume(throwing: error)
-                            } else if complete,
-                                      data == nil {
-                                cont.resume(returning: nil)
-                            } else {
-                                cont.resume(returning: data ?? Data())
-                            }
-                        }
-                    }
-                } onCancel: {
-                    // A task-group deadline still joins its children. Cancel the socket so receive actually returns.
-                    nw.cancel()
-                }
-            }
-            group.addTask {
-                try await Task.sleep(for: HTTPServer.idleTimeout)
-                throw CancellationError()
-            }
-            let first = try await group.next()!
-            group.cancelAll()
-            return first
-        }
+        try await nw.receiveChunk(max: 64 << 10, timeout: HTTPServer.idleTimeout)
     }
 
-    private func send(_ data: Data) async throws {
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            nw.send(content: data, completion: .contentProcessed { error in
-                if let error {
-                    cont.resume(throwing: error)
-                } else {
-                    cont.resume()
-                }
-            })
-        }
-    }
+    private func send(_ data: Data) async throws { try await nw.sendAll(data) }
 
     private func write(_ response: HTTPResponse, head: Bool) async throws {
         var lines = "HTTP/1.1 \(response.status) \(HTTPResponse.reason(response.status))\r\n"
@@ -335,4 +296,50 @@ final class HTTPConnection: Sendable {
         timeZone: TimeZone(identifier: "GMT")!,
         calendar: Calendar(identifier: .gregorian)
     )
+}
+
+extension NWConnection {
+    /// One read of up to `max` bytes; nil on a clean end of stream. Throws `CancellationError` after `timeout`.
+    func receiveChunk(max: Int, timeout: Duration) async throws -> Data? {
+        try await withThrowingTaskGroup(of: Data?.self) { group in
+            group.addTask { [self] in
+                try await withTaskCancellationHandler {
+                    try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data?, Error>) in
+                        receive(minimumIncompleteLength: 1, maximumLength: max) { data, _, complete, error in
+                            if let error {
+                                cont.resume(throwing: error)
+                            } else if complete,
+                                      data == nil {
+                                cont.resume(returning: nil)
+                            } else {
+                                cont.resume(returning: data ?? Data())
+                            }
+                        }
+                    }
+                } onCancel: {
+                    // A task-group deadline still joins its children. Cancel the socket so receive actually returns.
+                    cancel()
+                }
+            }
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                throw CancellationError()
+            }
+            let first = try await group.next()!
+            group.cancelAll()
+            return first
+        }
+    }
+
+    func sendAll(_ data: Data) async throws {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            send(content: data, completion: .contentProcessed { error in
+                if let error {
+                    cont.resume(throwing: error)
+                } else {
+                    cont.resume()
+                }
+            })
+        }
+    }
 }

@@ -88,8 +88,6 @@ public enum DetectionExplainer {
 
     static func title(_ id: DetectorID) -> String {
         switch id {
-        case .containerSniffer: "Container"
-        case .structure: "Folder layout"
         case .rgss: "RPG Maker XP / VX / VX Ace"
         case .rpgMakerMVMZ: "RPG Maker MV / MZ"
         case .mvmzPlugins: "Plugins"

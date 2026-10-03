@@ -11,11 +11,7 @@ cd "$NATIVE_ROOT"
 require_xcode
 # The fork's scripts pass include paths unquoted, so a repository path with spaces breaks them. Re-run through a
 # space-free symlink; `pwd` keeps the logical path, so every derived path stays clean.
-if [[ "$NATIVE_ROOT" == *" "* && -z "${OMNIPLAY_NATIVE_LINKED:-}" ]]; then
-  link="$HOME/.omniplay-native"
-  [[ -L "$link" && "$(readlink "$link")" == "$NATIVE_ROOT" ]] || { /bin/rm -f "$link"; ln -s "$NATIVE_ROOT" "$link"; }
-  OMNIPLAY_NATIVE_LINKED=1 exec zsh "$link/Scripts/native/build-mkxpz.sh" "$@"
-fi
+relink_without_spaces "${0:t}" "$@"
 ENGINE="$NATIVE_ROOT/Native/mkxp-z"
 [[ -f "$ENGINE/tools/build-core-ios.sh" ]] || { echo "Native/mkxp-z is empty: git submodule update --init Native/mkxp-z" >&2; exit 1; }
 WANT=all

@@ -14,9 +14,6 @@ struct GameDetailView: View {
     let game: GameRecord
     /// Continue from the library: start playing as soon as the page knows the game can run.
     var autoplay = false
-    @Environment(\.verticalSizeClass) var verticalSizeClass
-    @Environment(\.horizontalSizeClass) var horizontalSizeClass
-    @Environment(\.dynamicTypeSize) var typeSize
     @Environment(\.accessibilityReduceMotion) var reduceMotion
     @State var autoplayed = false
     @State var snapshot: DetectionSnapshot?
@@ -59,7 +56,7 @@ struct GameDetailView: View {
         _artworkPath = State(initialValue: game.artworkPath)
     }
 
-    var wide: Bool { Adaptive.wide(vertical: verticalSizeClass, horizontal: horizontalSizeClass, type: typeSize) }
+    @Wide var wide
 
     var body: some View {
         ScrollViewReader { proxy in

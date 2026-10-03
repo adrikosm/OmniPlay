@@ -181,12 +181,10 @@ struct Split<Leading: View, Trailing: View>: View {
     var leadingWidth: CGFloat?
     @ViewBuilder var leading: Leading
     @ViewBuilder var trailing: Trailing
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @Environment(\.dynamicTypeSize) private var typeSize
+    @Wide private var wide
 
     var body: some View {
-        if Adaptive.wide(vertical: verticalSizeClass, horizontal: horizontalSizeClass, type: typeSize) {
+        if wide {
             HStack(alignment: .top, spacing: spacing) {
                 if let leadingWidth {
                     leading.frame(width: leadingWidth, alignment: .topLeading)
@@ -204,9 +202,10 @@ struct Split<Leading: View, Trailing: View>: View {
     }
 }
 
-enum Adaptive {
-    /// Landscape iPhone or any iPad width, and not at an accessibility text size.
-    static func wide(vertical: UserInterfaceSizeClass?, horizontal: UserInterfaceSizeClass?, type: DynamicTypeSize) -> Bool {
-        (vertical == .compact || horizontal == .regular) && !type.isAccessibilitySize
-    }
+/// Landscape iPhone or any iPad width, and not at an accessibility text size.
+@propertyWrapper struct Wide: DynamicProperty {
+    @Environment(\.verticalSizeClass) private var vertical
+    @Environment(\.horizontalSizeClass) private var horizontal
+    @Environment(\.dynamicTypeSize) private var type
+    var wrappedValue: Bool { (vertical == .compact || horizontal == .regular) && !type.isAccessibilitySize }
 }

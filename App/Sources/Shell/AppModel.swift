@@ -373,10 +373,6 @@ final class AppModel {
 
     static let minimumPress: Duration = .milliseconds(100)
 
-    // Sessions from a previous launch whose teardown never ran: a crash, a kill from the app switcher, or a
-    // hang the player escaped. The marker is left where the session's own logs are, so naming it here points
-    // at the bundle that explains it.
-
     /// Deletes only the library database; game files under `Games/` are untouched. Then relaunches.
     func resetLibraryDatabase() async {
         phase = .launching

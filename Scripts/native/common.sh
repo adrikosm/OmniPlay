@@ -20,3 +20,24 @@ apply_patches() {
     git -C "$1" apply "$patch" || { echo "cannot apply ${patch:t} to $1" >&2; exit 1; }
   done
 }
+# relink_without_spaces <script name> "$@": configure scripts and Makefiles that cannot take a path with spaces get the
+# build re-run through a space-free symlink to the repository. `pwd` keeps the logical path, so derived paths stay
+# clean. Returns when the path has no space or the script already runs through the link.
+relink_without_spaces() {
+  [[ "$NATIVE_ROOT" == *" "* && -z "${OMNIPLAY_NATIVE_LINKED:-}" ]] || return 0
+  local link="$HOME/.omniplay-native" script=$1
+  shift
+  [[ -L "$link" && "$(readlink "$link")" == "$NATIVE_ROOT" ]] || { /bin/rm -f "$link"; ln -s "$NATIVE_ROOT" "$link"; }
+  OMNIPLAY_NATIVE_LINKED=1 exec zsh "$link/Scripts/native/$script" "$@"
+}
+# fetch_pinned <file> <sha256> <url>: a pinned download, cached at <file>. No network when the cached file matches;
+# a file that does not match after the download stops the build.
+fetch_pinned() {
+  if [[ ! -f "$1" ]] || [[ "$(shasum -a 256 "$1" | cut -d' ' -f1)" != "$2" ]]; then
+    echo "==> downloading ${1:t}"
+    mkdir -p "${1:h}"
+    curl -fL --retry 3 -o "$1.part" "$3"
+    /bin/mv "$1.part" "$1"
+  fi
+  [[ "$(shasum -a 256 "$1" | cut -d' ' -f1)" == "$2" ]] || { echo "${1:t}: sha256 mismatch" >&2; exit 1; }
+}

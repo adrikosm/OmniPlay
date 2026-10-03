@@ -77,7 +77,6 @@ public actor RuntimeCoordinator {
     }
 
     public func register(_ id: RuntimeIdentifier, factory: @escaping RuntimeFactory) { factories[id] = factory }
-    public var registeredRuntimes: [RuntimeIdentifier] { Array(factories.keys) }
 
     public var states: AsyncStream<State> {
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
@@ -192,20 +191,21 @@ public actor RuntimeCoordinator {
 
     public func pause() async {
         guard case let .running(session) = state, let runtime else { return }
-        let revision = UUID()
-        lifecycleRevision = revision
-        await runtime.pause()
-        guard lifecycleRevision == revision, state == .running(session) else { return }
-        set(.paused(session))
+        await change(to: .paused(session)) { await runtime.pause() }
     }
 
     public func resume() async {
         guard case let .paused(session) = state, let runtime else { return }
-        let revision = UUID()
+        await change(to: .running(session)) { await runtime.resume() }
+    }
+
+    /// Applies `target` only if no other pause/resume or state change happened while `call` ran.
+    private func change(to target: State, _ call: () async -> Void) async {
+        let (revision, before) = (UUID(), state)
         lifecycleRevision = revision
-        await runtime.resume()
-        guard lifecycleRevision == revision, state == .paused(session) else { return }
-        set(.running(session))
+        await call()
+        guard lifecycleRevision == revision, state == before else { return }
+        set(target)
     }
 
     /// Concurrent callers await the same teardown. A noncooperative runtime is retained until process restart.

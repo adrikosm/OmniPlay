@@ -25,6 +25,14 @@ public struct Resolution: Sendable, Hashable {
     public let isDirectory: Bool
     /// The logical name as stored on disk (original case).
     public let realRelativePath: String
+
+    init(layer: OverlayLayer, entry: IndexedEntry) {
+        url = layer.root.appending(path: entry.realRel)
+        self.layer = layer
+        size = entry.size
+        isDirectory = entry.isDir
+        realRelativePath = entry.realRel
+    }
 }
 
 /// Validation for logical paths coming from engines and the local server.
@@ -75,13 +83,7 @@ public struct OverlayResolver: Sendable {
         }
         for layer in layers {
             if let e = try? index.lookup(layer: layer.name, key: key) {
-                return Resolution(
-                    url: layer.root.appending(path: e.realRel),
-                    layer: layer,
-                    size: e.size,
-                    isDirectory: e.isDir,
-                    realRelativePath: e.realRel
-                )
+                return Resolution(layer: layer, entry: e)
             }
         }
         return nil
@@ -101,13 +103,7 @@ public struct OverlayResolver: Sendable {
                           !page.isEmpty else { break }
                     for e in page where !seen.contains(e.key) {
                         seen.insert(e.key)
-                        continuation.yield(Resolution(
-                            url: layer.root.appending(path: e.realRel),
-                            layer: layer,
-                            size: e.size,
-                            isDirectory: e.isDir,
-                            realRelativePath: e.realRel
-                        ))
+                        continuation.yield(Resolution(layer: layer, entry: e))
                     }
                     offset += page.count
                 }

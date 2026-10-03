@@ -1,5 +1,6 @@
 import Diagnostics
 import Foundation
+import GameCore
 import Translation
 
 /// Live machine translation of game text the dictionaries missed (TRANS-006), with Apple's on-device Translation.
@@ -18,7 +19,6 @@ public final class LiveTranslator {
     static let cacheLimit = 8 << 20
 
     private let source: Locale.Language
-    private let target: Locale.Language
     private let cacheURL: URL
     private let deliver: @MainActor ([String: String]) -> Void
     private var cache: [String: String] = [:]
@@ -32,26 +32,16 @@ public final class LiveTranslator {
     private var failed = false
 
     /// `cacheFolder` is the game's persistent data folder; the file is named after the pair, e.g. `ja-en.json`.
-    public init(
-        source: Locale.Language,
-        target: Locale.Language = LiveTranslator.english,
-        cacheFolder: URL,
-        deliver: @escaping @MainActor ([String: String]) -> Void
-    ) {
+    public init(source: Locale.Language, cacheFolder: URL, deliver: @escaping @MainActor ([String: String]) -> Void) {
         self.source = source
-        self.target = target
         self.deliver = deliver
-        cacheURL = cacheFolder.appending(path: "\(source.minimalIdentifier)-\(target.minimalIdentifier).json")
+        cacheURL = cacheFolder.appending(path: "\(source.minimalIdentifier)-\(Self.english.minimalIdentifier).json")
         load()
     }
 
     /// Whether the pack for this pair is on the device; the switch is hidden when the pair is unsupported.
-    public static func status(
-        from source: Locale.Language,
-        to target: Locale.Language = LiveTranslator.english
-    ) async -> LanguageAvailability
-        .Status {
-        await LanguageAvailability().status(from: source, to: target)
+    public static func status(from source: Locale.Language) async -> LanguageAvailability.Status {
+        await LanguageAvailability().status(from: source, to: english)
     }
 
     /// Everything already translated, for the engine to start with.
@@ -79,7 +69,7 @@ public final class LiveTranslator {
             let batch = Array(queued.prefix(Self.batchLimit))
             queued.removeFirst(batch.count)
             do {
-                let fresh = try await Self.translate(batch, from: source, to: target)
+                let fresh = try await Self.translate(batch, from: source, to: Self.english)
                 remember(fresh)
                 asked.subtract(batch)
                 deliver(fresh)
@@ -113,8 +103,7 @@ public final class LiveTranslator {
     // MARK: Cache
 
     private func load() {
-        guard let size = try? cacheURL.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= Self.cacheLimit,
-              let data = try? Data(contentsOf: cacheURL),
+        guard let data = try? SmallFileGuard.read(cacheURL, maxBytes: Self.cacheLimit),
               let pairs = try? JSONDecoder().decode([[String]].self, from: data) else { return }
         for pair in pairs where pair.count == 2 {
             cache[pair[0]] = pair[1]

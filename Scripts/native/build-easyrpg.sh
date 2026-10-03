@@ -22,11 +22,7 @@ require_xcode
 require_tools cmake ninja curl unzip python3 git make
 # speexdsp's autotools build cannot take a path with spaces. Re-run through a space-free symlink, as build-mkxpz.sh
 # does; `pwd` keeps the logical path, so every derived path stays clean.
-if [[ "$NATIVE_ROOT" == *" "* && -z "${OMNIPLAY_NATIVE_LINKED:-}" ]]; then
-  link="$HOME/.omniplay-native"
-  [[ -L "$link" && "$(readlink "$link")" == "$NATIVE_ROOT" ]] || { /bin/rm -f "$link"; ln -s "$NATIVE_ROOT" "$link"; }
-  OMNIPLAY_NATIVE_LINKED=1 exec zsh "$link/Scripts/native/build-easyrpg.sh" "$@"
-fi
+relink_without_spaces "${0:t}" "$@"
 
 PLAYER="$NATIVE_ROOT/Native/easyrpg/player"
 LIBLCF="$NATIVE_ROOT/Native/easyrpg/liblcf"
@@ -53,12 +49,8 @@ ICU_TAG=release-78.1 ICU_COMMIT=049e0d6a420629ac7db77256987d083a563287b5
 
 fetch() {  # fetch <name>: the pinned tarball, unpacked once under $WORK/src
   local file="$WORK/downloads/${url[$1]:t}"
-  mkdir -p "$WORK/downloads" "$WORK/src"
-  if [[ ! -f "$file" ]] || [[ "$(shasum -a 256 "$file" | cut -d' ' -f1)" != "${sha[$1]}" ]]; then
-    echo "==> downloading $1"
-    curl -fL --retry 3 -o "$file.part" "${url[$1]}" && /bin/mv "$file.part" "$file"
-  fi
-  [[ "$(shasum -a 256 "$file" | cut -d' ' -f1)" == "${sha[$1]}" ]] || { echo "$1: sha256 mismatch" >&2; exit 1; }
+  mkdir -p "$WORK/src"
+  fetch_pinned "$file" "${sha[$1]}" "${url[$1]}"
   [[ -d "$WORK/src/$1" ]] && return
   local tmp="$WORK/src/.unpack-$1"
   /bin/rm -rf "$tmp"; mkdir -p "$tmp"

@@ -23,14 +23,6 @@ public final class ScanContext: Sendable {
         try index.build(layer: Self.layer, root: root)
     }
 
-    /// Reuses an existing index whose `layer` already covers `root`.
-    public init(root: URL, index: PathIndex, sidecars: ImportSidecars = ImportSidecars(), pePayload: PEPayload? = nil) {
-        self.root = root
-        self.index = index
-        self.sidecars = sidecars
-        self.pePayload = pePayload
-    }
-
     public func close() {
         try? FileManager.default.removeItem(at: index.url)
     }
@@ -84,6 +76,4 @@ public final class ScanContext: Sendable {
     public func glob(_ pattern: String, limit: Int = 64) -> [IndexedEntry] {
         (try? index.glob(layer: Self.layer, pattern: pattern.lowercased(), limit: limit)) ?? []
     }
-
-    public func count(layer: String = ScanContext.layer) -> Int { (try? index.count(layer: layer)) ?? 0 }
 }

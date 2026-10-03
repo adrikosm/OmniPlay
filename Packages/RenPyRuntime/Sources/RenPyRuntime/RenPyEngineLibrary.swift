@@ -190,11 +190,6 @@ public final class RenPyEngineLibrary {
         return api
     }
 
-    /// The Ren'Py release the framework reports; loads it on first use.
-    public func reportedVersion() throws -> String {
-        try load().version().map { String(cString: $0) } ?? "unknown"
-    }
-
     /// True when this engine can take a game now: never started, or parked after the last one.
     public var isAvailable: Bool { phase == .notStarted || (phase == .running && status == .parked) }
 

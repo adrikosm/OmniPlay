@@ -12,7 +12,6 @@ public struct WebProfile: Sendable, Hashable {
     /// Extra shims from the plugin scan: `nwWindow`, `processVersions`, `fsReadOnly`, `pathPosix`, `greenworks`.
     public var shims: Set<String> = []
     public var isGameActivePatch = false
-    public var canPlayWebmFalse = true
     public var audioFileExtOgg = false
     public var coopCoep = false
     public var forceWebGL2 = false
@@ -43,7 +42,7 @@ public struct WebProfile: Sendable, Hashable {
     public var headerPolicy: HeaderPolicy { HeaderPolicy(coopCoep: coopCoep) }
 
     /// What the loopback server tries when a game asks for a movie or sound under an extension it did not ship.
-    /// RPG Maker asks for `.mp4` here (`canPlayWebmFalse`), and MZ often ships only `.webm`, which WebKit plays;
+    /// RPG Maker asks for `.mp4` here (the compat script says WebM cannot play), and MZ often ships only `.webm`, which WebKit plays;
     /// MV asks for `.ogg` or `.m4a` and ships either. Order is preference: H.264 before WebM, then the rest.
     public static let mediaSiblings: [String: [String]] = [
         "mp4": ["m4v", "mov", "webm"], "m4v": ["mp4", "mov", "webm"], "webm": ["mp4", "m4v", "mov"], "ogv": ["mp4", "webm"],
@@ -52,7 +51,7 @@ public struct WebProfile: Sendable, Hashable {
         "rpgmvo": ["rpgmvm"], "rpgmvm": ["rpgmvo"], "ogg_": ["m4a_"], "m4a_": ["ogg_"],
     ]
 
-    public static func derive(from descriptor: GameDescriptor, debug: Bool = false) -> WebProfile {
+    public static func derive(from descriptor: GameDescriptor) -> WebProfile {
         var p = WebProfile()
         let hints = descriptor.profile.overrides
         let tyrano = descriptor.engine == .html5 && hints["webSubFamily"] == "tyrano"
@@ -130,7 +129,7 @@ public struct WebProfile: Sendable, Hashable {
         let shimList = shims.sorted().map { "\"\($0)\"" }.joined(separator: ",")
         return """
         {"nwUndefined":\(nwUndefined),"shims":[\(shimList)],"isGameActivePatch":\(isGameActivePatch),\
-        "canPlayWebmFalse":\(canPlayWebmFalse),"audioFileExtOgg":\(audioFileExtOgg),\
+        "audioFileExtOgg":\(audioFileExtOgg),\
         "imageCacheCapMB":\(imageCacheCapMB.map(String.init) ?? "null"),"devicePixelRatio":\(devicePixelRatio.map(String.init) ?? "null"),\
         "ignoreTouchMoveCancel":\(ignoreTouchMoveCancel),"muted":\(muted),"fill":\(fill),\
         "liveTranslation":\(liveTranslation),"paused":\(paused)}

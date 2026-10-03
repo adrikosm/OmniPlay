@@ -16,11 +16,6 @@ public struct SaveProvenance: Codable, Sendable, Hashable {
         self.origin = origin
         self.createdAt = createdAt
     }
-
-    /// True when this save should carry the stronger foreign-content warning.
-    public func isForeign(to identityHash: String) -> Bool {
-        gameIdentityHash != identityHash || origin == .imported
-    }
 }
 
 /// One file inside a snapshot.

@@ -80,14 +80,18 @@ extension AppModel {
 
     /// Copies or extracts an overlay (mod or translation pack) into `Overrides/.staging-<uuid>/` with the import's own
     /// extractor and safety limits, then lines it up with the game's root. The caller installs or removes it.
+    /// The original tree as detection rooted it, or nil before detection has run.
+    func detectedOriginal(for id: GameID) -> URL? {
+        Self.snapshot(for: id, paths: paths).flatMap { snapshot in
+            LayerSetBuilder.forGame(snapshot.report.descriptor.withID(id), paths: paths).first { $0.tier == .original }?.root
+        }
+    }
+
     func stageOverlay(from source: URL, for game: GameRecord) async throws -> URL {
         let staging = paths.tier(.overrides, for: game.id).appending(path: ".staging-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
         let engine = game.engine
-        let gameRoot = Self.snapshot(for: game.id, paths: paths).flatMap { snapshot in
-            LayerSetBuilder.forGame(snapshot.report.descriptor.withID(game.id), paths: paths).first { $0.tier == .original }?.root
-        }
-        let gameHasWWW = gameRoot
+        let gameHasWWW = detectedOriginal(for: game.id)
             .map { FileManager.default.fileExists(atPath: $0.appending(path: "www").path(percentEncoded: false)) } ?? false
         let isDirectory = (try? source.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
         let ext = source.pathExtension.lowercased()
@@ -189,7 +193,7 @@ extension AppModel {
         guard ModContentType(rawValue: mod.contentType)?.affectsSaves == true else { return }
         let location = SaveLocation.forGame(mod.gameId, paths: paths)
         guard SaveVault.hasContent(location) else { return }
-        let hash = Self.snapshot(for: mod.gameId, paths: paths)?.report.descriptor.identityHash ?? mod.gameId.description
+        let hash = Self.identityHash(for: mod.gameId, paths: paths)
         _ = try? await SaveVault.snapshot(location: location, identityHash: hash, reason: .preModBackup)
     }
 

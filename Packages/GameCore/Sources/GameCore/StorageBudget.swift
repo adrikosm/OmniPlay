@@ -18,11 +18,6 @@ public struct StorageEstimate: Sendable, Hashable {
     }
 
     public static func forCopy(bytes: Int64) -> StorageEstimate { .init(required: bytes, reason: "copy files") }
-    public static func forTranscode(inputBytes: Int64, ratio: Double = 1.0) -> StorageEstimate {
-        .init(required: Int64(Double(inputBytes) * ratio), temporary: inputBytes, reason: "transcode media")
-    }
-
-    public static func forBackup(bytes: Int64) -> StorageEstimate { .init(required: bytes, reason: "back up saves") }
 }
 
 public enum StorageVerdict: Sendable, Hashable {
@@ -30,14 +25,6 @@ public enum StorageVerdict: Sendable, Hashable {
     case insufficient(required: Int64, available: Int64, shortfall: Int64)
     /// Capacity could not be read; callers proceed and log a warning under `filesystem`.
     case unknown
-
-    public var isBlocking: Bool {
-        if case .insufficient = self {
-            true
-        } else {
-            false
-        }
-    }
 }
 
 /// Fails an operation before it fills the disk: keeps a 1 GiB reserve and counts temporary space at 1.5×.
@@ -46,7 +33,7 @@ public enum StorageBudget {
     public static let temporaryMultiplier = 1.5
 
     /// Saturates at `Int64.max`: archive headers declare sizes up to 2^63, which must read as "too big", not trap.
-    public static func needed(for estimate: StorageEstimate) -> Int64 {
+    static func needed(for estimate: StorageEstimate) -> Int64 {
         let temporary = Double(estimate.temporary) * temporaryMultiplier
         let (sum, o1) = estimate.required.addingReportingOverflow(temporary < 0x1p63 ? Int64(temporary) : .max)
         let (need, o2) = sum.addingReportingOverflow(reserve)
@@ -55,10 +42,6 @@ public enum StorageBudget {
 
     public static func check(_ estimate: StorageEstimate, at url: URL) -> StorageVerdict {
         guard let available = try? VolumeSpace.available(at: url) else { return .unknown }
-        return check(estimate, available: available)
-    }
-
-    public static func check(_ estimate: StorageEstimate, available: Int64) -> StorageVerdict {
         let need = needed(for: estimate)
         return available >= need
             ? .ok(headroom: available - need)

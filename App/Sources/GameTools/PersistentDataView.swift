@@ -24,9 +24,7 @@ struct PersistentDataView: View {
     @State private var restoring: PersistentStoreInfo?
 
     private var location: SaveLocation { SaveLocation.forGame(game.id, paths: model.paths) }
-    private var identityHash: String {
-        AppModel.snapshot(for: game.id, paths: model.paths)?.report.descriptor.identityHash ?? game.id.description
-    }
+    private var identityHash: String { AppModel.identityHash(for: game.id, paths: model.paths) }
 
     var body: some View {
         ScrollView {
@@ -63,11 +61,7 @@ struct PersistentDataView: View {
         .task { await reload() }
         .confirmationDialog(
             "Reset \(pendingReset?.kind.title ?? "")?",
-            isPresented: Binding(get: { pendingReset != nil }, set: {
-                if !$0 {
-                    pendingReset = nil
-                }
-            }),
+            isPresented: $pendingReset.isPresent(),
             titleVisibility: .visible
         ) {
             Button("Reset", role: .destructive) {
@@ -78,11 +72,7 @@ struct PersistentDataView: View {
         } message: {
             Text("The game starts with this data empty next time. A snapshot keeps the current data.")
         }
-        .centeredSheet(isPresented: Binding(get: { restoring != nil }, set: {
-            if !$0 {
-                restoring = nil
-            }
-        }), width: 400) { close in
+        .centeredSheet(isPresented: $restoring.isPresent(), width: 400) { close in
             if let store = restoring {
                 RestorePicker(
                     snapshots: snapshots.filter { snap in snap.manifest.entries.contains { store.kind.owns($0.relativePath) } },

@@ -28,18 +28,8 @@ public struct GameToolsCapabilities: Sendable, Equatable {
     /// The kinds of live state the game's engine exposes, whether or not it is running now.
     public var state: StateCapabilities = []
 
-    public var canInspectVariables: Bool { availability(of: .variables) == .available }
-    public var canMutateVariables: Bool { canInspectVariables }
-    public var canEditSwitches: Bool { canInspectVariables && state.contains(.switches) }
-    public var canEditInventory: Bool { canInspectVariables && state.contains(.inventory) }
-    public var canEditParty: Bool { canInspectVariables && state.contains(.party) }
-    public var canFreezeVariables: Bool { canInspectVariables }
-    public var canWatchVariables: Bool { canInspectVariables }
-    public var canUseCheats: Bool { availability(of: .cheats) == .available }
-    public var canManageSaves: Bool { availability(of: .saves) == .available }
-    /// The console needs the game running; the developer switches apply at the next launch.
+    /// The console needs the game running.
     public var canUseRenPyConsole: Bool { availability(of: .renpyTools) != nil && running && state.contains(.console) }
-    public var canSetDeveloperSwitches: Bool { availability(of: .renpyTools) != nil }
     /// This game's session is running now.
     public var running = false
     /// Lines no pack covers can be machine-translated on the device as they appear (TRANS-006; RPG Maker MV/MZ and Ren'Py).
@@ -59,21 +49,6 @@ public enum GameToolsCapabilityResolver {
         /// This game is running; `state` is what its runtime's bridge reports.
         case running(state: StateCapabilities)
     }
-
-    /// Sections with a working screen in this build. The rest stay hidden until their tasks land, so nothing
-    /// shows a placeholder.
-    public static let built: Set<ToolsSection> = [
-        .variables,
-        .cheats,
-        .renpyTools,
-        .mods,
-        .translations,
-        .saves,
-        .persistentData,
-        .controls,
-        .runtime,
-        .diagnostics,
-    ]
 
     /// What an engine family's state bridge exposes once running.
     public static func expectedState(for engine: EngineFamily) -> StateCapabilities {
@@ -105,9 +80,7 @@ public enum GameToolsCapabilityResolver {
         out.canLiveTranslate = [.rpgMakerMV, .rpgMakerMZ, .renpy].contains(engine)
         var entries: [GameToolsCapabilities.Entry] = []
         func add(_ section: ToolsSection, _ availability: GameToolsCapabilities.Availability) {
-            if built.contains(section) {
-                entries.append(.init(section: section, availability: availability))
-            }
+            entries.append(.init(section: section, availability: availability))
         }
         if playable, !out.state.isEmpty {
             add(.variables, running ? .available : .unavailable("Start the game to inspect live values."))

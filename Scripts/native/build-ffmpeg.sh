@@ -17,11 +17,7 @@
 source "$(dirname "$0")/common.sh"
 cd "$NATIVE_ROOT"
 # FFmpeg's configure refuses a source path with spaces; run through the same space-free link build-mkxpz.sh uses.
-if [[ "$NATIVE_ROOT" == *" "* && -z "${OMNIPLAY_NATIVE_LINKED:-}" ]]; then
-  link="$HOME/.omniplay-native"
-  [[ -L "$link" && "$(readlink "$link")" == "$NATIVE_ROOT" ]] || { /bin/rm -f "$link"; ln -s "$NATIVE_ROOT" "$link"; }
-  OMNIPLAY_NATIVE_LINKED=1 exec zsh "$link/Scripts/native/build-ffmpeg.sh" "$@"
-fi
+relink_without_spaces "${0:t}" "$@"
 require_xcode
 require_tools curl make meson ninja
 
@@ -31,23 +27,14 @@ WORK="$NATIVE_ROOT/Native/build/ffmpeg"
 OUT="$NATIVE_ROOT/Native/prebuilt/ffmpeg"
 
 file="$WORK/downloads/ffmpeg-$VERSION.tar.xz"
-mkdir -p "$WORK/downloads"
-if [[ ! -f "$file" ]] || [[ "$(shasum -a 256 "$file" | cut -d' ' -f1)" != "$SHA" ]]; then
-  curl -fL --retry 3 -o "$file.part" "https://ffmpeg.org/releases/ffmpeg-$VERSION.tar.xz"
-  /bin/mv "$file.part" "$file"
-fi
-[[ "$(shasum -a 256 "$file" | cut -d' ' -f1)" == "$SHA" ]] || { echo "ffmpeg-$VERSION.tar.xz: sha256 mismatch" >&2; exit 1; }
+fetch_pinned "$file" "$SHA" "https://ffmpeg.org/releases/ffmpeg-$VERSION.tar.xz"
 SRC="$WORK/ffmpeg-$VERSION"
 [[ -d "$SRC" ]] || tar xJf "$file" -C "$WORK"
 
 DAV1D_VERSION=1.5.4
 DAV1D_SHA=686616b7c69eb88d44459391ab25cac13b6647a3b288835c5784e71c1514a5c5  # as VideoLAN publishes it
 dav1d_file="$WORK/downloads/dav1d-$DAV1D_VERSION.tar.xz"
-if [[ ! -f "$dav1d_file" ]] || [[ "$(shasum -a 256 "$dav1d_file" | cut -d' ' -f1)" != "$DAV1D_SHA" ]]; then
-  curl -fL --retry 3 -o "$dav1d_file.part" "https://downloads.videolan.org/pub/videolan/dav1d/$DAV1D_VERSION/dav1d-$DAV1D_VERSION.tar.xz"
-  /bin/mv "$dav1d_file.part" "$dav1d_file"
-fi
-[[ "$(shasum -a 256 "$dav1d_file" | cut -d' ' -f1)" == "$DAV1D_SHA" ]] || { echo "dav1d-$DAV1D_VERSION.tar.xz: sha256 mismatch" >&2; exit 1; }
+fetch_pinned "$dav1d_file" "$DAV1D_SHA" "https://downloads.videolan.org/pub/videolan/dav1d/$DAV1D_VERSION/dav1d-$DAV1D_VERSION.tar.xz"
 DAV1D_SRC="$WORK/dav1d-$DAV1D_VERSION"
 [[ -d "$DAV1D_SRC" ]] || tar xJf "$dav1d_file" -C "$WORK"
 

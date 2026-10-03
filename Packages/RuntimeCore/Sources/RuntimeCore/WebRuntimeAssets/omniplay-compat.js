@@ -92,10 +92,10 @@
   const patch = () => {
     patchTyrano();
     if (typeof Utils !== "undefined") {
-      if (profile.canPlayWebmFalse && Utils.canPlayWebm) Utils.canPlayWebm = () => false;
+      if (Utils.canPlayWebm) Utils.canPlayWebm = () => false;
       if (Utils.isMobileDevice) Utils.isMobileDevice = () => true;
     }
-    if (profile.canPlayWebmFalse && typeof Graphics !== "undefined" && Graphics.canPlayVideoType && !Graphics.__omniplayVideoType) {
+    if (typeof Graphics !== "undefined" && Graphics.canPlayVideoType && !Graphics.__omniplayVideoType) {
       Graphics.__omniplayVideoType = true;
       const orig = Graphics.canPlayVideoType.bind(Graphics);
       Graphics.canPlayVideoType = (t) => !/webm/i.test(t) && orig(t);

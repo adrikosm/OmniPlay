@@ -10,16 +10,11 @@ enum RGSSHostScripts {
     /// `omniplay_translate.rb` when a translation pack's MTool dictionary is active (`translation`, an absolute path).
     static func install(in managed: URL, mediaRemap json: String?, translation: String? = nil) throws -> [URL] {
         var scripts: [URL] = []
-        if let redirect = Bundle.module.url(forResource: "omniplay_saves", withExtension: "rb", subdirectory: "Ruby") {
-            let copy = managed.appending(path: "omniplay_saves.rb")
+        for name in ["omniplay_saves", "omniplay_bridge"] {
+            guard let bundled = Bundle.module.url(forResource: name, withExtension: "rb", subdirectory: "Ruby") else { continue }
+            let copy = managed.appending(path: "\(name).rb")
             try? FileManager.default.removeItem(at: copy)
-            try FileManager.default.copyItem(at: redirect, to: copy)
-            scripts.append(copy)
-        }
-        if let bridge = Bundle.module.url(forResource: "omniplay_bridge", withExtension: "rb", subdirectory: "Ruby") {
-            let copy = managed.appending(path: "omniplay_bridge.rb")
-            try? FileManager.default.removeItem(at: copy)
-            try FileManager.default.copyItem(at: bridge, to: copy)
+            try FileManager.default.copyItem(at: bundled, to: copy)
             scripts.append(copy)
         }
         if let data = json?.data(using: .utf8),
@@ -33,9 +28,11 @@ enum RGSSHostScripts {
         if let translation, let template = Bundle.module.url(forResource: "omniplay_translate", withExtension: "rb", subdirectory: "Ruby"),
            let source = try? String(contentsOf: template, encoding: .utf8) {
             let script = managed.appending(path: "omniplay_translate.rb")
-            let literal = translation.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-                .replacingOccurrences(of: "#", with: "\\#")
-            try source.replacingOccurrences(of: "__DICTIONARY__", with: literal).write(to: script, atomically: true, encoding: .utf8)
+            try source.replacingOccurrences(of: "__DICTIONARY__", with: escaped(translation)).write(
+                to: script,
+                atomically: true,
+                encoding: .utf8
+            )
             scripts.append(script)
         }
         return scripts
@@ -44,10 +41,7 @@ enum RGSSHostScripts {
     /// A Ruby hash literal for `omniplay_media.rb`: each source by its full name and by its name without extension
     /// (how RGSS scripts usually refer to files), both lower-cased, to the converted file.
     static func rubyTable(_ remap: [String: String]) -> String {
-        func literal(_ s: String) -> String {
-            "\"" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-                .replacingOccurrences(of: "#", with: "\\#") + "\""
-        }
+        func literal(_ s: String) -> String { "\"" + escaped(s) + "\"" }
         var entries: [String: String] = [:]
         for (source, output) in remap {
             entries[source] = output
@@ -57,5 +51,11 @@ enum RGSSHostScripts {
         }
         let pairs = entries.sorted { $0.key < $1.key }.map { "\(literal($0.key)) => \(literal($0.value))" }
         return "{" + pairs.joined(separator: ", ") + "}"
+    }
+
+    /// The inside of a double-quoted Ruby string: backslash, quote and `#` (interpolation) escaped.
+    static func escaped(_ s: String) -> String {
+        s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "#", with: "\\#")
     }
 }

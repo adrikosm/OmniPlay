@@ -36,14 +36,7 @@ public struct SaveExportManifest: Codable, Sendable, Hashable {
         var entries: [SaveEntry] = []
         for (dir, name) in [(location.slots, "slots"), (location.persistent, "persistent")]
             where FileManager.default.fileExists(atPath: dir.path(percentEncoded: false)) {
-            var files: [RelativeEntry] = []
-            try LazyDirectoryWalker.walk(root: dir) { entry in
-                if !entry.isDirectory, !entry.url.lastPathComponent.hasPrefix(".") {
-                    files.append(entry)
-                }
-                return .continue
-            }
-            for file in files {
+            for file in try LazyDirectoryWalker.files(under: dir) {
                 try entries.append(SaveEntry(
                     relativePath: "\(name)/\(file.relativePath)",
                     bytes: file.fileSize,

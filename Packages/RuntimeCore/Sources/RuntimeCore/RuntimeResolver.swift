@@ -82,10 +82,9 @@ public struct RuntimeResolver: Sendable {
         }
         var candidates = report.candidateRuntimes
         if let override {
-            if let desc = await registry.descriptor(for: override) {
+            if await registry.descriptor(for: override) != nil {
                 candidates.insert(RuntimeCandidate(runtime: override, confidence: 1, reason: "manual override"), at: 0)
                 res.manualOverride = true
-                _ = desc
             } else {
                 warnings.append(.note("the chosen runtime \(override) is not part of this build; automatic choice used"))
             }

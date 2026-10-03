@@ -83,11 +83,7 @@ struct ModsView: View {
         }
         .confirmationDialog(
             "Remove \(pendingRemoval?.name ?? "this mod")?",
-            isPresented: Binding(get: { pendingRemoval != nil }, set: {
-                if !$0 {
-                    pendingRemoval = nil
-                }
-            }),
+            isPresented: $pendingRemoval.isPresent(),
             titleVisibility: .visible
         ) {
             Button("Remove", role: .destructive) {

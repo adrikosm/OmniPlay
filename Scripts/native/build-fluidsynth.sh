@@ -28,16 +28,7 @@ WORK="$NATIVE_ROOT/Native/build/fluidsynth"
 OUT="$NATIVE_ROOT/Native/prebuilt/fluidsynth"
 SF_OUT="$NATIVE_ROOT/Native/prebuilt/soundfont"
 
-fetch() {  # fetch <file> <sha256> <url>
-  local file="$WORK/downloads/$1"
-  mkdir -p "$WORK/downloads"
-  if [[ ! -f "$file" ]] || [[ "$(shasum -a 256 "$file" | cut -d' ' -f1)" != "$2" ]]; then
-    echo "==> downloading $1"
-    curl -fL --retry 3 -o "$file.part" "$3"
-    /bin/mv "$file.part" "$file"
-  fi
-  [[ "$(shasum -a 256 "$file" | cut -d' ' -f1)" == "$2" ]] || { echo "$1: sha256 mismatch" >&2; exit 1; }
-}
+fetch() { fetch_pinned "$WORK/downloads/$1" "$2" "$3"; }  # fetch <file> <sha256> <url>
 
 fetch "fluidsynth-$FS_VERSION.tar.gz" $FS_SHA "https://github.com/FluidSynth/fluidsynth/archive/refs/tags/v$FS_VERSION.tar.gz"
 fetch GeneralUser-GS.sf2 $GU_SHA "https://raw.githubusercontent.com/mrbumpy409/GeneralUser-GS/$GU_COMMIT/GeneralUser-GS.sf2"

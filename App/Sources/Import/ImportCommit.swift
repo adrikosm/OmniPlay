@@ -13,7 +13,7 @@ import Synchronization
 extension ImportPipeline {
     struct CommitPlan {
         let stagedRoot: URL, located: LocatedRoot, title: String, report: DetectionReport, resolution: RuntimeResolution
-        let bytes: Int64, source: ImportSource, fingerprint: String
+        let bytes: Int64, source: ImportSource, kind: ContainerKind, fingerprint: String
     }
 
     func commit(_ plan: CommitPlan) async throws -> GameID {
@@ -21,7 +21,6 @@ extension ImportPipeline {
         let gameRoot = paths.game(id)
         let fm = FileManager.default
         do {
-            try fm.createDirectory(at: gameRoot, withIntermediateDirectories: true)
             for tier in [ContentTier.overrides, .generated, .saves, .artwork] {
                 try fm.createDirectory(at: paths.tier(tier, for: id), withIntermediateDirectories: true)
             }
@@ -213,28 +212,12 @@ extension ImportPipeline {
         )
         try PathIndex.open(at: gameRoot.appending(path: "index.sqlite")).rebuild(layer: "original", root: located)
         var d = plan.report.descriptor
-        d = GameDescriptor(
-            id: id,
-            title: plan.title,
-            rootRelativePath: d.rootRelativePath,
-            engine: d.engine,
-            generation: d.generation,
-            version: d.version,
-            runtimeCandidates: d.runtimeCandidates,
-            entryPoint: d.entryPoint,
-            containerType: try? ContainerSniffer.identify(plan.source.url).rawValue,
-            saveFamily: d.saveFamily,
-            exportPlatform: d.exportPlatform,
-            mediaRequirements: d.mediaRequirements,
-            blockers: d.blockers,
-            warnings: d.warnings + plan.located.sidecars.notes.map { .note($0) },
-            capabilities: d.capabilities,
-            confidence: d.confidence,
-            evidence: d.evidence,
-            identityHash: plan.fingerprint,
-            grade: d.grade,
-            profile: d.profile
-        )
+        d.id = id
+        d.title = plan.title
+        d.containerType = plan.kind.rawValue
+        d.warnings += plan.located.sidecars.notes.map { .note($0) }
+        d.identityHash = plan.fingerprint
+        d.importedAt = .now
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(d).write(to: gameRoot.appending(path: "game.json"), options: .atomic)
@@ -284,11 +267,10 @@ extension ImportPipeline {
                 fallbacks: plan.resolution.fallbacks.map(\.runtime)
             )
         }
-        let container = (try? ContainerSniffer.identify(plan.source.url).rawValue) ?? "unknown"
         let source = ImportRecord(
             gameId: id,
             sourceName: plan.source.url.lastPathComponent,
-            container: container,
+            container: plan.kind.rawValue,
             sourceSha256: plan.fingerprint,
             bytes: plan.bytes,
             outcome: replacing ? "replaced" : "ok"

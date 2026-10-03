@@ -100,17 +100,10 @@ public extension SaveVault {
         return backup
     }
 
-    private static func cloneTree(from source: URL, to target: URL) async throws {
+    static func cloneTree(from source: URL, to target: URL) async throws {
         try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
         guard FileManager.default.fileExists(atPath: source.path(percentEncoded: false)) else { return }
-        var files: [RelativeEntry] = []
-        try LazyDirectoryWalker.walk(root: source) { entry in
-            if !entry.isDirectory {
-                files.append(entry)
-            }
-            return .continue
-        }
-        for file in files {
+        for file in try LazyDirectoryWalker.files(under: source) {
             try await APFSClone.clone(from: file.url, to: target.appending(path: file.relativePath))
         }
     }
@@ -156,11 +149,7 @@ public enum RescuedSaves {
     @discardableResult
     public static func rescue(location: SaveLocation, titleHash: String, title: String, paths: AppPaths) throws -> URL? {
         guard SaveVault.hasContent(location) else { return nil }
-        let stamp = Date.now.formatted(.iso8601.year().month().day().timeZone(separator: .omitted).time(includingFractionalSeconds: false))
-            .replacingOccurrences(
-                of: ":",
-                with: ""
-            )
+        let stamp = SaveVault.stamp(fractional: false)
         let target = paths.rescuedSaves().appending(path: "\(titleHash.prefix(24))-\(stamp)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.moveItem(at: location.root, to: target)
@@ -182,7 +171,7 @@ public enum RescuedSaves {
     public static func find(titleHash: String, paths: AppPaths) -> [(directory: URL, record: Record)] {
         let dirs = (try? FileManager.default.contentsOfDirectory(at: paths.rescuedSaves(), includingPropertiesForKeys: nil)) ?? []
         return dirs.compactMap { dir in
-            guard let data = try? Data(contentsOf: dir.appending(path: "rescue.json")),
+            guard let data = try? SmallFileGuard.read(dir.appending(path: "rescue.json")),
                   let record = try? JSONDecoder().decode(Record.self, from: data), record.titleHash == titleHash else { return nil }
             return (dir.standardizedFileURL, record)
         }.sorted { $0.record.rescuedAt > $1.record.rescuedAt }

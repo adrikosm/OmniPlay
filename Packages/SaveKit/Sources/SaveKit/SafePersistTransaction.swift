@@ -13,10 +13,8 @@ public enum PersistError: Error {
 public struct SafePersistTransaction: Sendable {
     /// Clones of the target files the mutation edits; `url(for:)` maps a live target to its staged copy.
     public struct Staging: Sendable {
-        public let directory: URL
         let mapping: [URL: URL]
         public func url(for target: URL) -> URL { mapping[target.standardizedFileURL] ?? target }
-        public var files: [URL] { Array(mapping.values) }
     }
 
     public let location: SaveLocation
@@ -49,7 +47,7 @@ public struct SafePersistTransaction: Sendable {
             }
             mapping[target.standardizedFileURL] = staged
         }
-        let staging = Staging(directory: stagingDir, mapping: mapping)
+        let staging = Staging(mapping: mapping)
         let result = try await mutate(staging)
         do { try validate(staging) } catch { throw PersistError.validationFailed(String(describing: error)) }
         try swap(staging: staging)

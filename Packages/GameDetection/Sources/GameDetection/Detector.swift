@@ -17,9 +17,8 @@ public struct PartialDescriptor: Sendable, Hashable {
     public init() {}
 }
 
-public struct DetectorReport: Sendable, Hashable {
+public struct DetectorReport: Sendable {
     public var evidence: [DetectionEvidence] = []
-    public var familyClaim: (family: EngineFamily, confidence: Double)? { claim }
     var claim: (family: EngineFamily, confidence: Double)?
     public var refusal: RefusalReason?
     public var unsupported: String?
@@ -43,13 +42,6 @@ public struct DetectorReport: Sendable, Hashable {
     ) {
         evidence.append(DetectionEvidence(detector, signal, confidence: confidence, source: source, explanation))
     }
-
-    public static func == (lhs: DetectorReport, rhs: DetectorReport) -> Bool {
-        lhs.evidence == rhs.evidence && lhs.claim?.family == rhs.claim?.family && lhs.claim?.confidence == rhs.claim?.confidence
-            && lhs.refusal == rhs.refusal && lhs.unsupported == rhs.unsupported && lhs.partial == rhs.partial
-    }
-
-    public func hash(into hasher: inout Hasher) { hasher.combine(evidence) }
 }
 
 /// One family or analysis detector. Deterministic: sorted listings, no clocks, no randomness.

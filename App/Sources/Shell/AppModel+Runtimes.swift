@@ -56,10 +56,8 @@ extension AppModel {
         for engine in RenPyEngine.allCases {
             guard RenPyEngineLibrary.bundled(engine) != nil,
                   let planned = RuntimeRegistry.planned.first(where: { $0.id == .renpy(engine: engine) }) else { continue }
-            await coordinator.register(.renpy(engine: engine)) { [weak self] _ in
-                let runtime = RenPyRuntime(engine: engine)
-                runtime.onFailure = { message in self?.runtimeFailure = message }
-                return runtime
+            await coordinator.register(.renpy(engine: engine)) { _ in
+                RenPyRuntime(engine: engine)
             }
             await registry.register(.init(
                 id: planned.id,
@@ -98,7 +96,7 @@ extension AppModel {
     func registerScummVM(with coordinator: RuntimeCoordinator) async {
         guard ScummVMEngineLibrary.bundled() != nil,
               let planned = RuntimeRegistry.planned.first(where: { $0.id == .scummvm }) else { return }
-        let configFile = paths.caches().appending(path: "scummvm/scummvm.ini")
+        let configFile = paths.cachesRoot.appending(path: "scummvm/scummvm.ini")
         ScummVMEngineLibrary.installDetection(configFile: configFile, muted: ProcessInfo.processInfo.environment["OMNIPLAY_MUTE"] != nil)
         await coordinator.register(.scummvm) { [weak self] _ in
             let runtime = ScummVMRuntime(configFile: configFile) { [weak self] in
@@ -126,10 +124,8 @@ extension AppModel {
             let (bucket, engine, version) = (lane.bucket, lane.engine, lane.version)
             guard GodotEngineLibrary.bundled(engine) != nil,
                   let planned = RuntimeRegistry.planned.first(where: { $0.id == .godot(bucket: bucket) }) else { continue }
-            await coordinator.register(.godot(bucket: bucket)) { [weak self] _ in
-                let runtime = GodotRuntime(bucket: bucket)
-                runtime.onFailure = { message in self?.runtimeFailure = message }
-                return runtime
+            await coordinator.register(.godot(bucket: bucket)) { _ in
+                GodotRuntime(bucket: bucket)
             }
             await registry.register(.init(
                 id: .godot(bucket: bucket),

@@ -11,7 +11,6 @@ enum WebInputEncoder {
             case let .pointerMove(x, y): ["t": "pointer", "phase": "move", "x": x, "y": y, "button": "primary"]
             case let .pointerDown(button, x, y): ["t": "pointer", "phase": "down", "x": x, "y": y, "button": button.rawValue]
             case let .pointerUp(button, x, y): ["t": "pointer", "phase": "up", "x": x, "y": y, "button": button.rawValue]
-            case let .scroll(dx, dy): ["t": "scroll", "dx": dx, "dy": dy]
             case let .controllerButton(button, pressed): ["t": "pad", "button": button.rawValue, "pressed": pressed]
             case let .controllerAxis(axis, value): ["t": "axis", "axis": axis.rawValue, "value": Double(value)]
             case let .text(text): ["t": "text", "text": String(text.prefix(64))]

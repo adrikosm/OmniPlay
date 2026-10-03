@@ -76,13 +76,8 @@ public actor FileLogSink {
     }
 
     private func open() throws {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = currentFile
-        if !FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
-            try Data().write(to: url)
-        }
-        let h = try FileHandle(forWritingTo: url)
-        written = try Int(h.seekToEnd())
+        let (h, end) = try FileHandle.appending(to: currentFile)
+        written = Int(end)
         handle = h
     }
 
@@ -99,5 +94,17 @@ public actor FileLogSink {
             }
         }
         written = 0
+    }
+}
+
+extension FileHandle {
+    /// A handle at the end of `url`, creating the file and its folder first; also returns that end offset.
+    static func appending(to url: URL) throws -> (FileHandle, UInt64) {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if !FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
+            try Data().write(to: url)
+        }
+        let h = try FileHandle(forWritingTo: url)
+        return try (h, h.seekToEnd())
     }
 }

@@ -88,9 +88,7 @@ public enum SavePreviewReader {
     /// since 1899-12-30), 0x0B the lead hero's name, 0x0C their level. Chunks are id, size, bytes; ids and sizes are
     /// 7-bit groups, most significant first. Only the first 4 KiB is read.
     static func easyRPG(_ file: URL) -> SavePreview? {
-        guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
-        defer { try? handle.close() }
-        guard let raw = try? handle.read(upToCount: 4096) else { return nil }
+        guard let raw = try? BoundedReader.readHeader(url: file, bytes: 4096) else { return nil }
         var bytes = [UInt8](raw)[...]
         func number() -> Int? {
             var value = 0
@@ -152,9 +150,7 @@ public enum SavePreviewReader {
 
     /// MV: LZString base64 text. MZ: zlib, stored as bytes or as a binary string.
     static func rpgMakerGlobal(_ file: URL) -> [Int: SavePreview] {
-        guard let handle = try? FileHandle(forReadingFrom: file) else { return [:] }
-        defer { try? handle.close() }
-        guard let raw = try? handle.read(upToCount: globalLimit), !raw.isEmpty else { return [:] }
+        guard let raw = try? SmallFileGuard.read(file, maxBytes: globalLimit), !raw.isEmpty else { return [:] }
         var json: Data?
         if raw.first == 0x78 {
             json = BoundedDecode.inflate(raw, zlibHeader: true, limit: globalLimit)

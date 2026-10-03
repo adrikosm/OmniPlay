@@ -10,8 +10,6 @@
             "omniplay.console",
             "omniplay.save",
             "omniplay.heartbeat",
-            "omniplay.state",
-            "omniplay.fs",
             "omniplay.translate",
         ]
 

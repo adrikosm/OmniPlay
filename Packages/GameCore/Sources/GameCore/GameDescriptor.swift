@@ -16,7 +16,7 @@ public struct EvidenceRecord: Codable, Sendable, Hashable {
 /// What the library knows about one imported title. Persisted as `Games/<id>/game.json`.
 /// Detection (DETECT-001) fills the engine fields; import fills identity and paths.
 public struct GameDescriptor: Codable, Sendable, Hashable, Identifiable {
-    public let id: GameID
+    public var id: GameID
     public var title: String
     /// Game root relative to `Original/` after wrapper stripping (`""` when the root is the tree root).
     public var rootRelativePath: String
@@ -90,29 +90,9 @@ public struct GameDescriptor: Codable, Sendable, Hashable, Identifiable {
 public extension GameDescriptor {
     /// The same descriptor under another identity (a detection-time descriptor adopting the committed game id).
     func withID(_ id: GameID) -> GameDescriptor {
-        GameDescriptor(
-            id: id,
-            title: title,
-            rootRelativePath: rootRelativePath,
-            engine: engine,
-            generation: generation,
-            version: version,
-            runtimeCandidates: runtimeCandidates,
-            entryPoint: entryPoint,
-            containerType: containerType,
-            saveFamily: saveFamily,
-            exportPlatform: exportPlatform,
-            mediaRequirements: mediaRequirements,
-            blockers: blockers,
-            warnings: warnings,
-            capabilities: capabilities,
-            confidence: confidence,
-            evidence: evidence,
-            identityHash: identityHash,
-            importedAt: importedAt,
-            grade: grade,
-            profile: profile
-        )
+        var copy = self
+        copy.id = id
+        return copy
     }
 }
 

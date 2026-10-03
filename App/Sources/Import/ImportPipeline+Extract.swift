@@ -119,7 +119,7 @@ extension ImportPipeline {
             let more = try walkSlice(cursor: cursor, stagedRoot: stagedRoot, validator: validator, totals: &totals, pending: &pending)
             for (url, rel) in pending {
                 try Task.checkCancellation()
-                try await ChunkedCopier.copy(from: url, to: stagedRoot.appending(path: rel)) { _ in }
+                try await ChunkedCopier.copy(from: url, to: stagedRoot.appending(path: rel))
                 copied += fileSize(url) ?? 0
                 if Date.now.timeIntervalSince(lastReport) > 0.2 {
                     lastReport = .now
@@ -166,12 +166,11 @@ extension ImportPipeline {
     func detect(
         root: URL,
         located: LocatedRoot,
-        source: ImportSource,
+        pePayload: PEPayload?,
         title: String,
         fingerprint: String
     ) throws -> DetectionReport {
-        let payload = try? PEOverlayScanner.scan(source.url)
-        let ctx = try ScanContext(root: root, sidecars: located.sidecars, pePayload: payload)
+        let ctx = try ScanContext(root: root, sidecars: located.sidecars, pePayload: pePayload)
         defer { ctx.close() }
         return DetectionPipeline.standard.run(ctx, title: title, identityHash: fingerprint, rootRelativePath: located.relativePath)
     }

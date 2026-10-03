@@ -7,7 +7,6 @@ public enum GameInputEvent: Sendable, Hashable {
     case pointerMove(x: Double, y: Double)
     case pointerDown(PointerButton, x: Double, y: Double)
     case pointerUp(PointerButton, x: Double, y: Double)
-    case scroll(dx: Double, dy: Double)
     case controllerButton(ControllerButton, pressed: Bool)
     case controllerAxis(ControllerAxis, value: Float)
     case text(String)
@@ -42,10 +41,6 @@ public struct GameKey: RawRepresentable, Hashable, Sendable, Codable {
     public static let keyX = GameKey(rawValue: "KeyX")
     public static let keyQ = GameKey(rawValue: "KeyQ")
     public static let keyW = GameKey(rawValue: "KeyW")
-    public static let keyA = GameKey(rawValue: "KeyA")
-    public static let keyS = GameKey(rawValue: "KeyS")
-    public static let keyD = GameKey(rawValue: "KeyD")
-    public static let keyF = GameKey(rawValue: "KeyF")
     public static let f5 = GameKey(rawValue: "F5")
 
     /// `KeyA`…`KeyZ` for a Latin letter, `Digit0`…`Digit9` for a digit.
@@ -117,7 +112,6 @@ public enum ControllerButton: String, Sendable, Codable, Hashable, CaseIterable 
 public enum ControllerAxis: String, Sendable, Codable, Hashable, CaseIterable {
     case leftX, leftY
     case rightX, rightY
-    case leftTrigger, rightTrigger
 }
 
 /// How touches reach a game that reads a mouse. Direct: a tap clicks where it lands. Touchpad: a finger moves a cursor
@@ -125,9 +119,4 @@ public enum ControllerAxis: String, Sendable, Codable, Hashable, CaseIterable {
 /// are not a mouse at all. Stored per game as the `mouseMode` profile key; `mouseSpeed` scales touchpad travel.
 public enum MouseMode: String, Sendable, CaseIterable {
     case off, direct, touchpad
-
-    public init?(profile value: String?) {
-        guard let value, let mode = MouseMode(rawValue: value) else { return nil }
-        self = mode
-    }
 }

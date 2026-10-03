@@ -22,11 +22,7 @@ require_xcode
 require_tools make pkg-config python3 git cmake ninja curl
 # ScummVM's configure and Makefiles cannot take a path with spaces. Re-run through a space-free symlink, as
 # build-easyrpg.sh does.
-if [[ "$NATIVE_ROOT" == *" "* && -z "${OMNIPLAY_NATIVE_LINKED:-}" ]]; then
-  link="$HOME/.omniplay-native"
-  [[ -L "$link" && "$(readlink "$link")" == "$NATIVE_ROOT" ]] || { /bin/rm -f "$link"; ln -s "$NATIVE_ROOT" "$link"; }
-  OMNIPLAY_NATIVE_LINKED=1 exec zsh "$link/Scripts/native/build-scummvm.sh" "$@"
-fi
+relink_without_spaces "${0:t}" "$@"
 
 SRC="$NATIVE_ROOT/Native/scummvm/src"
 SHIM="$NATIVE_ROOT/Native/scummvm"
@@ -45,23 +41,16 @@ sha=(jpeg 6f30092cef9fb839779646608f4ee14ae3cbac989c47fa05e841b0841f09878e
      mad bbfac3ed6bfbc2823d3775ebb931087371e142bb0e9bb1bee51a76a6e0078690)
 fetch() {  # fetch <name>: the pinned tarball, unpacked once under $WORK/src/<name>
   local file="$WORK/downloads/${url[$1]:t}"
-  mkdir -p "$WORK/downloads" "$WORK/src"
-  if [[ ! -f "$file" ]] || [[ "$(shasum -a 256 "$file" | cut -d' ' -f1)" != "${sha[$1]}" ]]; then
-    echo "==> downloading $1"
-    curl -fL --retry 3 -o "$file.part" "${url[$1]}" && /bin/mv "$file.part" "$file"
-  fi
-  [[ "$(shasum -a 256 "$file" | cut -d' ' -f1)" == "${sha[$1]}" ]] || { echo "$1: sha256 mismatch" >&2; exit 1; }
+  mkdir -p "$WORK/src"
+  fetch_pinned "$file" "${sha[$1]}" "${url[$1]}"
   [[ -d "$WORK/src/$1" ]] && return
   local tmp="$WORK/src/.unpack-$1"
   /bin/rm -rf "$tmp"; mkdir -p "$tmp"; tar xf "$file" -C "$tmp"
   /bin/mv "$tmp"/* "$WORK/src/$1"; /bin/rm -rf "$tmp"
 }
 
-# The host hooks. Each patch applies once: one already in the tree reverses cleanly and is skipped.
-for patch in "$NATIVE_ROOT"/Native/patches/scummvm/*.patch(N); do
-  git -C "$SRC" apply --reverse --check "$patch" 2>/dev/null && continue
-  git -C "$SRC" apply "$patch" || { echo "cannot apply ${patch:t} to Native/scummvm/src" >&2; exit 1; }
-done
+# The host hooks.
+apply_patches "$SRC" "$NATIVE_ROOT/Native/patches/scummvm"
 /bin/cp -f "$SHIM/op_scummvm.mm" "$SHIM/op_scummvm.h" "$SRC/backends/platform/ios7/"
 
 build_sdk() {  # build_sdk <sdk>: $WORK/<sdk>/ScummVM.framework

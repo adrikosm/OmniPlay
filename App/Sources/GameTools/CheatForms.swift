@@ -81,15 +81,10 @@ struct ValueForm: View {
                 Menu {
                     ForEach(roster) { character in Button(character.name) { member = character } }
                 } label: {
-                    HStack {
-                        Text("Character").font(.subheadline).foregroundStyle(Theme.textPrimary)
-                        Spacer()
+                    formRow("Character") {
                         Text((member ?? roster.first)?.name ?? "").font(.subheadline).foregroundStyle(Theme.textSecondary).lineLimit(1)
                         Chevron()
                     }
-                    .padding(.horizontal, 14)
-                    .frame(minHeight: 48)
-                    .background(Theme.fill, in: .rect(cornerRadius: 14, style: .continuous))
                 }
             }
             HStack(spacing: 14) {

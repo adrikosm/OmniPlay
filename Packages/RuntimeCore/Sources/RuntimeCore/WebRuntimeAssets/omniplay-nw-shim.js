@@ -1,7 +1,6 @@
 // NW.js shims (page world, runs before game scripts). Default: no Node, so MV/MZ take their web path.
 (() => {
   const profile = __OMNIPLAY_PROFILE__;
-  const post = (name, body) => window.webkit?.messageHandlers?.[name]?.postMessage(body);
   if (profile.nwUndefined) {
     try { Object.defineProperty(window, "require", { value: undefined, configurable: true, writable: true }); } catch (_) {}
     try { Object.defineProperty(window, "process", { value: undefined, configurable: true, writable: true }); } catch (_) {}
@@ -20,10 +19,10 @@
     };
   }
   if (shims.has("fsReadOnly")) {
-    // Read-only, path-confined: every path goes to the host, which serves only logical paths inside the game.
+    // Read-only, path-confined: `..` and absolute paths are refused; assets load over HTTP.
     const deny = (p) => /(^|\/)\.\.(\/|$)|^\//.test(String(p));
     modules.fs = {
-      existsSync: (p) => !deny(p) && post("omniplay.fs", { op: "exists", path: String(p) }) !== false,
+      existsSync: (p) => !deny(p),
       readFileSync: (p) => { if (deny(p)) throw new Error("ENOENT"); throw new Error("readFileSync is not available in OmniPlay; assets load over HTTP"); },
       readdirSync: () => [], writeFileSync: () => { throw new Error("EROFS"); }, mkdirSync: () => {}, unlinkSync: () => {},
     };

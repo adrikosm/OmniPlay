@@ -1,6 +1,5 @@
 import GameCore
 import GameStore
-import LocalAuthentication
 import SwiftUI
 
 struct LibraryView: View {
@@ -44,9 +43,6 @@ struct LibraryView: View {
 struct LibraryContent: View {
     @Environment(AppModel.self) var model
     @Environment(\.accessibilityReduceMotion) var reduceMotion
-    @Environment(\.verticalSizeClass) var verticalSizeClass
-    @Environment(\.horizontalSizeClass) var horizontalSizeClass
-    @Environment(\.dynamicTypeSize) var typeSize
     @Environment(\.scenePhase) var scenePhase
     @State var viewModel: LibraryViewModel
     @Binding var path: [GameRecord]
@@ -64,7 +60,7 @@ struct LibraryContent: View {
     @State var shelfError: String?
     @Namespace var marker
 
-    var wide: Bool { Adaptive.wide(vertical: verticalSizeClass, horizontal: horizontalSizeClass, type: typeSize) }
+    @Wide var wide
     var featured: GameRecord? { viewModel.games.first { $0.id == featuredID } ?? viewModel.games.first }
 
     var body: some View {
@@ -144,25 +140,15 @@ struct LibraryContent: View {
                 }
             }
             .confirmationDialog(
-                "Delete \(pendingDelete?.title ?? "this game")?", isPresented: Binding(
-                    get: { pendingDelete != nil },
-                    set: {
-                        if !$0 {
-                            pendingDelete = nil
-                        }
-                    }
-                ),
-                titleVisibility: .visible
-            ) {
+                "Delete \(pendingDelete?.title ?? "this game")?", isPresented: $pendingDelete.isPresent(),
+                titleVisibility: .visible, presenting: pendingDelete
+            ) { game in
                 ForEach([true, false], id: \.self) { keepSaves in
                     Button(keepSaves ? "Delete game, keep saves" : "Delete game and all its data", role: .destructive) {
-                        if let game = pendingDelete {
-                            Task { await viewModel.delete(game, keepSaves: keepSaves) }
-                        }
-                        pendingDelete = nil
+                        Task { await viewModel.delete(game, keepSaves: keepSaves) }
                     }
                 }
-            } message: {
+            } message: { _ in
                 Text(GameDeletion.explanation)
             }
             .alert("New collection", isPresented: $naming) {

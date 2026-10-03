@@ -28,6 +28,8 @@ enum Theme {
     static let accent = Color(hex: 0x38BDF8)
     static let accentPressed = Color(hex: 0x7DD3FC)
     static let danger = Color(hex: 0xFF453A)
+    /// Error text on a danger-tinted background.
+    static let dangerText = Color(hex: 0xFFB3AE)
     static let success = Color(hex: 0x30D158)
 
     // Covers without art
@@ -97,6 +99,17 @@ extension Date {
 extension Color {
     init(hex: UInt32) {
         self.init(red: Double(hex >> 16 & 0xFF) / 255, green: Double(hex >> 8 & 0xFF) / 255, blue: Double(hex & 0xFF) / 255)
+    }
+}
+
+extension Binding {
+    /// Shown while the optional holds a value; dismissing clears it. Never sets it.
+    func isPresent<Wrapped>() -> Binding<Bool> where Value == Wrapped? {
+        Binding<Bool>(get: { wrappedValue != nil }, set: {
+            if !$0 {
+                wrappedValue = nil
+            }
+        })
     }
 }
 

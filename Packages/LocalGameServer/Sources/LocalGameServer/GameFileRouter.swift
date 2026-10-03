@@ -7,21 +7,14 @@ import OverlayVFS
 public struct HeaderPolicy: Sendable, Hashable {
     /// Cross-origin isolation for threaded WebAssembly builds.
     public var coopCoep = false
-    /// `no-store` in development, `private, max-age=0` otherwise.
-    public var cacheControl = "private, max-age=0"
 
-    public init(coopCoep: Bool = false, cacheControl: String = "private, max-age=0") {
+    public init(coopCoep: Bool = false) {
         self.coopCoep = coopCoep
-        self.cacheControl = cacheControl
-    }
-
-    public static func from(_ profile: CompatibilityProfile, debug: Bool) -> HeaderPolicy {
-        HeaderPolicy(coopCoep: profile.overrides["coopCoep"] == "true", cacheControl: debug ? "no-store" : "private, max-age=0")
     }
 
     func apply(to response: inout HTTPResponse) {
         response.headers.append(("X-Content-Type-Options", "nosniff"))
-        response.headers.append(("Cache-Control", cacheControl))
+        response.headers.append(("Cache-Control", "private, max-age=0"))
         response.headers.append(("Accept-Ranges", "bytes"))
         if coopCoep {
             response.headers.append(("Cross-Origin-Opener-Policy", "same-origin"))
@@ -38,7 +31,7 @@ public typealias FileTransform = @Sendable (URL) async -> (url: URL, mime: Strin
 /// Serves a game tree through the overlay resolver: case-insensitive, no directory listings, single-range 206,
 /// HEAD mirrors GET, pre-compressed `.br`/`.gz` siblings served with their encoding. The host adds POST routes and
 /// file transforms for what WebKit cannot decode itself.
-public struct GameFileRouter: Router {
+public struct GameFileRouter: Sendable {
     public let resolver: OverlayResolver
     public let policy: HeaderPolicy
     /// Served for `/`.

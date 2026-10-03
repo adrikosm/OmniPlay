@@ -95,7 +95,6 @@ public actor ImportTransaction {
     public private(set) var state: ImportState = .queued
     private var signpost = SignpostPhase(Signposts.importer)
     private var continuations: [UUID: AsyncStream<ImportState>.Continuation] = [:]
-    private var history: [ImportState] = [.queued]
     private var work: Task<Void, Never>?
 
     public init(id: UUID = UUID(), source: ImportSource, paths: AppPaths) {
@@ -116,15 +115,11 @@ public actor ImportTransaction {
         }
     }
 
-    /// Every state visited so far, in order (for tests and diagnostics).
-    public var visited: [ImportState] { history }
-
     public func transition(to next: ImportState) {
         guard !state.isTerminal else { return }
         // Progress arrives several times a second within one phase; only a new phase is logged and timed.
         let newPhase = next.label != state.label
         state = next
-        history.append(next)
         if next.isTerminal {
             signpost.end()
         } else if newPhase {

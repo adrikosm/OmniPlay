@@ -1,12 +1,12 @@
 import GameCore
 
 public enum DetectorID: String, Codable, Sendable, CaseIterable, Hashable {
-    case containerSniffer, structure, rgss, rpgMakerMVMZ, mvmzPlugins, renpy, html5Web, rm2k3, godotPCK, scummvm, kirikiri, refusals
+    case rgss, rpgMakerMVMZ, mvmzPlugins, renpy, html5Web, rm2k3, godotPCK, scummvm, kirikiri, refusals
     case versionBuckets, media, saveFamily, aggregate
 }
 
 public enum DetectionSource: String, Codable, Sendable, Hashable {
-    case fileMagic, fileName, fileContent, directoryStructure, peHeader, sidecar, userOverride
+    case fileMagic, fileName, fileContent, directoryStructure
 }
 
 public enum DetectionSignal: Codable, Sendable, Hashable {
@@ -63,7 +63,7 @@ public struct RefusalReason: Codable, Sendable, Hashable {
 }
 
 public enum Limitation: Codable, Sendable, Hashable {
-    case nodePlugins(Int), multipleEntryPoints, live2d, mediaTranscode(Int), rtpRequired, soundfont, notBuiltRuntime, other(String)
+    case nodePlugins(Int), multipleEntryPoints, live2d, mediaTranscode(Int), rtpRequired, soundfont, other(String)
 }
 
 public enum DetectionOutcome: Codable, Sendable, Hashable {

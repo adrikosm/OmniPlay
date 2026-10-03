@@ -63,7 +63,6 @@ public struct AppPaths: Sendable, Equatable {
     public func rtp(_ family: RTPFamily) -> URL { sub("RTP").appending(path: family.rawValue, directoryHint: .isDirectory) }
     public func soundFonts() -> URL { sub("SoundFonts") }
     public func importStaging(txn: UUID) -> URL { sub("ImportStaging").appending(path: txn.uuidString, directoryHint: .isDirectory) }
-    public func caches() -> URL { cachesRoot }
 
     /// `Logs/<game>/<session>/`; host-only sessions (no game) go under `Logs/host/`.
     public func logs(game: GameID?, session: UUID) -> URL {

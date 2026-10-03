@@ -16,12 +16,6 @@ public enum PathKey {
         }
         return p.precomposedStringWithCanonicalMapping.lowercased()
     }
-
-    /// The key of the directory containing `key` (`""` for the root).
-    public static func parent(of key: String) -> String {
-        guard let slash = key.lastIndex(of: "/") else { return "" }
-        return String(key[..<slash])
-    }
 }
 
 public struct IndexedEntry: Sendable, Hashable, Codable, FetchableRecord {
@@ -125,10 +119,6 @@ public final class PathIndex: Sendable {
         }
     }
 
-    public func layers() throws -> [String] { try queue.read { try String.fetchAll(
-        $0,
-        sql: "SELECT DISTINCT layer FROM entries ORDER BY layer"
-    ) } }
     public func count(layer: String) throws -> Int { try queue.read { try Int.fetchOne(
         $0,
         sql: "SELECT COUNT(*) FROM entries WHERE layer = ?",
@@ -149,13 +139,6 @@ public final class PathIndex: Sendable {
                 arguments: [layer, PathKey.normalize(relativePath), relativePath, isDirectory, size]
             )
         }
-    }
-
-    public func remove(layer: String, relativePath: String) throws {
-        try queue.write { try $0.execute(
-            sql: "DELETE FROM entries WHERE layer = ? AND key = ?",
-            arguments: [layer, PathKey.normalize(relativePath)]
-        ) }
     }
 
     public func invalidate(layer: String) throws {

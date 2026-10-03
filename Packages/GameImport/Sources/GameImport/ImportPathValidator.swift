@@ -14,9 +14,9 @@ public enum ImportPathError: Error, Equatable, Sendable {
 /// names and trailing dots/spaces, store NFC, enforce length limits. Never prefix-compares
 /// filesystem paths — the result is a *relative* path the importer joins under the staging root.
 public struct ImportPathValidator: Sendable {
-    public let limits: ImportLimits
+    public let limits: SafetyLimits
 
-    public init(limits: ImportLimits = .default) {
+    public init(limits: SafetyLimits = .default) {
         self.limits = limits
     }
 

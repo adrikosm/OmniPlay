@@ -12,15 +12,6 @@ public enum MediaTarget: String, Sendable, Codable, Hashable {
     /// Audio for anything.
     case wavPCM
 
-    public var fileExtension: String {
-        switch self {
-        case .mp4H264AAC: "mp4"
-        case .ogvTheoraVorbis: "ogv"
-        case .oggVorbis: "ogg"
-        case .wavPCM: "wav"
-        }
-    }
-
     var c: op_target {
         switch self {
         case .mp4H264AAC: OP_TARGET_MP4_H264_AAC
@@ -37,18 +28,12 @@ public struct TranscodeSpec: Sendable, Codable, Hashable {
     public var maxWidth = 0
     public var maxHeight = 0
     public var maxFPS = 0
-    /// Theora quality 0...10, or H.264 bits per second; 0 picks a default.
-    public var videoQuality = 0
-    /// Vorbis quality 0...10, or AAC bits per second; 0 picks a default.
-    public var audioQuality = 0
 
-    public init(target: MediaTarget, maxWidth: Int = 0, maxHeight: Int = 0, maxFPS: Int = 0, videoQuality: Int = 0, audioQuality: Int = 0) {
+    public init(target: MediaTarget, maxWidth: Int = 0, maxHeight: Int = 0, maxFPS: Int = 0) {
         self.target = target
         self.maxWidth = maxWidth
         self.maxHeight = maxHeight
         self.maxFPS = maxFPS
-        self.videoQuality = videoQuality
-        self.audioQuality = audioQuality
     }
 }
 
@@ -83,8 +68,9 @@ public enum MediaTranscoder {
             max_width: Int32(spec.maxWidth),
             max_height: Int32(spec.maxHeight),
             max_fps: Int32(spec.maxFPS),
-            video_quality: Int32(spec.videoQuality),
-            audio_quality: Int32(spec.audioQuality)
+            // 0 keeps the C defaults: Theora 7, Vorbis 5, AAC 160k, H.264 from the frame size.
+            video_quality: 0,
+            audio_quality: 0
         )
         let box = Box(progress)
         var message = [CChar](repeating: 0, count: 512)

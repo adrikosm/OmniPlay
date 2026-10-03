@@ -72,19 +72,9 @@ public protocol RuntimeHost: AnyObject, Sendable {
             view.addSubview(containerView)
             view.addSubview(frozenFrameView)
             view.addSubview(overlayView)
-            NSLayoutConstraint.activate([
-                containerView.topAnchor.constraint(equalTo: view.topAnchor),
-                containerView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-                containerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-                containerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-                frozenFrameView.topAnchor.constraint(equalTo: view.topAnchor),
-                frozenFrameView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-                frozenFrameView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-                frozenFrameView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-                overlayView.topAnchor.constraint(equalTo: view.topAnchor), overlayView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-                overlayView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-                overlayView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            ])
+            containerView.pinEdges(to: view)
+            frozenFrameView.pinEdges(to: view)
+            overlayView.pinEdges(to: view)
             overlayView.addSubview(pauseButton)
             // Anchored inside the overlay, not the host view: the overlay moves to an engine-owned window and a
             // constraint across two windows has no common ancestor to resolve against.
@@ -278,12 +268,7 @@ public protocol RuntimeHost: AnyObject, Sendable {
             subview.removeFromSuperview()
             subview.translatesAutoresizingMaskIntoConstraints = false
             parent.addSubview(subview)
-            NSLayoutConstraint.activate([
-                subview.topAnchor.constraint(equalTo: parent.topAnchor),
-                subview.bottomAnchor.constraint(equalTo: parent.bottomAnchor),
-                subview.leadingAnchor.constraint(equalTo: parent.leadingAnchor),
-                subview.trailingAnchor.constraint(equalTo: parent.trailingAnchor),
-            ])
+            subview.pinEdges(to: parent)
             if intoHost {
                 for child in returning {
                     child.didMove(toParent: self)
@@ -345,6 +330,18 @@ public protocol RuntimeHost: AnyObject, Sendable {
         override public func layoutSubviews() {
             super.layoutSubviews()
             onLayout?()
+        }
+    }
+
+    extension UIView {
+        /// Fills `parent` edge to edge. The caller has already turned off autoresizing-mask constraints.
+        func pinEdges(to parent: UIView) {
+            NSLayoutConstraint.activate([
+                topAnchor.constraint(equalTo: parent.topAnchor),
+                bottomAnchor.constraint(equalTo: parent.bottomAnchor),
+                leadingAnchor.constraint(equalTo: parent.leadingAnchor),
+                trailingAnchor.constraint(equalTo: parent.trailingAnchor),
+            ])
         }
     }
 

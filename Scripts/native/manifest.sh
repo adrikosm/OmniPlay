@@ -16,11 +16,8 @@ outputs = {}
 for dirpath, _, files in os.walk(artefact):
     for f in sorted(files):
         p = os.path.join(dirpath, f)
-        h = hashlib.sha256()
         with open(p, "rb") as fh:
-            for block in iter(lambda: fh.read(1 << 20), b""):
-                h.update(block)
-        outputs[os.path.relpath(p, artefact)] = h.hexdigest()
+            outputs[os.path.relpath(p, artefact)] = hashlib.file_digest(fh, "sha256").hexdigest()
 manifest = {
     "component": component,
     "artefact": artefact,

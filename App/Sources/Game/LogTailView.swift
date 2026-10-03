@@ -21,6 +21,15 @@ struct LogTailView: View {
         let message: String
         var isError: Bool { level == "error" || level == "fault" }
 
+        func matches(_ filter: Level) -> Bool {
+            switch filter {
+            case .all: true
+            case .info: level == "info" || level == "notice"
+            case .debug: level == "debug"
+            case .errors: isError
+            }
+        }
+
         /// `2026-09-25T06:27:00.782Z<TAB>info<TAB>runtime<TAB>message`; anything else is kept whole as the message.
         init(id: Int, raw: String) {
             self.id = id
@@ -35,30 +44,20 @@ struct LogTailView: View {
         }
     }
 
-    private var shown: [Line] {
-        switch level {
-        case .all: lines
-        case .info: lines.filter { $0.level == "info" || $0.level == "notice" }
-        case .debug: lines.filter { $0.level == "debug" }
-        case .errors: lines.filter(\.isError)
-        }
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.s3) {
             GlassSegmentBar(
                 items: [(Level.all, "All"), (.info, "Info"), (.debug, "Debug"), (.errors, "Errors")],
                 selection: $level,
-                counts: [
-                    .all: lines.count, .info: lines.count { $0.level == "info" || $0.level == "notice" },
-                    .debug: lines.count { $0.level == "debug" }, .errors: lines.count(where: \.isError),
-                ]
+                counts: Dictionary(uniqueKeysWithValues: [Level.all, .info, .debug, .errors].map { filter in
+                    (filter, lines.count { $0.matches(filter) })
+                })
             )
             .fixedSize()
             .rise(0)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(shown) { line in row(line) }
+                    ForEach(lines.filter { $0.matches(level) }) { line in row(line) }
                     Text(lines.isEmpty ? "Nothing logged yet." : "End of session")
                         .foregroundStyle(Theme.textTertiary)
                         .padding(.horizontal, Theme.s4).padding(.vertical, 10)
@@ -106,7 +105,7 @@ struct LogTailView: View {
             Text(line.time).foregroundStyle(Theme.textTertiary).lineLimit(1).fixedSize().frame(minWidth: 96, alignment: .leading)
             Text(line.level).foregroundStyle(line.isError ? Theme.danger : Theme.textPrimary).frame(width: 44, alignment: .leading)
             Text(line.source).foregroundStyle(Theme.textSecondary).frame(width: 76, alignment: .leading).lineLimit(1)
-            Text(line.message).foregroundStyle(line.isError ? Color(hex: 0xFFB3AE) : Theme.textPrimary)
+            Text(line.message).foregroundStyle(line.isError ? Theme.dangerText : Theme.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, Theme.s4)

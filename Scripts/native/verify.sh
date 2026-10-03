@@ -14,12 +14,9 @@ for rel, want in m["outputs"].items():
     p = os.path.join(m["artefact"], rel)
     if not os.path.exists(p):
         bad.append(f"missing {rel}"); continue
-    h = hashlib.sha256()
     with open(p, "rb") as fh:
-        for block in iter(lambda: fh.read(1 << 20), b""):
-            h.update(block)
-    if h.hexdigest() != want:
-        bad.append(f"changed {rel}")
+        if hashlib.file_digest(fh, "sha256").hexdigest() != want:
+            bad.append(f"changed {rel}")
 if bad:
     print(f"verify {m['component']}: FAILED " + "; ".join(bad[:5]))
     sys.exit(1)

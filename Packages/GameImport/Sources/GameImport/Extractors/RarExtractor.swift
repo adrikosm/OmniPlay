@@ -35,7 +35,7 @@ public struct RarExtractor: Sendable {
         let fm = FileManager.default
         try fm.createDirectory(at: destination, withIntermediateDirectories: true)
         let validator = EntryValidator(limits: limits)
-        let sink = try RarSink(validator: validator, sourceBytes: Self.sourceBytes(url), progress: progress)
+        let sink = try StreamingSink(label: "RAR", validator: validator, sourceBytes: Self.sourceBytes(url), progress: progress)
         while let entry = try next(reader) {
             try Task.checkCancellation()
             let header = try header(entry)
@@ -44,41 +44,18 @@ public struct RarExtractor: Sendable {
             case .skip:
                 try check(op_rar_process(reader, 1, nil, nil), reader: reader, path: header.path)
             case let .extract(relative):
-                let target = destination.appending(path: relative)
-                let rootPath = destination.resolvingSymlinksInPath().pathComponents
-                let targetPath = target.resolvingSymlinksInPath().pathComponents
-                guard targetPath.count > rootPath.count, targetPath.starts(with: rootPath) else {
-                    throw SafetyViolation(rule: .invalidPath, entryPath: relative, detail: "symlink escapes staging")
-                }
+                let target = try StreamingSink.target(relative, in: destination)
                 if header.kind == .directory {
                     try fm.createDirectory(at: target, withIntermediateDirectories: true)
                     try check(op_rar_process(reader, 1, nil, nil), reader: reader, path: relative)
                     continue
                 }
-                if fm.fileExists(atPath: target.path(percentEncoded: false)) {
-                    sink.totals.declaredBytes -= header.declaredSize ?? 0
-                    sink.totals.skipped += 1
+                if sink.skipsDuplicate(target, declaredSize: header.declaredSize) {
                     try check(op_rar_process(reader, 1, nil, nil), reader: reader, path: relative)
                     continue
                 }
-                try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-                let fd = Darwin.open(target.path(percentEncoded: false), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
-                guard fd >= 0 else { throw ExtractionError.write(path: relative, errno: errno) }
-                defer { Darwin.close(fd) }
-                sink.fd = fd
-                sink.path = relative
-                sink.remaining = header.declaredSize ?? 0
-                let code = op_rar_process(reader, 0, { context, bytes, count in
-                    guard let context, let bytes else { return -1 }
-                    let sink = Unmanaged<RarSink>.fromOpaque(context).takeUnretainedValue()
-                    do { try sink.write(bytes, count: count); return 0 } catch { sink.failure = error; return -1 }
-                }, Unmanaged.passUnretained(sink).toOpaque())
-                if let failure = sink.failure {
-                    throw failure
-                }
-                try check(code, reader: reader, path: relative)
-                guard sink.remaining == 0 else {
-                    throw SafetyViolation(rule: .sizeMismatch, entryPath: relative, detail: "RAR entry shorter than declared")
+                try sink.stream(to: target, path: relative, declaredSize: header.declaredSize) { callback, context in
+                    try check(op_rar_process(reader, 0, callback, context), reader: reader, path: relative)
                 }
             }
         }
@@ -169,24 +146,78 @@ public struct RarExtractor: Sendable {
     }
 }
 
-private final class RarSink {
+/// UnRAR and libmspack only decode: each streams an entry's bytes through a C callback into this sink, which owns
+/// the output file and judges every block against the declared size and the running limits.
+final class StreamingSink {
+    typealias Callback = @convention(c) (UnsafeMutableRawPointer?, UnsafeRawPointer?, Int) -> Int32
+    let label: String
     let validator: EntryValidator
     let sourceBytes: Int64
     let progress: (@Sendable (Int64, String) -> Void)?
     var totals = RunningTotals()
-    var fd: Int32 = -1
-    var path = ""
-    var remaining: Int64 = 0
-    var failure: Error?
+    private var fd: Int32 = -1
+    private var path = ""
+    private var remaining: Int64 = 0
+    private var failure: Error?
 
-    init(validator: EntryValidator, sourceBytes: Int64, progress: (@Sendable (Int64, String) -> Void)?) {
-        self.validator = validator; self.sourceBytes = sourceBytes; self.progress = progress
+    init(label: String, validator: EntryValidator, sourceBytes: Int64, progress: (@Sendable (Int64, String) -> Void)?) {
+        self.label = label; self.validator = validator; self.sourceBytes = sourceBytes; self.progress = progress
     }
 
-    func write(_ bytes: UnsafeRawPointer, count: Int) throws {
+    /// The entry's staging target; refuses one that a staged symlink would carry outside `destination`.
+    static func target(_ relative: String, in destination: URL) throws -> URL {
+        let target = destination.appending(path: relative)
+        let rootPath = destination.resolvingSymlinksInPath().pathComponents
+        let targetPath = target.resolvingSymlinksInPath().pathComponents
+        guard targetPath.count > rootPath.count, targetPath.starts(with: rootPath) else {
+            throw SafetyViolation(rule: .invalidPath, entryPath: relative, detail: "symlink escapes staging")
+        }
+        return target
+    }
+
+    /// First wins: a later entry with a name already written is skipped, and its declared bytes released.
+    func skipsDuplicate(_ target: URL, declaredSize: Int64?) -> Bool {
+        guard FileManager.default.fileExists(atPath: target.path(percentEncoded: false)) else { return false }
+        totals.declaredBytes -= declaredSize ?? 0
+        totals.skipped += 1
+        return true
+    }
+
+    /// Creates `target` exclusively and lets `decode` stream into it. A write failure wins over the decoder's error.
+    func stream(
+        to target: URL,
+        path relative: String,
+        declaredSize: Int64?,
+        decode: (Callback, UnsafeMutableRawPointer) throws -> Void
+    ) throws {
+        try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let fd = Darwin.open(target.path(percentEncoded: false), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
+        guard fd >= 0 else { throw ExtractionError.write(path: relative, errno: errno) }
+        defer { Darwin.close(fd) }
+        self.fd = fd
+        path = relative
+        remaining = declaredSize ?? 0
+        do {
+            try decode({ context, bytes, count in
+                guard let context, let bytes else { return -1 }
+                let sink = Unmanaged<StreamingSink>.fromOpaque(context).takeUnretainedValue()
+                do { try sink.write(bytes, count: count); return 0 } catch { sink.failure = error; return -1 }
+            }, Unmanaged.passUnretained(self).toOpaque())
+        } catch {
+            throw failure ?? error
+        }
+        if let failure {
+            throw failure
+        }
+        guard remaining == 0 else {
+            throw SafetyViolation(rule: .sizeMismatch, entryPath: relative, detail: "\(label) entry shorter than declared")
+        }
+    }
+
+    private func write(_ bytes: UnsafeRawPointer, count: Int) throws {
         try Task.checkCancellation()
         guard count <= remaining else {
-            throw SafetyViolation(rule: .sizeMismatch, entryPath: path, detail: "RAR entry exceeds declared size")
+            throw SafetyViolation(rule: .sizeMismatch, entryPath: path, detail: "\(label) entry exceeds declared size")
         }
         totals.writtenBytes += Int64(count)
         if let violation = validator.checkWritten(totals, sourceBytes: sourceBytes) {

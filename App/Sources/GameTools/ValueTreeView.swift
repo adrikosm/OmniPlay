@@ -11,16 +11,7 @@ struct ValueTreeView: View {
     @State var value: StateValue
     let tools: MutationEngine
     @State private var error: String?
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @Environment(\.dynamicTypeSize) private var typeSize
-
-    init(title: String, target: StateTarget, value: StateValue, tools: MutationEngine) {
-        self.title = title
-        self.target = target
-        _value = State(initialValue: value)
-        self.tools = tools
-    }
+    @Wide private var wide
 
     private var children: [StateEntry] {
         let pairs: [(key: String, value: StateValue)] = switch value {
@@ -45,7 +36,7 @@ struct ValueTreeView: View {
                 }
                 ValueColumns(
                     entries: children,
-                    wide: Adaptive.wide(vertical: verticalSizeClass, horizontal: horizontalSizeClass, type: typeSize)
+                    wide: wide
                 ) { entry in
                     VariableRow(entry: entry, live: nil, tools: tools, error: nil) { operation in
                         let result = await tools.apply(operation, to: entry.target)

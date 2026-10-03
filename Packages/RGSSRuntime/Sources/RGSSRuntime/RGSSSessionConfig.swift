@@ -75,12 +75,6 @@ public struct RGSSSessionConfig: Sendable, Hashable {
         }
     }
 
-    /// Which Ruby line the resolver picked, with the profile's advanced override winning when it names one.
-    public static func ruby(for descriptor: GameDescriptor, resolved: RubyLine) -> RubyLine {
-        guard let raw = descriptor.profile.overrides["rubyOverride"], let line = RubyLine(rawValue: raw) else { return resolved }
-        return line
-    }
-
     /// Ruby 3.1 parses 1.8/1.9-era scripts through the legacy transform; the native old Rubies need none.
     /// `syntaxCompatibilityMode` in the profile overrides the default for a game with mixed grammar.
     public var syntaxTransform: MKXPSyntaxTransformMode { ruby == .ruby31 ? MKXP_SYNTAX_TRANSFORM_LEGACY : MKXP_SYNTAX_TRANSFORM_DISABLED }

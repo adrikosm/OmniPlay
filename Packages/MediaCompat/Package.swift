@@ -5,16 +5,6 @@ let package = Package(
     name: "MediaCompat",
     platforms: [.iOS("27.0"), .macOS("15.0")],
     products: [.library(name: "MediaCompat", targets: ["MediaCompat"])],
-    dependencies: [
-        .package(path: "../GameCore"),
-    ],
-    targets: [
-        .target(
-            name: "MediaCompat",
-            dependencies: [
-                .product(name: "GameCore", package: "GameCore"),
-            ]
-        ),
-    ],
+    targets: [.target(name: "MediaCompat")],
     swiftLanguageModes: [.v6]
 )

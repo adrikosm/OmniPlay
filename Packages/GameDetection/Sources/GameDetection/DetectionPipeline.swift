@@ -7,12 +7,10 @@ import GameCore
 public struct DetectionPipeline: Sendable {
     public let detectors: [any Detector]
     public let analyzers: [any Analyzer]
-    public let aggregator: any Aggregating
 
-    public init(detectors: [any Detector], analyzers: [any Analyzer] = [], aggregator: any Aggregating = OutcomeAggregator()) {
+    public init(detectors: [any Detector], analyzers: [any Analyzer] = []) {
         self.detectors = detectors
         self.analyzers = analyzers
-        self.aggregator = aggregator
     }
 
     public func run(
@@ -44,7 +42,7 @@ public struct DetectionPipeline: Sendable {
         for analyzer in analyzers {
             versions[analyzer.id.rawValue] = analyzer.version
         }
-        var report = aggregator.aggregate(
+        var report = OutcomeAggregator().aggregate(
             reports: reports, analyzers: analyzers, ctx: ctx, facts: facts, id: id, title: title, identityHash: identityHash,
             rootRelativePath: rootRelativePath
         )
@@ -53,17 +51,4 @@ public struct DetectionPipeline: Sendable {
         OPLog.log(.detection, .info, "\(title): \(report.descriptor.engine.rawValue) \(report.outcome) confidence \(report.confidence)")
         return report
     }
-}
-
-public protocol Aggregating: Sendable {
-    func aggregate(
-        reports: [(DetectorID, DetectorReport)],
-        analyzers: [any Analyzer],
-        ctx: ScanContext,
-        facts: StructureFacts,
-        id: GameID,
-        title: String,
-        identityHash: String,
-        rootRelativePath: String
-    ) -> DetectionReport
 }

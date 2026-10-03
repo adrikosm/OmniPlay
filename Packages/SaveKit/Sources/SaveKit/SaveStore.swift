@@ -173,8 +173,7 @@ public enum SaveVault {
     public static func snapshot(location: SaveLocation, identityHash: String, reason: SaveProvenance.Origin) async throws -> SaveSnapshot {
         try location.ensure()
         let id = UUID()
-        let stamp = Date.now.formatted(.iso8601.year().month().day().timeZone(separator: .omitted).time(includingFractionalSeconds: true))
-            .replacingOccurrences(of: ":", with: "") + "-" + id.uuidString.prefix(4)
+        let stamp = Self.stamp(fractional: true) + "-" + id.uuidString.prefix(4)
         let target = location.backups.appending(path: stamp, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
         var complete = false
@@ -183,32 +182,17 @@ public enum SaveVault {
                 try? FileManager.default.removeItem(at: target)
             }
         }
-        var entries: [SaveEntry] = []
         for (source, name) in [(location.slots, "slots"), (location.persistent, "persistent")]
             where FileManager.default.fileExists(atPath: source.path(percentEncoded: false)) {
-            var files: [RelativeEntry] = []
-            try LazyDirectoryWalker.walk(root: source) { entry in
-                if !entry.isDirectory, !entry.url.lastPathComponent.hasPrefix(".") {
-                    files.append(entry)
-                }
-                return .continue
-            }
-            for file in files {
-                let rel = "\(name)/\(file.relativePath)"
-                let saved = target.appending(path: rel)
-                try await APFSClone.clone(from: file.url, to: saved)
-                let digest = try StreamingHasher.sha256(of: saved).hex
-                let bytes = try saved.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-                entries.append(SaveEntry(relativePath: rel, bytes: Int64(bytes), sha256: digest))
-            }
+            try await cloneTree(from: source, to: target.appending(path: name))
         }
-        entries.sort { $0.relativePath < $1.relativePath }
-        let checksum = SHA256.hash(data: Data(entries.map(\.sha256).joined().utf8)).hex
+        // Hashed from the clones, exactly as `validatedSnapshot` re-reads them.
+        let entries = try SaveExportManifest.entries(for: SaveLocation(savesRoot: target))
         let snapshot = SaveSnapshot(
             id: id,
             provenance: SaveProvenance(gameIdentityHash: identityHash, origin: reason),
             entries: entries,
-            checksum: checksum
+            checksum: checksum(entries)
         )
         try AtomicFileWriter.write(JSONEncoder().encode(snapshot), to: target.appending(path: "manifest.json"))
         complete = true
@@ -216,12 +200,21 @@ public enum SaveVault {
         return snapshot
     }
 
+    /// SHA-256 over the entry hashes in path order, hex.
+    static func checksum(_ entries: [SaveEntry]) -> String { SHA256.hash(data: Data(entries.map(\.sha256).joined().utf8)).hex }
+
+    /// `20261003T142501.123Z`-style, colons dropped so it is a valid file name.
+    static func stamp(fractional: Bool) -> String {
+        Date.now.formatted(.iso8601.year().month().day().timeZone(separator: .omitted).time(includingFractionalSeconds: fractional))
+            .replacingOccurrences(of: ":", with: "")
+    }
+
     /// A damaged or incomplete backup must never become an instruction to delete live saves.
     static func validatedSnapshot(at directory: URL) throws -> SaveSnapshot {
         let manifest = try JSONDecoder().decode(SaveSnapshot.self, from: SmallFileGuard.read(directory.appending(path: "manifest.json")))
         let entries = try SaveExportManifest.entries(for: SaveLocation(savesRoot: directory))
         guard entries == manifest.entries.sorted(by: { $0.relativePath < $1.relativePath }),
-              SHA256.hash(data: Data(entries.map(\.sha256).joined().utf8)).hex == manifest.checksum else {
+              checksum(entries) == manifest.checksum else {
             throw RestoreError.invalidSnapshot
         }
         return manifest
@@ -231,7 +224,7 @@ public enum SaveVault {
     public static func snapshots(location: SaveLocation) -> [(directory: URL, manifest: SaveSnapshot)] {
         let dirs = (try? FileManager.default.contentsOfDirectory(at: location.backups, includingPropertiesForKeys: nil)) ?? []
         return dirs.compactMap { dir in
-            guard let data = try? Data(contentsOf: dir.appending(path: "manifest.json")),
+            guard let data = try? SmallFileGuard.read(dir.appending(path: "manifest.json")),
                   let m = try? JSONDecoder().decode(SaveSnapshot.self, from: data) else { return nil }
             return (dir, m)
         }.sorted { $0.manifest.timestamp > $1.manifest.timestamp }
