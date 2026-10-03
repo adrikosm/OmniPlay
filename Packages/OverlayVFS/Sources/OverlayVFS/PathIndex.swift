@@ -201,6 +201,10 @@ public final class PathIndex: Sendable {
             batch.removeAll(keepingCapacity: true)
         }
         try LazyDirectoryWalker.walk(root: root) { entry in
+            // A link could point outside the game; overlays refuse them at staging, and none is ever served.
+            if entry.isSymbolicLink {
+                return .continue
+            }
             batch.append(Row(
                 key: PathKey.normalize(entry.relativePath),
                 real: entry.relativePath,

@@ -358,6 +358,9 @@ def run_game():
         if not keep:
             raise
         _parking = True
+    except renpy.game.UtterRestartException:
+        # The game's own reload (the error screen's Reload, Shift+R): Ren'Py restarts it in place from its reload save.
+        raise
     except Exception as e:
         if not keep:
             raise
@@ -406,6 +409,9 @@ def park():
     lib.op_renpy_set_status(STATUS_PARKED)
     sys.stdout.write("OmniPlay: game ended; engine parked\n")
     while lib.op_renpy_command() != COMMAND_RUN:
+        # A stop that lands after the host named a game (status BOOTING) but before this loop saw RUN would leave the
+        # engine looking busy for good; parked is what it is.
+        lib.op_renpy_set_status(STATUS_PARKED)
         lib.op_renpy_idle(0.1)
 
 

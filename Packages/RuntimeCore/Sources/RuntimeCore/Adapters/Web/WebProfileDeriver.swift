@@ -38,6 +38,8 @@ public struct WebProfile: Sendable, Hashable {
     public var rpgMaker = false
     /// A KiriKiri game: served with the KrKr2 Web engine (`KiriKiriWeb`).
     public var kirikiri = false
+    /// The host's pause when the page (re)loads, so a page reloaded behind the pause menu starts paused.
+    public var paused = false
     public var headerPolicy: HeaderPolicy { HeaderPolicy(coopCoep: coopCoep) }
 
     /// What the loopback server tries when a game asks for a movie or sound under an extension it did not ship.
@@ -130,7 +132,8 @@ public struct WebProfile: Sendable, Hashable {
         {"nwUndefined":\(nwUndefined),"shims":[\(shimList)],"isGameActivePatch":\(isGameActivePatch),\
         "canPlayWebmFalse":\(canPlayWebmFalse),"audioFileExtOgg":\(audioFileExtOgg),\
         "imageCacheCapMB":\(imageCacheCapMB.map(String.init) ?? "null"),"devicePixelRatio":\(devicePixelRatio.map(String.init) ?? "null"),\
-        "ignoreTouchMoveCancel":\(ignoreTouchMoveCancel),"muted":\(muted),"fill":\(fill),"liveTranslation":\(liveTranslation)}
+        "ignoreTouchMoveCancel":\(ignoreTouchMoveCancel),"muted":\(muted),"fill":\(fill),\
+        "liveTranslation":\(liveTranslation),"paused":\(paused)}
         """
     }
 }

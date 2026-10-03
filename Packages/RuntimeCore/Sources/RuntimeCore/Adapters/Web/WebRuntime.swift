@@ -70,6 +70,17 @@
             )
             saves = SaveBridge(location: location, engine: configuration.descriptor.engine, session: configuration.sessionID)
             let index = try PathIndex.open(at: configuration.indexURL)
+            // `open` resets an unreadable index to empty and only an import fills it, so every file would 404: rebuild
+            // the game's own layers here, off the main actor.
+            if try index.count(layer: "original") == 0 {
+                OPLog.log(.web, .default, "path index empty; rebuilding the game's layers", session: configuration.sessionID)
+                let layers = configuration.layers
+                try await Task.detached {
+                    for layer in layers where FileManager.default.fileExists(atPath: layer.root.path(percentEncoded: false)) {
+                        try index.rebuild(layer: layer.name, root: layer.root)
+                    }
+                }.value
+            }
             let plan = MediaPlan(requirements: configuration.descriptor.mediaRequirements)
             var layers = configuration.layers
             if profile.kirikiri {
@@ -91,7 +102,9 @@
                 for (path, route) in KiriKiriWeb.routes(
                     gameRoot: game,
                     saves: configuration.saveDirectory,
-                    session: configuration.sessionID
+                    session: configuration.sessionID,
+                    onUnreadableSaves: { message in Task { @MainActor [weak self] in self?.onFailure?(message) } },
+                    onSaveFailure: { message in Task { @MainActor [weak self] in self?.onSaveFailure?(message) } }
                 ) {
                     router.postRoutes[path] = route
                 }
@@ -131,8 +144,16 @@
             config.defaultWebpagePreferences.allowsContentJavaScript = true
             let world = WKContentWorld.world(name: "OmniPlay")
             let bridge = MessageBridge(session: configuration.sessionID, saves: saves) { [weak self] event in self?.handle(event) }
-            bridge.prepareNavigation = { [weak self] webView in
+            bridge.prepareNavigation = { [weak self] webView, url in
                 guard let self, !stopping else { throw CancellationError() }
+                // Only this game's loopback page gets the scripts, the seeded saves and the save bridge; a link
+                // out of the game opens in the browser instead.
+                guard url?.host == "127.0.0.1", url?.port == Int(port) else {
+                    if let url, ["http", "https"].contains(url.scheme?.lowercased()) {
+                        UIApplication.shared.open(url, options: [:], completionHandler: nil)
+                    }
+                    throw CancellationError()
+                }
                 guard webView.url != nil else { return } // The initial seed is installed before the web view exists.
                 try await installScripts(in: webView.configuration.userContentController)
             }

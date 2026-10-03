@@ -31,6 +31,11 @@ typedef struct {
     int cancelled;
 } job;
 
+int op_transcode_permanent(int code) {
+    return code == AVERROR_INVALIDDATA || code == AVERROR_DECODER_NOT_FOUND || code == AVERROR_ENCODER_NOT_FOUND ||
+           code == AVERROR_DEMUXER_NOT_FOUND || code == AVERROR_PATCHWELCOME || code == OP_TRANSCODE_NOTHING;
+}
+
 static int fail(char *error, int size, const char *what, int code) {
     char reason[AV_ERROR_MAX_STRING_SIZE] = "";
     if (code < 0 && code != OP_TRANSCODE_NOTHING && code != OP_TRANSCODE_CANCELLED) av_strerror(code, reason, sizeof reason);

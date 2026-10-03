@@ -31,7 +31,9 @@ public enum KiriKiriWeb {
         if let startup {
             let folder = startup.lowercased().hasSuffix(".tjs") ? (startup as NSString).deletingLastPathComponent : startup
             let path = "/" + folder
-            query += "&startup=" + (path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? path)
+            // `+`, `&` and `=` mean something in a query, so a name like `data+.xp3` must not keep them bare.
+            let allowed = CharacterSet.urlQueryAllowed.subtracting(CharacterSet(charactersIn: "+&="))
+            query += "&startup=" + (path.addingPercentEncoding(withAllowedCharacters: allowed) ?? path)
         }
         return "index.html?" + query
     }
@@ -53,7 +55,15 @@ public enum KiriKiriWeb {
 
     /// POST routes for the page: the manifest, and the game's saves in `saves` (its `Saves/slots`), read and written
     /// by path. Paths come from the page, so each is validated as a logical path before it touches the disk.
-    static func routes(gameRoot: URL, saves: URL, session: SessionID) -> [String: @Sendable (HTTPRequest) async -> HTTPResponse] {
+    /// The page cannot tell the player anything, so `onUnreadableSaves` (the game must not start) and `onSaveFailure`
+    /// (a write was lost) carry the player's message to the host.
+    static func routes(
+        gameRoot: URL,
+        saves: URL,
+        session: SessionID,
+        onUnreadableSaves: @escaping @Sendable (String) -> Void,
+        onSaveFailure: @escaping @Sendable (String) -> Void
+    ) -> [String: @Sendable (HTTPRequest) async -> HTTPResponse] {
         let json = [("Content-Type", "application/json")]
         return [
             "/omniplay-files": { _ in
@@ -78,6 +88,8 @@ public enum KiriKiriWeb {
                 }
                 guard complete, let body = try? JSONSerialization.data(withJSONObject: files) else {
                     OPLog.log(.save, .error, "kirikiri saves could not all be read (\(total) bytes so far)", session: session)
+                    onUnreadableSaves(SaveBridge.Failure.incompleteSeed("Together they pass the 64 MB limit, or one could not be read.")
+                        .description)
                     return .text(500, "saves could not all be read")
                 }
                 return HTTPResponse(status: 200, headers: json, body: .data(body))
@@ -93,6 +105,7 @@ public enum KiriKiriWeb {
                     return .text(200, "ok")
                 } catch {
                     OPLog.log(.save, .error, "kirikiri save \(raw) failed: \(error)", session: session)
+                    onSaveFailure(SaveBridge.playerMessage(for: error))
                     return .text(500, "save failed")
                 }
             },

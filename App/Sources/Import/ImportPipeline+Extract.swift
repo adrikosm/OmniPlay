@@ -23,10 +23,22 @@ extension ImportPipeline {
             if kind == .rar4 || kind == .rar5 {
                 return try await extractRar(url, to: stagedRoot, txn: txn, passphrase: passphrase)
             }
+            if kind == .cab {
+                return try await extractCab(url, to: stagedRoot, txn: txn)
+            }
         }
         let extractor = LibArchiveExtractor(limits: limits)
-        let hdrcharset = offset == 0 ? try NameDecoder.charset(for: url, extractor: extractor) : nil
-        let pre = try extractor.preflight(url, hdrcharset: hdrcharset, offset: offset)
+        let hdrcharset: String?, pre: ArchivePreflight
+        do {
+            if offset == 0 {
+                (hdrcharset, pre) = try NameDecoder.preflight(url, extractor: extractor)
+            } else {
+                hdrcharset = nil
+                pre = try extractor.preflight(url, offset: offset)
+            }
+        } catch let v as SafetyViolation {
+            throw ImportFailure.safetyViolation(v)
+        }
         if pre.encrypted, passphrase == nil {
             throw ImportFailure.passwordRequired
         }
@@ -102,16 +114,9 @@ extension ImportPipeline {
         var copied: Int64 = 0
         var lastReport = Date.distantPast
         var pending: [(URL, String)] = []
-        var resume: String?
+        let cursor = try LazyDirectoryWalker.Cursor(root: source, skipHidden: false)
         repeat {
-            let more = try walkSlice(
-                source: source,
-                stagedRoot: stagedRoot,
-                validator: validator,
-                resume: &resume,
-                totals: &totals,
-                pending: &pending
-            )
+            let more = try walkSlice(cursor: cursor, stagedRoot: stagedRoot, validator: validator, totals: &totals, pending: &pending)
             for (url, rel) in pending {
                 try Task.checkCancellation()
                 try await ChunkedCopier.copy(from: url, to: stagedRoot.appending(path: rel)) { _ in }
@@ -130,44 +135,30 @@ extension ImportPipeline {
         return totals
     }
 
-    /// Walks up to 64 files past `resume`, validating each; returns true when more entries may follow.
+    /// Takes up to 64 files from the one walk over the source, validating each; returns true when more may follow.
     func walkSlice(
-        source: URL,
+        cursor: LazyDirectoryWalker.Cursor,
         stagedRoot: URL,
         validator: EntryValidator,
-        resume: inout String?,
         totals: inout RunningTotals,
         pending: inout [(URL, String)]
     ) throws -> Bool {
-        var skipping = resume != nil
-        var stop: SafetyViolation?
-        var last = resume
-        try LazyDirectoryWalker.walk(root: source, skipHidden: false) { entry in
-            if skipping {
-                if entry.relativePath == resume {
-                    skipping = false
-                }; return .continue
-            }
-            let isLink = (try? entry.url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) ?? false
-            let kind: ArchiveEntryHeader.Kind = isLink ? .symlink : entry.isDirectory ? .directory : .file
+        while pending.count < 64 {
+            let next = try autoreleasepool { try cursor.next() }
+            guard let entry = next else { return false }
+            let kind: ArchiveEntryHeader.Kind = entry.isSymbolicLink ? .symlink : entry.isDirectory ? .directory : .file
             switch validator.validate(.init(path: entry.relativePath, kind: kind, declaredSize: entry.fileSize), running: &totals) {
-            case let .reject(v): stop = v; return .stop
-            case .skip: return isLink ? .skipDescendants : .continue
+            case let .reject(v): throw ImportFailure.safetyViolation(v)
+            case .skip: continue
             case let .extract(rel):
                 if entry.isDirectory {
                     try FileManager.default.createDirectory(at: stagedRoot.appending(path: rel), withIntermediateDirectories: true)
                 } else {
                     pending.append((entry.url, rel))
                 }
-                last = entry.relativePath
-                return pending.count >= 64 ? .stop : .continue
             }
         }
-        if let stop {
-            throw ImportFailure.safetyViolation(stop)
-        }
-        resume = last
-        return pending.count >= 64
+        return true
     }
 
     // MARK: Detection

@@ -28,6 +28,38 @@ struct SafetyTests {
                 #expect(v.rule == .invalidPath, Comment(rawValue: fixture))
             } catch { Issue.record("\(fixture): \(error)") }
         }
+        // A file name with NEL or LINE SEPARATOR would split the seal manifest's lines.
+        for name in ["a\u{2028}b.txt", "c\u{85}d.txt"] {
+            #expect(throws: ImportPathError.controlCharacter) { try ImportPathValidator().validate(name) }
+        }
+
+        // ZIP64 sizes near 2^62 (153 bytes on disk) are refused at the header, before the disk budget's sums overflow.
+        let zip64Root = try TemporaryGameRoot(name: "zip64")
+        defer { zip64Root.remove() }
+        let zip64 = try zip64Root.file("huge.zip", #require(Data(base64Encoded: Self.zip64Huge)))
+        #expect { try extractor.preflight(zip64) } throws: { ($0 as? SafetyViolation)?.rule == .declaredSize }
+        #expect { try extractor.extract(zip64, to: zip64Root.url.appending(path: "out")) } throws: {
+            ($0 as? SafetyViolation)?.rule == .declaredSize
+        }
+        #expect(StorageBudget.needed(for: .forArchive(uncompressedSizeHint: 1 << 62)) == .max)
+
+        /// ASAR headers are parsed whole by Foundation: one over 16 MiB is refused unread, and a tree past the entry cap
+        /// stops at the cap instead of being copied out first.
+        func asar(_ json: String, declared: Int? = nil) -> Data {
+            let n = json.utf8.count, header = declared ?? n
+            return [4, header + 8, header + 4, header].reduce(into: Data()) { out, word in
+                withUnsafeBytes(of: UInt32(word).littleEndian) { out.append(contentsOf: $0) }
+            } + Data(json.utf8)
+        }
+        let bigHeader = try zip64Root.file("big.asar", asar("{}", declared: 17 << 20))
+        #expect(throws: ImportFailure.self) { try AsarExtractor.header(of: bigHeader) }
+        let nodes = (0 ..< 5).map { "\"f\($0)\":{\"size\":0,\"offset\":\"0\"}" }.joined(separator: ",")
+        let crowded = try zip64Root.file("crowded.asar", asar("{\"files\":{\(nodes)}}"))
+        var fewEntries = SafetyLimits.default
+        fewEntries.maxEntries = 2
+        #expect { try AsarExtractor(limits: fewEntries).extract(crowded, to: zip64Root.url.appending(path: "asar")) } throws: {
+            ($0 as? SafetyViolation)?.rule == .entryCount
+        }
 
         // RPG Maker installers carry cabinets, which libmspack decodes; their names go through the same validator.
         let cabRoot = try TemporaryGameRoot(name: "cab")
@@ -82,6 +114,11 @@ struct SafetyTests {
         }
         #expect(try GameRootLocator.locate(stagingRoot: wrapped).relativePath == "SoulsLore/gamedata")
     }
+
+    /// One stored entry `a.bin` whose ZIP64 extra field declares 2^62 bytes (it holds five).
+    private static let zip64Huge = "UEsDBC0AAAAAAAAAAACGphA2//////////8FABQAYS5iaW4BABAAAAAAAAAAAEAFAAAAAAAAAGhlbGxv"
+        + "UEsBAi0ALQAAAAAAAAAAAIamEDb//////////wUAFAAAAAAAAAAAAAAAAAAAAGEuYmluAQAQAAAAAAAAAABABQAAAAAAAABQSwUGAAAAAAEAAQBH"
+        + "AAAAPAAAAAAA"
 
     /// A one-file, uncompressed Microsoft cabinet (MS-CAB: header, folder, file, one data block without checksum).
     private func cabinet(name: String, payload: Data) -> Data {

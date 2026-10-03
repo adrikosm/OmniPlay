@@ -7,6 +7,7 @@ import GameStore
 import OverlayVFS
 import RuntimeCore
 import SaveKit
+import Synchronization
 
 /// The commit half of the import: install into `Games/<id>`, seal, index, persist the report; or replace an existing game.
 extension ImportPipeline {
@@ -38,19 +39,27 @@ extension ImportPipeline {
         }
     }
 
+    /// Games a replacement or a deletion is working on. Each claims the id first, so a delete never removes the tree or
+    /// the rollback backup under a replacement (both run off the import queue's order).
+    private static let busy = Mutex<Set<GameID>>([])
+    static func claim(_ id: GameID) -> Bool { busy.withLock { $0.insert(id).inserted } }
+    static func release(_ id: GameID) { _ = busy.withLock { $0.remove(id) } }
+
     /// Keep the original tree and every affected sidecar until the database transaction succeeds. Saves stay.
     func replace(_ id: GameID, with plan: CommitPlan) async throws -> GameID {
+        guard Self.claim(id) else { throw ImportFailure.internalError("The game is being deleted, so it was not replaced.") }
+        defer { Self.release(id) }
+        // Deleted while this import was staging: nothing to replace, and no folder is recreated for it.
+        guard try store.games.fetch(id: id) != nil else {
+            throw ImportFailure.internalError("The game was deleted while this import was running, so there is nothing to replace.")
+        }
         let fm = FileManager.default
-        let original = paths.tier(.original, for: id)
-        let root = paths.game(id)
-        let backup = root.appending(path: "ImportRollback", directoryHint: .isDirectory)
+        let r = ReplacementPaths(id, paths: paths)
+        let original = r.original, backup = r.backup, metadata = r.metadata, index = r.index
         guard !fm.fileExists(atPath: backup.path(percentEncoded: false)) else {
             throw ImportFailure
                 .internalError("A previous replacement needs recovery; its backup was preserved at \(backup.lastPathComponent).")
         }
-        let metadata = ["game.json", "original.manifest", "sidecars.json"].map { root.appending(path: $0) }
-            + [paths.logs(game: id, session: UUID()).deletingLastPathComponent().appending(path: "detection.json")]
-        let index = root.appending(path: "index.sqlite")
         try fm.createDirectory(at: backup, withIntermediateDirectories: true)
         do {
             for url in metadata where fm.fileExists(atPath: url.path(percentEncoded: false)) {
@@ -68,38 +77,92 @@ extension ImportPipeline {
         do {
             try install(plan, into: id)
             try register(plan, id: id, replacing: true)
+            // Committed: the backup is renamed at once, so a launch after a kill here never restores it over the new row.
+            // ponytail: the rename right after the database commit is the remaining window; a journal row closes it.
+            let done = paths.game(id).appending(path: Self.committedRollback, directoryHint: .isDirectory)
+            Self.removeSealed(done)
+            if (try? fm.moveItem(at: backup, to: done)) != nil {
+                Self.removeSealed(done)
+            }
             discardGenerated(id)
             attachCover(plan, id: id)
-            try? OriginalGuard.unseal(originalRoot: backup.appending(path: "Original"))
-            try? fm.removeItem(at: backup)
             OPLog.log(.importer, .info, "replaced \(id) with \(plan.title)", session: session)
             return id
         } catch {
             let failure = error
-            do {
-                if fm.fileExists(atPath: original.path(percentEncoded: false)) {
-                    try OriginalGuard.unseal(originalRoot: original)
-                    try fm.removeItem(at: original)
-                }
-                try fm.moveItem(at: backup.appending(path: "Original"), to: original)
-                try fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: original.path(percentEncoded: false))
-                try PathIndex.open(at: backup.appending(path: "index.sqlite")).backup(to: index)
-                for url in metadata {
-                    if fm.fileExists(atPath: url.path(percentEncoded: false)) {
-                        try fm.removeItem(at: url)
-                    }
-                    let saved = backup.appending(path: url.lastPathComponent)
-                    if fm.fileExists(atPath: saved.path(percentEncoded: false)) {
-                        try fm.copyItem(at: saved, to: url)
-                    }
-                }
-                try fm.removeItem(at: backup)
-            } catch {
+            do { try Self.restoreReplacement(id, paths: paths) } catch {
                 throw ImportFailure
                     .internalError("Replacement failed (\(failure)); recovery failed (\(error)). Preserved ImportRollback for recovery.")
             }
             throw failure
         }
+    }
+
+    static let committedRollback = "ImportRollback-done"
+
+    /// Where a replacement keeps the game it replaces until the new one is registered.
+    struct ReplacementPaths {
+        let original: URL, backup: URL, metadata: [URL], index: URL
+
+        init(_ id: GameID, paths: AppPaths) {
+            let root = paths.game(id)
+            original = paths.tier(.original, for: id)
+            backup = root.appending(path: "ImportRollback", directoryHint: .isDirectory)
+            metadata = ["game.json", "original.manifest", "sidecars.json"].map { root.appending(path: $0) }
+                + [paths.logs(game: id, session: UUID()).deletingLastPathComponent().appending(path: "detection.json")]
+            index = root.appending(path: "index.sqlite")
+        }
+    }
+
+    /// Puts the replaced game back from `ImportRollback`: when a replacement fails, and at launch for one the app died
+    /// in. A backup without `Original/` was never swapped in, so only the backup goes.
+    static func restoreReplacement(_ id: GameID, paths: AppPaths) throws {
+        let fm = FileManager.default
+        let r = ReplacementPaths(id, paths: paths)
+        let original = r.original, backup = r.backup, metadata = r.metadata, index = r.index
+        let saved = backup.appending(path: "Original", directoryHint: .isDirectory)
+        if fm.fileExists(atPath: saved.path(percentEncoded: false)) {
+            if fm.fileExists(atPath: original.path(percentEncoded: false)) {
+                try OriginalGuard.unseal(originalRoot: original)
+                try fm.removeItem(at: original)
+            }
+            try fm.moveItem(at: saved, to: original)
+            try fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: original.path(percentEncoded: false))
+            try PathIndex.open(at: backup.appending(path: "index.sqlite")).backup(to: index)
+            for url in metadata {
+                if fm.fileExists(atPath: url.path(percentEncoded: false)) {
+                    try fm.removeItem(at: url)
+                }
+                let copy = backup.appending(path: url.lastPathComponent)
+                if fm.fileExists(atPath: copy.path(percentEncoded: false)) {
+                    try fm.copyItem(at: copy, to: url)
+                }
+            }
+        }
+        try fm.removeItem(at: backup)
+    }
+
+    /// At launch, before anything reads a game: finishes every replacement the app was killed in the middle of.
+    static func recoverReplacements(paths: AppPaths) {
+        let games = (try? FileManager.default.contentsOfDirectory(at: paths.games(), includingPropertiesForKeys: nil)) ?? []
+        for folder in games {
+            guard let id = GameID(uuidString: folder.lastPathComponent) else { continue }
+            removeSealed(folder.appending(path: committedRollback, directoryHint: .isDirectory))
+            guard FileManager.default.fileExists(atPath: ReplacementPaths(id, paths: paths).backup.path(percentEncoded: false))
+            else { continue }
+            do {
+                try restoreReplacement(id, paths: paths)
+                OPLog.log(.importer, .info, "restored \(id) from an interrupted replacement")
+            } catch {
+                OPLog.log(.importer, .error, "could not restore \(id) from its ImportRollback: \(error)")
+            }
+        }
+    }
+
+    /// Removes a backup folder whose `Original/` is still sealed (a plain remove fails on 0o555 folders).
+    static func removeSealed(_ folder: URL) {
+        try? OriginalGuard.unseal(originalRoot: folder.appending(path: "Original", directoryHint: .isDirectory))
+        try? FileManager.default.removeItem(at: folder)
     }
 
     /// Fills in the manifest's hashes at background priority once the game is in the library (the import queue calls

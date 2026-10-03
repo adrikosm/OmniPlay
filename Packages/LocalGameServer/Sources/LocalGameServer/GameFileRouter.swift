@@ -61,6 +61,8 @@ public struct GameFileRouter: Router {
         self.defaultDocument = defaultDocument
     }
 
+    public func acceptsPost(_ path: String) -> Bool { postRoutes[path] != nil }
+
     public func post(_ request: HTTPRequest) async -> HTTPResponse {
         guard let handler = postRoutes[request.path] else {
             var response = HTTPResponse.text(405, "method not allowed")

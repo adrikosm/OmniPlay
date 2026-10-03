@@ -76,6 +76,11 @@
 
         public func prepare(configuration: RuntimeConfiguration) async throws {
             guard let library = RenPyEngineLibrary.bundled(engine) else { throw Failure.engineMissing(engine) }
+            // A game left while still loading parks once Python reaches its first tick (see `stop`).
+            let parking = ContinuousClock.now + .seconds(30)
+            while library.phase == .running, library.status == .booting, ContinuousClock.now < parking {
+                try await Task.sleep(for: .milliseconds(100))
+            }
             guard library.isAvailable else { throw Failure.engineAlreadySpent }
             self.configuration = configuration
             self.library = library
@@ -254,6 +259,8 @@
             while library.status != .paused, library.phase == .running, ContinuousClock.now < deadline {
                 try? await Task.sleep(for: .milliseconds(20))
             }
+            // `stop` may have run while this waited; it already took the frozen frame down.
+            guard !stopping else { return }
             host?.showFrozenFrame(snapshotImage())
         }
 
@@ -293,6 +300,9 @@
             }
             let verdict: TeardownVerdict = switch (library?.phase, library?.status) {
             case (.running?, .parked?): .clean
+            // Still loading the game: Python honours the stop at its first tick and parks, and `isAvailable` holds
+            // the next game until it has. Only a game past loading that does not answer needs a restart.
+            case (.running?, .booting?): .clean
             case (.running?, _): .restartRequired
             default: .slotSpent
             }

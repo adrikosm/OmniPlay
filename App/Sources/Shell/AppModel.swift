@@ -94,6 +94,7 @@ final class AppModel {
                 try paths.ensureLayout()
                 let store = try GameStore.open(paths: paths)
                 ImportCoordinator.sweepStaleStaging(paths: paths, olderThan: 0) // nothing can be in flight at launch
+                ImportPipeline.recoverReplacements(paths: paths) // a replacement the app was killed in is put back
                 // A missing database row does not make a game disposable: recovery can recreate the
                 // database while the original, saves and backups still belong to the player.
                 return .success(store)

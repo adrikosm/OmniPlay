@@ -14,6 +14,8 @@ module OmniPlay
 
     def parse(text)
       @s = text.to_s
+      # Requests and dictionaries arrive as raw bytes; on 1.9+ they must read as UTF-8 to match the game's strings.
+      @s = @s.dup.force_encoding("UTF-8") if @s.respond_to?(:force_encoding)
       @i = 0
       value
     end
@@ -116,7 +118,8 @@ module OmniPlay
       when true then "true"
       when false then "false"
       when nil then "null"
-      when Integer, Float then v.to_s
+      when Integer then v.to_s
+      when Float then v.finite? ? v.to_s : dump(v.to_s) # JSON has no Infinity or NaN
       else dump(v.to_s)
       end
     end
@@ -467,6 +470,9 @@ module OmniPlay
 
     def handle(json)
       request = parse(json)
+      # The host stopped waiting at "expires" (seconds since 1970) and told the player so; doing it now would apply
+      # an edit reported as failed.
+      return dump({ "error" => "timedOut" }) if request["expires"] && Time.now.to_f > request["expires"]
       return dump({ "error" => "notInGame" }) unless ready?
       reply = case request["op"]
               when "list"

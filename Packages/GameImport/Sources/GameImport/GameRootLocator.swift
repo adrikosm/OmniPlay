@@ -37,7 +37,7 @@ public enum GameRootLocator {
         "data.win",
     ]
     static let markerDirectories: Set<String> = ["renpy", "www", "game_data", "js"]
-    static let archiveKinds: Set<ContainerKind> = [.zip, .sevenZip, .tar, .gzip, .xz, .zstd]
+    static let archiveKinds: Set<ContainerKind> = [.zip, .sevenZip, .tar, .gzip, .xz, .zstd, .rar4, .rar5, .cab]
     public static let maxCandidates = 16
 
     /// `chosen` is the candidate the user picked after a `multipleRoots` failure.
@@ -90,17 +90,22 @@ public enum GameRootLocator {
         throw ImportFailure.multipleRoots(candidates)
     }
 
-    /// An archive that arrived alone (a readme or two beside it does not count).
+    /// An archive that arrived alone (a readme or two beside it does not count). Beside a game's own marker (a page
+    /// with `game.js` and `data.zip`) the archive is the game's data, not a wrapper.
     public static func nestedArchive(in root: URL) -> URL? {
         var files: [URL] = []
+        var marked = false
         try? LazyDirectoryWalker.walk(root: root) { entry in
+            let name = entry.url.lastPathComponent.lowercased()
             if entry.isDirectory {
-                return .continue
+                marked = markerDirectories.contains(name)
+                return marked ? .stop : .continue
             }
+            marked = markerFiles.contains(name) || entry.url.pathExtension.lowercased() == "pck"
             files.append(entry.url)
-            return files.count > 3 ? .stop : .continue
+            return marked || files.count > 3 ? .stop : .continue
         }
-        guard files.count <= 3 else { return nil }
+        guard !marked, files.count <= 3 else { return nil }
         let archives = files.filter { (try? ContainerSniffer.identify($0)).map(archiveKinds.contains) ?? false }
         return archives.count == 1 ? archives[0] : nil
     }

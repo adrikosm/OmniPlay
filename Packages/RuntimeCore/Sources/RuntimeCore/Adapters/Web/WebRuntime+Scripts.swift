@@ -8,6 +8,8 @@
         func installScripts(in controller: WKUserContentController) async throws {
             let seed = try await saves?.seed() ?? "{}"
             guard !stopping else { throw CancellationError() }
+            var profile = profile
+            profile.paused = userPaused || backgrounded
             let page = try WebRuntimeBundle.pageScripts.map {
                 try WKUserScript(
                     source: WebRuntimeBundle.source($0, profile: profile, saves: seed),

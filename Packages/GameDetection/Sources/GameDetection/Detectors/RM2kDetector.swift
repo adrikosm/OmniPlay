@@ -30,7 +30,7 @@ public struct RM2kDetector: Detector {
             "\(family.rawValue): System.ldb_id is \(ldbID.map(String.init) ?? "absent")"
         )
         var fullPackage = false
-        if let ini = ctx.text("RPG_RT.ini", max: 64 << 10) {
+        if let ini = ctx.iniText("RPG_RT.ini") {
             fullPackage = ini.contains("FullPackageFlag=1")
             if let m = ini
                 .firstMatch(of: /GameTitle=(.+)/) {

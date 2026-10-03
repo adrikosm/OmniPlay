@@ -111,7 +111,9 @@ public struct ScummVMDetector: Detector {
         if let (path, name) = top.first(where: { Self.markerNames[$0.1] != nil }) {
             return (path, Self.markerNames[name]!)
         }
-        if let (path, name) = top.first(where: { Self.markerExtensions[($0.1 as NSString).pathExtension] != nil }) {
+        // An extension alone is weak (a web game's `model.glb` is glTF, not Glk): it counts only where no page is.
+        if facts.indexHTMLCandidates.isEmpty,
+           let (path, name) = top.first(where: { Self.markerExtensions[($0.1 as NSString).pathExtension] != nil }) {
             return (path, Self.markerExtensions[(name as NSString).pathExtension]!)
         }
         for exe in facts.exeNames {

@@ -35,6 +35,8 @@ public struct LibArchiveExtractor: Sendable {
         var result = ArchivePreflight()
         var entry: OpaquePointer?
         while true {
+            // A compressed tar decompresses the whole stream to list it; Cancel must not wait for that.
+            try Task.checkCancellation()
             let r = archive_read_next_header(a, &entry)
             if r == ARCHIVE_EOF {
                 break
@@ -50,7 +52,15 @@ public struct LibArchiveExtractor: Sendable {
                 result.undecodableNames = true
             }
             if archive_entry_size_is_set(entry) != 0 {
-                result.declaredBytes += Int64(archive_entry_size(entry))
+                // ZIP64 headers can declare up to 2^63; refuse here, before the sum or the disk budget overflows.
+                let size = Int64(archive_entry_size(entry))
+                guard size >= 0, size <= Int64(clamping: limits.maxUncompressedBytes) - result.declaredBytes else {
+                    throw SafetyViolation(
+                        rule: .declaredSize,
+                        detail: "declared total exceeds \(limits.maxUncompressedBytes) bytes"
+                    )
+                }
+                result.declaredBytes += size
             } else {
                 result.sizesKnown = false
             }
@@ -152,13 +162,19 @@ public struct LibArchiveExtractor: Sendable {
             }
             if FileManager.default.fileExists(atPath: target.path(percentEncoded: false)) {
                 OPLog.log(.importer, .default, "duplicate entry \(rel): keeping the first")
+                // Its size is not on disk; the audit compares declared with written bytes (CAB and RAR do the same).
+                totals.declaredBytes -= header.declaredSize ?? 0
+                totals.skipped += 1
                 archive_read_data_skip(a)
                 return
             }
             try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-            totals.writtenBytes += try writeEntry(a, to: target, declared: header.declaredSize, path: rel)
-            if let v = validator.checkWritten(totals, sourceBytes: sourceBytes) {
-                throw v
+            // The running limits are judged per block, so one huge zero entry stops near the ratio floor, not at 16 GiB.
+            var running = totals
+            let before = totals.writtenBytes
+            totals.writtenBytes += try writeEntry(a, to: target, declared: header.declaredSize, path: rel) { written in
+                running.writtenBytes = before + written
+                return validator.checkWritten(running, sourceBytes: sourceBytes)
             }
             let mtime = archive_entry_mtime(entry)
             if mtime > 0 {
@@ -220,7 +236,13 @@ public struct LibArchiveExtractor: Sendable {
     }
 
     /// Streams one entry's blocks to disk. Blocks are libarchive's buffers written in place with `pwrite`.
-    private func writeEntry(_ a: OpaquePointer, to target: URL, declared: Int64?, path: String) throws -> Int64 {
+    private func writeEntry(
+        _ a: OpaquePointer,
+        to target: URL,
+        declared: Int64?,
+        path: String,
+        check: (Int64) -> SafetyViolation?
+    ) throws -> Int64 {
         let fd = Darwin.open(target.path(percentEncoded: false), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0o644)
         guard fd >= 0 else { throw ExtractionError.write(path: path, errno: errno) }
         defer { close(fd) }
@@ -256,6 +278,9 @@ public struct LibArchiveExtractor: Sendable {
                 done += Int(n)
             }
             written = max(written, Int64(offset) + Int64(size))
+            if let v = check(written) {
+                throw v
+            }
         }
         return written
     }

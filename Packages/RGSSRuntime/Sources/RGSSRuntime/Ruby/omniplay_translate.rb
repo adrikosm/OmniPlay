@@ -12,7 +12,7 @@ module OmniPlay
     def load(path)
       @table = nil
       data = File.open(path, "rb") { |f| f.read }
-      data = data[3..-1] if data[0, 3] == "\xEF\xBB\xBF"
+      data = data[3..-1] if data.unpack("C3") == [0xEF, 0xBB, 0xBF] # compared as bytes: the file is read binary
       table = OmniPlay::Bridge.parse(data)
       @table = table if table.is_a?(Hash) && !table.empty?
     rescue Exception

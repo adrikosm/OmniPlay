@@ -206,6 +206,8 @@
             while library.status != .paused, library.phase == .running, ContinuousClock.now < deadline {
                 try? await Task.sleep(for: .milliseconds(20))
             }
+            // `stop` may have run while this waited; it already took the frozen frame down.
+            guard !stopping else { return }
             host?.showFrozenFrame(snapshotImage())
         }
 

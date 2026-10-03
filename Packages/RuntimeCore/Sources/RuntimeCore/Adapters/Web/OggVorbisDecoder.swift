@@ -13,6 +13,8 @@ public actor OggVorbisDecoder {
     public static let postPath = "/__omniplay/decode-audio"
     /// Forty minutes of 48 kHz stereo; anything longer is not a game sound.
     public static let maxOutputBytes: Int64 = 460 << 20
+    /// The whole per-game cache; past it the oldest decodes go (they are decoded again when asked for).
+    public static let maxCacheBytes: Int64 = 1 << 30
 
     public enum Failure: Error, CustomStringConvertible {
         case notVorbis
@@ -86,6 +88,7 @@ public actor OggVorbisDecoder {
             let started = ContinuousClock.now
             let data = try input()
             try Self.decode(data, to: out)
+            Self.trim(directory, keeping: out)
             return (out, started.duration(to: .now))
         }
         inFlight[key] = Task { try await task.value.0 }
@@ -98,7 +101,8 @@ public actor OggVorbisDecoder {
     /// Streams PCM into a WAV file, writing the header last once the sizes are known. A partial file never stays.
     nonisolated static func decode(_ data: Data, to url: URL) throws {
         guard isOggVorbis(data.prefix(64)) else { throw Failure.notVorbis }
-        let partial = url.appendingPathExtension("partial")
+        // Every decode has its own partial file: another session of the same game may be decoding the same sound.
+        let partial = url.appendingPathExtension(UUID().uuidString + ".partial")
         FileManager.default.createFile(atPath: partial.path(percentEncoded: false), contents: nil)
         let handle = try FileHandle(forWritingTo: partial)
         var finished = false
@@ -137,8 +141,31 @@ public actor OggVorbisDecoder {
         try handle.seek(toOffset: 0)
         try handle.write(contentsOf: wavHeader(dataBytes: UInt32(sink.written), rate: UInt32(rate), channels: UInt16(channels)))
         try handle.close()
-        try FileManager.default.moveItem(at: partial, to: url)
+        do {
+            try FileManager.default.moveItem(at: partial, to: url)
+        } catch where FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
+            return // Another decode of the same sound finished first; the partial goes.
+        }
         finished = true
+    }
+
+    // ponytail: oldest by creation, not by last use; track access dates if popular sounds get evicted too often.
+    /// Removes the oldest decoded sounds until the cache fits `maxCacheBytes`. Partial files belong to running decodes.
+    nonisolated static func trim(_ directory: URL, keeping: URL) {
+        let keys: Set<URLResourceKey> = [.fileSizeKey, .creationDateKey]
+        guard let items = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys))
+        else { return }
+        var files = items.filter { $0.pathExtension == "wav" }.map { url in
+            let values = try? url.resourceValues(forKeys: keys)
+            return (url, Int64(values?.fileSize ?? 0), values?.creationDate ?? .distantPast)
+        }
+        var total = files.reduce(0) { $0 + $1.1 }
+        files.sort { $0.2 < $1.2 }
+        for (url, size, _) in files where total > maxCacheBytes && url.lastPathComponent != keeping.lastPathComponent {
+            if (try? FileManager.default.removeItem(at: url)) != nil {
+                total -= size
+            }
+        }
     }
 
     nonisolated static func wavHeader(dataBytes: UInt32, rate: UInt32, channels: UInt16) -> Data {

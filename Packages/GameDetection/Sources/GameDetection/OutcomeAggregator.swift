@@ -25,25 +25,22 @@ public struct OutcomeAggregator: Aggregating {
     ) -> DetectionReport {
         var evidence: [DetectionEvidence] = []
         var partial = PartialDescriptor()
-        var claims: [(EngineFamily, Double)] = []
+        let claims: [(EngineFamily, Double)] = reports.compactMap(\.1.claim).sorted { $0.1 > $1.1 }
+        let top = claims.first
+        let family = top?.0 ?? .unknown
         var refusal: RefusalReason?
         var unsupported: String?
         for (_, r) in reports {
             evidence += r.evidence
-            if let c = r.claim {
-                claims.append(c)
-            }
             if let ref = r.refusal, refusal == nil || ref.engine == partial.engine {
                 refusal = ref
             }
-            if let u = r.unsupported, unsupported == nil {
+            // Only the winning family's verdict: a losing detector's "not recognised" must not refuse another engine's game.
+            if let u = r.unsupported, unsupported == nil, r.claim?.family == family {
                 unsupported = u
             }
             partial.merge(r.partial)
         }
-        claims.sort { $0.1 > $1.1 }
-        let top = claims.first
-        let family = top?.0 ?? .unknown
         var confidence = top?.1 ?? 0
         partial.engine = top?.0
         if top != nil, refusal == nil, unsupported == nil {

@@ -22,6 +22,8 @@ enum GameDeletion {
     }
 
     private nonisolated static func files(_ game: GameRecord, keepSaves: Bool, store: GameStore, paths: AppPaths) -> String? {
+        guard ImportPipeline.claim(game.id) else { return "An import is replacing this game. Delete it once the import finishes." }
+        defer { ImportPipeline.release(game.id) }
         do {
             let titleHash = AppModel.snapshot(for: game.id, paths: paths)?.report.descriptor.identityHash ?? game.id.description
             let location = SaveLocation.forGame(game.id, paths: paths)
@@ -39,6 +41,10 @@ enum GameDeletion {
                 throw error
             }
             try? OriginalGuard.unseal(originalRoot: paths.tier(.original, for: game.id))
+            // A replacement's backup keeps the old tree sealed too; a plain remove would leave it behind.
+            for backup in ["ImportRollback", ImportPipeline.committedRollback] {
+                ImportPipeline.removeSealed(paths.game(game.id).appending(path: backup, directoryHint: .isDirectory))
+            }
             try? FileManager.default.removeItem(at: paths.game(game.id))
             try? FileManager.default.removeItem(at: paths.tier(.runtimeCache, for: game.id))
             if !keepSaves {

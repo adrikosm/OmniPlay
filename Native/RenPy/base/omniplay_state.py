@@ -9,6 +9,7 @@
 # Python 2.7 and 3 alike: the same file ships in all three engine frameworks.
 
 import json
+import math
 import sys
 
 PY2 = sys.version_info[0] == 2
@@ -136,7 +137,9 @@ def ready():
 
 def plain(value):
     """Plain data the tools can show as JSON. bool before int: a bool is an int in Python."""
-    if value is None or isinstance(value, bool) or isinstance(value, float) or isinstance(value, STRINGS):
+    if isinstance(value, float):
+        return not (math.isinf(value) or math.isnan(value))  # JSON has no Infinity or NaN
+    if value is None or isinstance(value, bool) or isinstance(value, STRINGS):
         return True
     if isinstance(value, INTEGERS):
         return True

@@ -24,7 +24,7 @@
         private let session: SessionID
         private let saves: SaveBridge?
         private let onEvent: @MainActor (Event) -> Void
-        var prepareNavigation: (@MainActor (WKWebView) async throws -> Void)?
+        var prepareNavigation: (@MainActor (WKWebView, URL?) async throws -> Void)?
 
         init(session: SessionID, saves: SaveBridge?, onEvent: @escaping @MainActor (Event) -> Void) {
             self.session = session
@@ -86,7 +86,7 @@
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
             guard navigationAction.targetFrame?.isMainFrame == true else { return .allow }
             do {
-                try await prepareNavigation?(webView)
+                try await prepareNavigation?(webView, navigationAction.request.url)
                 return .allow
             } catch is CancellationError {
                 return .cancel

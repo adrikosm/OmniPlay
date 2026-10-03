@@ -6,7 +6,8 @@ import GameCore
 /// held in memory (bounded); every body is streamed in 1 MiB slices. `unpacked` entries come from the
 /// `<name>.asar.unpacked/` sibling. Every path goes through the same validator as archive entries.
 public struct AsarExtractor: Sendable {
-    public static let maxHeaderBytes = 64 << 20
+    /// Real Electron headers are a few MiB; Foundation's tree for 64 MiB of tiny nodes took about 1 GB.
+    public static let maxHeaderBytes = 16 << 20
     public static let chunk = 1 << 20
     public let limits: SafetyLimits
 
@@ -46,11 +47,13 @@ public struct AsarExtractor: Sendable {
         defer { try? handle.close() }
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
         var entries: [(path: String, node: [String: Any])] = []
-        Self.flatten(header.json["files"] as? [String: Any] ?? [:], prefix: "", into: &entries)
+        Self.flatten(header.json["files"] as? [String: Any] ?? [:], prefix: "", limit: limits.maxEntries, into: &entries)
         for (path, node) in entries {
             try Task.checkCancellation()
             let isDirectory = node["files"] != nil
             let size = (node["size"] as? NSNumber).map { Int64(truncating: $0) }
+            // Without a size a body would stream to the end of the whole archive.
+            guard isDirectory || size != nil else { throw ImportFailure.unsupportedContainer(firstBytesHex: "asar: \(path) has no size") }
             let decision = validator.validate(
                 ArchiveEntryHeader(path: path, kind: isDirectory ? .directory : .file, declaredSize: size),
                 running: &totals
@@ -87,13 +90,15 @@ public struct AsarExtractor: Sendable {
         return totals
     }
 
-    static func flatten(_ files: [String: Any], prefix: String, into out: inout [(path: String, node: [String: Any])]) {
+    /// Stops one past `limit`, so the validator refuses the count without the whole tree being copied first.
+    static func flatten(_ files: [String: Any], prefix: String, limit: Int, into out: inout [(path: String, node: [String: Any])]) {
         for name in files.keys.sorted() {
+            guard out.count <= limit else { return }
             guard let node = files[name] as? [String: Any] else { continue }
             let path = prefix.isEmpty ? name : "\(prefix)/\(name)"
             out.append((path, node))
             if let children = node["files"] as? [String: Any] {
-                flatten(children, prefix: path, into: &out)
+                flatten(children, prefix: path, limit: limit, into: &out)
             }
         }
     }

@@ -82,7 +82,8 @@ public enum OriginalGuard {
     /// A manifest replaced meanwhile (the game re-imported over itself) is left alone: its lines are not these.
     public static func completeDeferredHashing(originalRoot: URL, manifest: URL) async throws {
         let before = identity(of: manifest)
-        let temp = manifest.appendingPathExtension("rehash")
+        // One temp per pass: a pass still running for a replaced manifest removes only its own file, never the new pass's.
+        let temp = manifest.appendingPathExtension("rehash-\(UUID().uuidString)")
         _ = FileManager.default.createFile(atPath: temp.path(percentEncoded: false), contents: nil)
         let out = try FileHandle(forWritingTo: temp)
         do {

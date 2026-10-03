@@ -63,7 +63,9 @@ struct ImportPipeline: Sendable {
         )
 
         await txn.transition(to: .detecting)
-        let title = Self.title(from: source.url)
+        // A picked or uploaded folder (`wifi-<uuid>/MyGame/…`) is named by its game folder when the game sits inside one.
+        let firstFolder = located.relativePath.split(separator: "/").first.map(String.init)
+        let title = Self.title(from: kind == .folder ? firstFolder.map { URL(filePath: $0) } ?? source.url : source.url)
         let report = try detect(root: gameRoot, located: located, source: source, title: title, fingerprint: fingerprint)
         await txn.transition(to: .resolvingRuntime)
         let resolution = await RuntimeResolver(registry: registry).resolve(report)
@@ -141,7 +143,8 @@ struct ImportPipeline: Sendable {
                 directoryHint: .isDirectory
             )
             var removedBytes = fileSize(asar) ?? 0
-            try? LazyDirectoryWalker.walk(root: unpackedSibling) { removedBytes += $0.fileSize; return .continue }
+            // Hidden files too: the whole sibling goes, and the audit counts every byte on disk.
+            try? LazyDirectoryWalker.walk(root: unpackedSibling, skipHidden: false) { removedBytes += $0.fileSize; return .continue }
             let more = try await extractAsar(
                 asar,
                 to: asar.deletingLastPathComponent().appending(path: "app", directoryHint: .isDirectory),
@@ -239,6 +242,11 @@ struct ImportPipeline: Sendable {
     }
 
     func extractAsar(_ url: URL, to stagedRoot: URL, txn: ImportTransaction) async throws -> RunningTotals {
+        // Every body declares its size and lies inside the file or its `.unpacked` sibling: together they bound the output.
+        var bound = fileSize(url) ?? 0
+        let unpacked = url.deletingLastPathComponent().appending(path: url.lastPathComponent + ".unpacked", directoryHint: .isDirectory)
+        try? LazyDirectoryWalker.walk(root: unpacked, skipHidden: false) { bound += $0.fileSize; return .continue }
+        try StorageBudget.require(.forArchive(uncompressedSizeHint: bound), at: paths.root)
         await txn.transition(to: .extracting(.init(completedBytes: 0, totalBytes: fileSize(url))))
         do {
             return try AsarExtractor(limits: limits).extract(url, to: stagedRoot)

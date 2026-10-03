@@ -43,9 +43,13 @@ struct WiFiUploadView: View {
         .background(CanvasBackground())
         .preferredColorScheme(.dark)
         .task { await run() }
-        .onDisappear { Task { await server?.stop() } }
+        .onDisappear {
+            UIApplication.shared.isIdleTimerDisabled = false
+            Task { await server?.stop() }
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active {
+                UIApplication.shared.isIdleTimerDisabled = false
                 Task { await server?.stop() }
                 stopped = "Stopped because OmniPlay left the foreground. Close this screen and open it again to restart."
             }
@@ -176,6 +180,9 @@ struct WiFiUploadView: View {
                 return
             }
             address = "http://\(ip):\(port)/\(server.token)"
+            // Auto-lock would take the app out of the foreground and stop the server mid-upload; the screen stays on
+            // while this page is up instead.
+            UIApplication.shared.isIdleTimerDisabled = !Task.isCancelled && scenePhase == .active
         } catch {
             failure = "The upload page could not start: \(error.localizedDescription)"
             return

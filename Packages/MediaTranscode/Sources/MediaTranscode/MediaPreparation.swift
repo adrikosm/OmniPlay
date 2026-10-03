@@ -77,6 +77,8 @@ public enum MediaPreparation {
         progress: @escaping @Sendable (Progress) -> Bool = { _ in true }
     ) -> Plan {
         var plan = plan
+        // Failed this run but may pass on another (no space, a lost hardware session): reported now, retried next launch.
+        var retry: [String] = []
         let todo = pending(plan, generatedRoot: generatedRoot)
         var stopped = false
         for (i, conversion) in todo.enumerated() where !stopped {
@@ -101,11 +103,16 @@ public enum MediaPreparation {
                 stopped = true
             } catch {
                 plan.failed[conversion.source] = String(describing: error)
+                if (error as? MediaTranscoder.Failure)?.permanent != true, (error as? ImageFailure)?.permanent != true {
+                    retry.append(conversion.source)
+                }
             }
         }
         // An interrupted scan is incomplete and must not become the next launch's cached plan.
         if !Task.isCancelled {
-            save(plan, generatedRoot: generatedRoot)
+            var saved = plan
+            retry.forEach { saved.failed[$0] = nil }
+            save(saved, generatedRoot: generatedRoot)
         }
         return plan
     }
@@ -219,6 +226,8 @@ public enum MediaPreparation {
 
     public struct ImageFailure: Error, CustomStringConvertible {
         public let description: String
+        /// False when writing the PNG failed, which another try may get past.
+        public var permanent = true
     }
 
     /// Larger than any game picture: 8192 × 8192 decodes to 256 MiB, which the phone can still hold beside the engine.
@@ -238,11 +247,11 @@ public enum MediaPreparation {
         try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
         let partial = output.appendingPathExtension("partial")
         guard let destination = CGImageDestinationCreateWithURL(partial as CFURL, UTType.png.identifier as CFString, 1, nil)
-        else { throw ImageFailure(description: "cannot write PNG") }
+        else { throw ImageFailure(description: "cannot write PNG", permanent: false) }
         CGImageDestinationAddImage(destination, image, nil)
         guard CGImageDestinationFinalize(destination) else {
             try? FileManager.default.removeItem(at: partial)
-            throw ImageFailure(description: "cannot write PNG")
+            throw ImageFailure(description: "cannot write PNG", permanent: false)
         }
         try? FileManager.default.removeItem(at: output)
         try FileManager.default.moveItem(at: partial, to: output)

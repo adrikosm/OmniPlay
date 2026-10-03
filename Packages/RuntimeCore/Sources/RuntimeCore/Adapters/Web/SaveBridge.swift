@@ -58,11 +58,12 @@ public actor SaveBridge {
     func stem(_ kind: Kind, key: String) -> String { kind.name == "ls" ? SaveKey.encodeWebStorage(key) : key }
 
     public enum Failure: Error, CustomStringConvertible {
-        case invalidMessage(String), incompleteSeed(String)
+        case invalidMessage(String), incompleteSeed(String), seedFull
 
         public var description: String {
             switch self {
             case let .invalidMessage(detail): detail
+            case .seedFull: "The game's saves together would pass the 32 MB launch limit."
             case let .incompleteSeed(detail):
                 "The game could not start because its saves could not all be loaded. \(detail) Your save files have been kept."
             }
@@ -82,6 +83,7 @@ public actor SaveBridge {
             guard let data = kind.binary ? Data(base64Encoded: value) : Data(value.utf8) else {
                 throw Failure.invalidMessage("invalid base64 save")
             }
+            try requireSeedRoom(for: data.count, replacing: store.url(for: stem(kind, key: key)))
             try store.write(data, key: stem(kind, key: key))
             log(.debug, "wrote \(kind.name) \(key) (\(data.count) bytes)")
         case "remove":
@@ -100,10 +102,25 @@ public actor SaveBridge {
         if nsError.code == NSFileWriteOutOfSpaceError || (underlying?.domain == NSPOSIXErrorDomain && underlying?.code == Int(ENOSPC)) {
             return "The iPhone is out of storage, so the save was not written."
         }
+        if case Failure.seedFull = error {
+            return "This game's saves together have reached the 32 MB OmniPlay can load, so the save was not written."
+        }
         if case SaveFileStore.Failure.tooLarge = error {
             return "The save is larger than OmniPlay keeps (16 MB), so it was not written."
         }
         return "OmniPlay could not write to this game's save folder."
+    }
+
+    /// `seed()` refuses a launch past `maxSeedBytes`, so a write that would take the whole store there is refused now,
+    /// while the player can still be told, instead of at the next launch.
+    func requireSeedRoom(for bytes: Int, replacing target: URL) throws {
+        var total = bytes
+        for store in kinds.flatMap(stores) {
+            for (stem, size) in (try? store.keys()) ?? [] where (try? store.url(for: stem)) != target {
+                total += Int(size)
+            }
+        }
+        guard total <= Self.maxSeedBytes else { throw Failure.seedFull }
     }
 
     /// JSON `{"ls": {key: string}, "mz": {key: base64}}` for `__OMNIPLAY_SAVES__`.

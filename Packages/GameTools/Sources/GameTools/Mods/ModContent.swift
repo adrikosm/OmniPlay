@@ -70,6 +70,11 @@ public enum ModValidator {
         "cmd",
     ]
 
+    /// A mod path as the MV/MZ web root sees it: without the `www/` a desktop deployment keeps everything under.
+    public static func webRelative(_ path: String) -> String {
+        path.lowercased().hasPrefix("www/") ? String(path.dropFirst(4)) : path
+    }
+
     /// Where a lone file goes in the game's tree, or nil when a lone file of that kind needs a folder around it.
     public static func placement(forSingleFile name: String, engine: EngineFamily) -> String? {
         let ext = (name as NSString).pathExtension.lowercased()
@@ -82,35 +87,63 @@ public enum ModValidator {
     }
 
     /// Moves a mod's files so they line up with the game's root: a mod zipped with a single top folder is unwrapped;
-    /// Ren'Py scripts at the mod's root go under `game/`; MV's `www/` is dropped when the game's root has none.
+    /// Ren'Py scripts at the mod's root go under `game/`; MV's `www/` is dropped when the game's root has none, and
+    /// added when the game keeps everything under it (a desktop deployment) and the mod does not.
     public static func normalise(_ root: URL, engine: EngineFamily, gameHasWWW: Bool) throws {
         let fm = FileManager.default
         func children(_ url: URL) -> [URL] {
             ((try? fm.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)) ?? []).filter { !$0.lastPathComponent.hasPrefix(".") }
         }
-        func hoist(_ folder: URL) throws {
+        func isDirectory(_ url: URL) -> Bool { (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+        /// Moves a folder's contents into `destination`, merging folders that are already there. Two files with one
+        /// name refuse the mod: nothing is skipped and then deleted with its folder.
+        func merge(_ folder: URL, into destination: URL) throws {
             for item in children(folder) {
-                let target = root.appending(path: item.lastPathComponent)
-                guard !fm.fileExists(atPath: target.path(percentEncoded: false)) else { continue }
-                try fm.moveItem(at: item, to: target)
+                let target = destination.appending(path: item.lastPathComponent)
+                if !fm.fileExists(atPath: target.path(percentEncoded: false)) {
+                    try fm.moveItem(at: item, to: target)
+                } else if isDirectory(item), isDirectory(target) {
+                    try merge(item, into: target)
+                } else {
+                    throw CocoaError(.fileWriteFileExists, userInfo: [NSFilePathErrorKey: target.path(percentEncoded: false)])
+                }
             }
-            try? fm.removeItem(at: folder)
+            try fm.removeItem(at: folder)
         }
-        // One folder at the top that is not itself a game folder: the zip's own wrapper.
-        let top = children(root)
-        let gameFolders: Set = ["game", "www", "js", "data", "img", "audio", "graphics", "audio", "fonts", "scripts", "movies"]
-        if top.count == 1, let only = top.first, (try? only.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
-           !gameFolders.contains(only.lastPathComponent.lowercased()) {
+        /// A wrapper is renamed out of the way first, so a child with the wrapper's own name (`MyMod/MyMod/`) can land.
+        func hoist(_ folder: URL) throws {
+            let aside = root.appending(path: ".unwrap-\(UUID().uuidString)", directoryHint: .isDirectory)
+            try fm.moveItem(at: folder, to: aside)
+            try merge(aside, into: root)
+        }
+        // One folder at the top that is not itself a game folder: the zip's own wrapper, possibly wrapped again.
+        let gameFolders: Set = [
+            "game", "tl", "www", "js", "data", "img", "audio", "graphics", "fonts", "scripts", "movies", "effects", "icon", "css",
+        ]
+        for _ in 0 ..< 8 {
+            let top = children(root)
+            guard top.count == 1, let only = top.first, isDirectory(only), !gameFolders.contains(only.lastPathComponent.lowercased())
+            else { break }
             try hoist(only)
         }
-        if engine == .rpgMakerMV || engine == .rpgMakerMZ, !gameHasWWW {
+        if engine == .rpgMakerMV || engine == .rpgMakerMZ {
             let www = root.appending(path: "www", directoryHint: .isDirectory)
-            if fm.fileExists(atPath: www.path(percentEncoded: false)) {
+            if !gameHasWWW, fm.fileExists(atPath: www.path(percentEncoded: false)) {
                 try hoist(www)
+            } else if gameHasWWW, !fm.fileExists(atPath: www.path(percentEncoded: false)), !children(root).isEmpty {
+                let aside = root.appending(path: ".www-\(UUID().uuidString)", directoryHint: .isDirectory)
+                try fm.createDirectory(at: aside, withIntermediateDirectories: true)
+                for item in children(root) {
+                    try fm.moveItem(at: item, to: aside.appending(path: item.lastPathComponent))
+                }
+                try fm.moveItem(at: aside, to: www)
             }
         }
         if engine == .renpy, !fm.fileExists(atPath: root.appending(path: "game").path(percentEncoded: false)) {
-            let scripts = children(root).filter { ["rpy", "rpyc", "rpa", "rpym"].contains($0.pathExtension.lowercased()) }
+            // Scripts, or a `tl/` translation folder, zipped to be dropped into `game/`.
+            let scripts = children(root).filter {
+                ["rpy", "rpyc", "rpa", "rpym"].contains($0.pathExtension.lowercased()) || $0.lastPathComponent.lowercased() == "tl"
+            }
             if !scripts.isEmpty {
                 let game = root.appending(path: "game", directoryHint: .isDirectory)
                 try fm.createDirectory(at: game, withIntermediateDirectories: true)
@@ -140,7 +173,8 @@ public enum ModValidator {
         let native = files
             .filter { nativeExtensions.contains(($0 as NSString).pathExtension.lowercased()) || $0.lowercased().contains(".framework/") }
         var warnings: [String] = []
-        let plugins = files.filter { $0.lowercased().hasPrefix("js/plugins/") && $0.lowercased().hasSuffix(".js") }
+        let web = lower.map(webRelative)
+        let plugins = files.filter { webRelative($0.lowercased()).hasPrefix("js/plugins/") && $0.lowercased().hasSuffix(".js") }
             .map { (($0 as NSString).lastPathComponent as NSString).deletingPathExtension }
 
         let type: ModContentType
@@ -149,12 +183,12 @@ public enum ModValidator {
         switch engine {
         case .renpy:
             type = renpyFiles ? .renpyScript : exts.contains("rpa") ? .renpyArchive : .genericOverlay
-            compatible = !lower.contains { $0.hasPrefix("js/plugins/") } && !exts.contains("rb")
+            compatible = !web.contains { $0.hasPrefix("js/plugins/") } && !exts.contains("rb")
         case .rpgMakerMV, .rpgMakerMZ:
-            type = !plugins.isEmpty ? .mvmzPlugin : lower.contains { $0.hasPrefix("data/") } ? .mvmzData
-                : lower.contains { $0.hasPrefix("img/") || $0.hasPrefix("audio/") } ? .mvmzAsset : .genericOverlay
+            type = !plugins.isEmpty ? .mvmzPlugin : web.contains { $0.hasPrefix("data/") } ? .mvmzData
+                : web.contains { $0.hasPrefix("img/") || $0.hasPrefix("audio/") } ? .mvmzAsset : .genericOverlay
             compatible = !renpyFiles && !exts.contains("rb")
-            if lower.contains("js/plugins.js") {
+            if web.contains("js/plugins.js") {
                 warnings.append("Its own js/plugins.js is not installed; its plugins are added to the game's list instead.")
             }
         case .rpgMakerXP, .rpgMakerVX, .rpgMakerVXAce:
@@ -202,7 +236,7 @@ public enum ModConflicts {
         }
         var owners: [String: [Owner]] = [:]
         for mod in mods {
-            for file in mod.files where file.lowercased() != "js/plugins.js" {
+            for file in mod.files where ModValidator.webRelative(file.lowercased()) != "js/plugins.js" {
                 owners[file.lowercased(), default: []].append(Owner(id: mod.id, priority: mod.priority, path: file))
             }
         }

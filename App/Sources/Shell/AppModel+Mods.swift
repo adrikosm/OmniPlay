@@ -50,6 +50,7 @@ extension AppModel {
         // A mod's own plugins.js would replace the game's whole list; its plugins are merged in at launch instead.
         if engine == .rpgMakerMV || engine == .rpgMakerMZ {
             try? fm.removeItem(at: staging.appending(path: "js/plugins.js"))
+            try? fm.removeItem(at: staging.appending(path: "www/js/plugins.js"))
         }
         let validation = await Task.detached { ModValidator.validate(root: staging, engine: engine) }.value
         if let refusal = validation.refusal {
@@ -93,9 +94,14 @@ extension AppModel {
         do {
             try await Task.detached {
                 if isDirectory {
+                    var bytes: Int64 = 0
+                    try LazyDirectoryWalker.walk(root: source, skipHidden: false) { bytes += $0.fileSize; return .continue }
+                    try StorageBudget.require(.forCopy(bytes: bytes), at: staging)
                     try FileManager.default.copyItem(at: source, to: staging.appending(path: source.lastPathComponent))
                 } else if ["zip", "7z", "tar", "gz", "tgz", "xz", "bz2"].contains(ext) {
-                    _ = try LibArchiveExtractor().extract(source, to: staging)
+                    let extractor = LibArchiveExtractor()
+                    try StorageBudget.require(.forArchive(uncompressedSizeHint: extractor.preflight(source).declaredBytes), at: staging)
+                    _ = try extractor.extract(source, to: staging)
                 } else if let place = ModValidator.placement(forSingleFile: source.lastPathComponent, engine: engine) {
                     let target = staging.appending(path: place)
                     try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -106,8 +112,13 @@ extension AppModel {
                 } else {
                     throw ModFailure.unsupportedFile(source.lastPathComponent)
                 }
+                // The import's own audit: a symbolic link (a picked folder can hold one) would be served from outside the game.
+                _ = try PostExtractionAudit.run(root: staging, totals: RunningTotals(), sourceBytes: nil)
                 try ModValidator.normalise(staging, engine: engine, gameHasWWW: gameHasWWW)
             }.value
+        } catch let v as SafetyViolation {
+            try? FileManager.default.removeItem(at: staging)
+            throw ModFailure.refused("Rejected for safety: \(v.detail)\(v.entryPath.map { " at \($0)" } ?? "").")
         } catch {
             try? FileManager.default.removeItem(at: staging)
             throw error
@@ -207,14 +218,18 @@ extension AppModel {
         let generated = paths.tier(.generated, for: descriptor.id)
         let composeFor = descriptor.engine == .rpgMakerMV || descriptor.engine == .rpgMakerMZ
         await Task.detached {
+            // A game shipped in NW.js layout keeps its scripts under `www/`; mods were placed to match.
+            let prefix = FileManager.default.fileExists(atPath: gameRoot.appending(path: "www").path(percentEncoded: false)) ? "www/" : ""
             guard let index = try? PathIndex.open(at: indexURL) else { return }
             for mod in enabled {
                 try? index.rebuild(layer: "overrides/mods/\(mod.id)", root: root.appending(path: mod.id, directoryHint: .isDirectory))
             }
             guard composeFor else { return }
-            let composed = generated.appending(path: "js/plugins.js")
+            let composed = generated.appending(path: prefix + "js/plugins.js")
             let plugins = enabled.sorted { $0.priority < $1.priority }.flatMap { mod in
-                mod.filesJson.filter { $0.lowercased().hasPrefix("js/plugins/") && $0.lowercased().hasSuffix(".js") }.compactMap { rel in
+                mod.filesJson.filter {
+                    ModValidator.webRelative($0.lowercased()).hasPrefix("js/plugins/") && $0.lowercased().hasSuffix(".js")
+                }.compactMap { rel in
                     let url = root.appending(path: mod.id).appending(path: rel)
                     return (try? String(contentsOf: url, encoding: .utf8)).map {
                         PluginsJSMerger.Plugin(name: ((rel as NSString).lastPathComponent as NSString).deletingPathExtension, source: $0)
@@ -226,7 +241,7 @@ extension AppModel {
                 guard ours else { return }
                 try? FileManager.default.removeItem(at: composed)
             } else {
-                guard let original = try? String(contentsOf: gameRoot.appending(path: "js/plugins.js"), encoding: .utf8),
+                guard let original = try? String(contentsOf: gameRoot.appending(path: prefix + "js/plugins.js"), encoding: .utf8),
                       let text = PluginsJSMerger.compose(original: original, plugins: plugins) else {
                     OPLog.log(.importer, .error, "plugins.js could not be composed; mod plugins will not load")
                     return

@@ -2,6 +2,7 @@ import Diagnostics
 import Foundation
 import GameCore
 import GameImport
+import RuntimeCore
 import SaveKit
 
 /// Moves saves in and out of a game: ZIP export to the Files-visible folder, import of a ZIP, a folder or loose
@@ -70,16 +71,54 @@ struct SaveTransfer: Sendable {
         let tree = staging.appending(path: "tree")
         var isDir: ObjCBool = false
         fm.fileExists(atPath: source.path(percentEncoded: false), isDirectory: &isDir)
-        if isDir.boolValue {
-            try fm.copyItem(at: source, to: tree)
+        if isDir.boolValue { // free space first, as for mods and translations: a small ZIP can declare gigabytes
+            var bytes: Int64 = 0
+            try LazyDirectoryWalker.walk(root: source, skipHidden: false) { bytes += $0.fileSize; return .continue }
+            try StorageBudget.require(.forCopy(bytes: bytes), at: staging); try fm.copyItem(at: source, to: tree)
         } else if !saveExtensions.contains(source.pathExtension.lowercased()), (try? ContainerSniffer.identify(source)) == .zip {
             // A Ren'Py `.save` is itself a ZIP; picked on its own it is one save, not an archive of them.
+            try StorageBudget.require(.forArchive(uncompressedSizeHint: LibArchiveExtractor().preflight(source).declaredBytes), at: staging)
             _ = try LibArchiveExtractor().extract(source, to: tree)
         } else {
             try fm.createDirectory(at: tree.appending(path: "slots"), withIntermediateDirectories: true)
             try fm.copyItem(at: source, to: tree.appending(path: "slots/\(source.lastPathComponent)"))
         }
         return tree
+    }
+
+    /// The staged tree sorted for import. Ren'Py's `persistent` and `sync/` sit beside the slots (`slotData`): kept at
+    /// their own path, never renamed into a slot.
+    private struct Contents {
+        var manifest: SaveExportManifest?
+        var slotFiles: [URL] = []
+        var persistentFiles: [(URL, String)] = []
+        var slotData: [(URL, String)] = []
+        var links: [String] = []
+    }
+
+    private static func contents(of tree: URL) throws -> Contents {
+        var c = Contents()
+        try LazyDirectoryWalker.walk(root: tree) { entry in
+            guard !entry.isDirectory else { return .continue }
+            // A copied folder keeps its links; installed, one would make the game read a file outside its saves.
+            if (try? entry.url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
+                c.links.append(entry.relativePath)
+            } else if entry.url.lastPathComponent == SaveExportManifest.fileName {
+                // From an untrusted archive: read within the small-file bound, never whole.
+                c.manifest = (try? SmallFileGuard.read(entry.url, maxBytes: 1 << 20)).flatMap { try? JSONDecoder().decode(
+                    SaveExportManifest.self,
+                    from: $0
+                ) }
+            } else if let range = entry.relativePath.range(of: "persistent/") {
+                c.persistentFiles.append((entry.url, String(entry.relativePath[range.upperBound...])))
+            } else if let range = entry.relativePath.range(of: "slots/"), !SaveSlots.isSlot(entry.url.lastPathComponent) {
+                c.slotData.append((entry.url, String(entry.relativePath[range.upperBound...])))
+            } else if saveExtensions.contains(entry.url.pathExtension.lowercased()) || entry.relativePath.contains("slots/") {
+                c.slotFiles.append(entry.url)
+            }
+            return .continue
+        }
+        return c
     }
 
     /// Imports from a ZIP, a folder or a single save file. Nothing is written unless every file is recognised and,
@@ -90,30 +129,14 @@ struct SaveTransfer: Sendable {
         try fm.createDirectory(at: staging, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: staging) }
         let tree = try Self.stage(source, into: staging)
-        var manifest: SaveExportManifest?
-        var slotFiles: [URL] = []
-        var persistentFiles: [(URL, String)] = []
-        // Ren'Py's `persistent` and `sync/` sit beside the slots: kept at their own path, never renamed into a slot.
-        var slotData: [(URL, String)] = []
-        try LazyDirectoryWalker.walk(root: tree) { entry in
-            guard !entry.isDirectory else { return .continue }
-            if entry.url.lastPathComponent == SaveExportManifest.fileName {
-                // From an untrusted archive: read within the small-file bound, never whole.
-                manifest = (try? SmallFileGuard.read(entry.url, maxBytes: 1 << 20)).flatMap { try? JSONDecoder().decode(
-                    SaveExportManifest.self,
-                    from: $0
-                ) }
-            } else if let range = entry.relativePath.range(of: "persistent/") {
-                persistentFiles.append((entry.url, String(entry.relativePath[range.upperBound...])))
-            } else if let range = entry.relativePath.range(of: "slots/"), !SaveSlots.isSlot(entry.url.lastPathComponent) {
-                slotData.append((entry.url, String(entry.relativePath[range.upperBound...])))
-            } else if Self.saveExtensions.contains(entry.url.pathExtension.lowercased()) || entry.relativePath.contains("slots/") {
-                slotFiles.append(entry.url)
-            }
-            return .continue
-        }
+        let contents = try Self.contents(of: tree)
+        var (slotFiles, persistentFiles) = (contents.slotFiles, contents.persistentFiles)
+        let (manifest, slotData, links) = (contents.manifest, contents.slotData, contents.links)
+        guard links.isEmpty else { return .nothingRecognised(links.map { "\($0) is a link to another file, not a save." }) }
         guard !slotFiles.isEmpty || !persistentFiles.isEmpty || !slotData.isEmpty
         else { return .nothingRecognised(["No save files found in \(source.lastPathComponent)."]) }
+        let unseedable = Self.checkWebStorage(persistentFiles)
+        guard unseedable.isEmpty else { return .nothingRecognised(unseedable) }
         // RPG Maker MV/MZ saves from the PC editions go under the keys the web runtime reads, with their entries in the
         // game's save list (DesktopWebSaves); copied in under their own names they were never found, or stopped the game.
         var desktop = DesktopPlan()
@@ -183,6 +206,29 @@ struct SaveTransfer: Sendable {
         }
         OPLog.log(.save, .info, "imported \(plan.count + writes.count) save files into \(target.title)")
         return .installed(slots: plan.count - dataCount + desktop.slots, persistent: dataCount + desktop.persistent)
+    }
+
+    /// What `SaveBridge.seed` would refuse at launch, so the game would not start: a web storage file over the save cap,
+    /// all of them over the launch budget, or a web storage key that is not text under a readable name.
+    private static func checkWebStorage(_ files: [(URL, String)]) -> [String] {
+        var refused: [String] = []
+        var total = 0
+        for (url, rel) in files where rel.hasPrefix("webLocalStorage/") || rel.hasPrefix("webIndexedDB/") {
+            let name = url.lastPathComponent
+            guard let data = try? SmallFileGuard.read(url, maxBytes: SaveFileStore.maxBytes) else {
+                refused.append("\(name) could not be read within the 16 MB a save may hold."); continue
+            }
+            total += data.count
+            let stem = (name as NSString).deletingPathExtension
+            if rel.hasPrefix("webLocalStorage/"), stem.hasPrefix("ls."),
+               SaveKey.decodeWebStorage(stem) == nil || String(data: data, encoding: .utf8) == nil {
+                refused.append("\(name) is web storage that is not valid text.")
+            }
+        }
+        if total > SaveBridge.maxSeedBytes {
+            refused.append("The web storage files together exceed the 32 MB the game can load at launch.")
+        }
+        return refused
     }
 
     /// Refusals name files that are not saves; warnings name saves from another engine or another game.

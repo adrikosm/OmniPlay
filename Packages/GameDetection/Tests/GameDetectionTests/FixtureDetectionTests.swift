@@ -2,6 +2,7 @@ import Foundation
 import GameCore
 @testable import GameDetection
 import GameImport
+import MediaCompat
 import Testing
 import TestSupport
 
@@ -117,6 +118,20 @@ struct FixtureDetectionTests {
         let archive = try root.file("bad.xp3", Data(KiriKiriDetector.magicBytes) + withUnsafeBytes(of: &offset) { Data($0) })
         #expect(KiriKiriDetector.index(of: archive) == nil)
         #expect(KiriKiriDetector.inflate(Data(repeating: 0, count: 8), expected: 0) == nil)
+
+        // A Ren'Py version past Int.max is left unknown, not a crash; a 12-byte WebM whose child runs past its parent
+        // ends the walk.
+        let renpy = try TemporaryGameRoot(name: "renpy-digits")
+        defer { renpy.remove() }
+        try renpy.file("game/script.rpy", Data("label start:\n    return\n".utf8))
+        try renpy.file("game/script_version.txt", Data("(99999999999999999999, 0, 0)".utf8))
+        try renpy.file("renpy/__init__.py", Data("version_tuple = (99999999999999999999, 1, 2)".utf8))
+        let renpyCtx = try ScanContext(root: renpy.url)
+        defer { renpyCtx.close() }
+        let renpyReport = DetectionPipeline.standard.run(renpyCtx, title: "digits", identityHash: "h")
+        #expect(renpyReport.descriptor.engine == .renpy && renpyReport.descriptor.version == nil)
+        let webm = Data([0x1A, 0x45, 0xDF, 0xA3, 0x80, 0x18, 0x53, 0x80, 0x67, 0x81, 0x86, 0x81])
+        #expect(MediaProbe.identify(webm, path: "movies/x.webm").video == nil)
     }
 
     /// An MZ game whose plugins name `child_process` and a native addon (VisuStella's Message Core and OrangeMapshot

@@ -1,5 +1,4 @@
 diff --git a/platforms/web/shell.html b/platforms/web/shell.html
-index 474f73e..c441566 100644
 --- a/platforms/web/shell.html
 +++ b/platforms/web/shell.html
 @@ -56,7 +56,7 @@
@@ -11,19 +10,25 @@ index 474f73e..c441566 100644
                      document.documentElement.classList.add('krkr2-autoload');
                  }
                  if (params.get('debugEarlyLogs') === '1') {
-@@ -980,6 +980,11 @@
+@@ -980,6 +980,17 @@
              // mainwindow.tjs checkSave），一并纳入 IDB 持久化
              var isSavePath = path.startsWith('/savedata/') || path.startsWith('/save/') ||
                  path.indexOf('/savedata/') >= 0;
 +            if (omniplayHost && isSavePath) {
-+                fetch('/omniplay-save?path=' + encodeURIComponent(path), { method: 'POST', body: data.slice() })
-+                    .catch(function(e) { console.warn('[omniplay] save failed:', path, e); });
++                // One write at a time, so a later write of the same file always lands last. The host tells the player
++                // when a write fails; the page only logs it.
++                var body = data.slice();
++                omniplaySaveChain = omniplaySaveChain.then(function() {
++                    return fetch('/omniplay-save?path=' + encodeURIComponent(path), { method: 'POST', body: body });
++                }).then(function(resp) {
++                    if (!resp.ok) console.warn('[omniplay] save failed:', path, resp.status);
++                }).catch(function(e) { console.warn('[omniplay] save failed:', path, e); });
 +                return;
 +            }
              if (!Module._hostDirHandle) {
                  if (Module._saveSpaceId && isSavePath) idbSaveFile(path, data);
                  return;
-@@ -1187,6 +1192,10 @@
+@@ -1187,6 +1198,11 @@
          var xp3Url = urlParams.get('xp3');
          var gameZipUrl = urlParams.get('game');
          var entryXp3 = urlParams.get('entry');
@@ -31,10 +36,11 @@ index 474f73e..c441566 100644
 +        // remote files; ?omniplay=1 keeps saves with the host (POST /omniplay-save, restored from /omniplay-saves).
 +        var filesManifestUrl = urlParams.get('files');
 +        var omniplayHost = urlParams.get('omniplay') === '1';
++        var omniplaySaveChain = Promise.resolve();
          var rendererUrlParam = normalizeRendererUrlParam(urlParams.get('renderer'));
          var localZipPickerEnabled = @KRKR2_LOCAL_ZIP_PICKER_DEFAULT_VISIBLE@ || urlParams.has('pickZip');
  
-@@ -1635,7 +1644,17 @@
+@@ -1635,7 +1651,18 @@
                  if (userFileDepAdded) Module.removeRunDependency('user-file');
              }
  
@@ -45,22 +51,23 @@ index 474f73e..c441566 100644
 +                    applyRendererPreferenceFromUrl();
 +                    releaseDep();
 +                }).catch(function(e) {
-+                    console.warn('[omniplay] Failed to restore saves:', e);
-+                    applyRendererPreferenceFromUrl();
-+                    releaseDep();
++                    // Booting without the saves would let the game's next write replace them; the host has
++                    // already told the player why.
++                    console.error('[omniplay] Failed to restore saves:', e);
++                    statusElement.textContent = 'Saves could not be loaded.';
 +                });
 +            } else if (Module._saveSpaceId) {
                  statusElement.textContent = 'Restoring saves...';
                  idbRestoreSaves().then(function() {
                      applyRendererPreferenceFromUrl();
-@@ -1808,6 +1827,36 @@
+@@ -1808,6 +1835,36 @@
              }
          }
  
 +        // The host's saves for this game: [{path, data (base64)}], installed before the engine starts.
 +        async function omniplayRestoreSaves() {
 +            var resp = await fetch('/omniplay-saves', { method: 'POST' });
-+            if (!resp.ok) return;
++            if (!resp.ok) throw new Error('HTTP ' + resp.status);
 +            var files = await resp.json();
 +            if (!files.length) return;
 +            await waitForFS();
@@ -79,7 +86,7 @@ index 474f73e..c441566 100644
 +            await vlfsReady;
 +            var files = await (await fetch(url, { method: 'POST' })).json();
 +            for (var i = 0; i < files.length; i++)
-+                VLFS.registerRemote(files[i].path, encodeURI(files[i].path), files[i].size);
++                VLFS.registerRemote(files[i].path, files[i].path.split('/').map(encodeURIComponent).join('/'), files[i].size);
 +            console.log('[omniplay] ' + files.length + ' game files registered');
 +            // The archive or folder holding startup.tjs, as the host detected it.
 +            var startup = urlParams.get('startup');
@@ -90,7 +97,7 @@ index 474f73e..c441566 100644
          async function autoSelectSpace() {
              if (hasFileSystemAPI) return;
              var lastSpace = localStorage.getItem('krkr2-last-space');
-@@ -1817,8 +1866,12 @@
+@@ -1817,8 +1874,12 @@
              }
          }
  

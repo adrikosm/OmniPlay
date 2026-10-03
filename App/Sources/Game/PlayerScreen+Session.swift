@@ -278,6 +278,8 @@ extension PlayerScreen {
         // Removing the input views releases any held key, modifier or mouse button before resuming later.
         overlay.paused = true
         await model.pause()
+        // Left while the engine was pausing: no menu or frozen frame over a screen that is going away.
+        guard !leaving else { return }
         // The menu brings its own entrance; the system slide would fight it.
         withTransaction(\.disablesAnimations, true) { menuShown = true }
         // The menu opens at once; the game's frame, blurred once off the main thread, fades in behind it.

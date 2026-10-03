@@ -1,5 +1,6 @@
 import Diagnostics
 import Foundation
+import GameCore
 import Network
 import Synchronization
 
@@ -24,6 +25,8 @@ public actor UploadServer {
     public static let maxConnections = 8
     /// A browser that stops sending mid-file would otherwise keep `busy` set and refuse every later file.
     public static let idleTimeout: Duration = .seconds(60)
+    /// The whole request head; a peer trickling bytes would otherwise hold one of the few sockets indefinitely.
+    public static let headTimeout: Duration = .seconds(10)
 
     public nonisolated let stagingRoot: URL
     public nonisolated let token: String
@@ -89,6 +92,8 @@ public actor UploadServer {
             c.cancel()
         }
         connections.removeAll()
+        // Files of a session never sent with `done` are no use to anyone; a finished one has moved to the import.
+        try? FileManager.default.removeItem(at: sessionDirectory)
         continuation.finish()
         OPLog.log(.importer, .info, "wifi upload stopped")
     }
@@ -123,8 +128,10 @@ public actor UploadServer {
             var buffer = Data()
             var head: Head?
             var bodyStart = 0
+            let deadline = ContinuousClock.now + Self.headTimeout
             while head == nil {
-                guard let more = try await Self.receive(nw) else { return }
+                let left = deadline - .now
+                guard left > .zero, let more = try await Self.receive(nw, timeout: left) else { return }
                 buffer.append(more)
                 if let range = buffer.range(of: Data("\r\n\r\n".utf8)) {
                     head = try Self.parse(buffer[..<range.lowerBound])
@@ -166,6 +173,10 @@ public actor UploadServer {
         }
         guard head.contentLength >= 0, head.contentLength <= Self.maxFileBytes else {
             try await Self.write(nw, 413, "text/plain", Data("file too large".utf8)); return
+        }
+        if case let .insufficient(required, available, _) = StorageBudget.check(.forCopy(bytes: head.contentLength), at: stagingRoot) {
+            continuation.yield(.failed("\(safe): not enough free space (\(available >> 20) MB free, \(required >> 20) MB needed)"))
+            try await Self.write(nw, 413, "text/plain", Data("not enough free space on the phone".utf8)); return
         }
         busy = true
         defer { busy = false }
@@ -248,7 +259,7 @@ public actor UploadServer {
         )
     }
 
-    private static func receive(_ nw: NWConnection) async throws -> Data? {
+    private static func receive(_ nw: NWConnection, timeout: Duration = idleTimeout) async throws -> Data? {
         try await withThrowingTaskGroup(of: Data?.self) { group in
             group.addTask {
                 try await withTaskCancellationHandler {
@@ -270,7 +281,7 @@ public actor UploadServer {
                 }
             }
             group.addTask {
-                try await Task.sleep(for: idleTimeout)
+                try await Task.sleep(for: timeout)
                 throw CancellationError()
             }
             let first = try await group.next()!

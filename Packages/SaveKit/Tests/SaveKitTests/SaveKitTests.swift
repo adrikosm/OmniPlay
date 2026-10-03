@@ -86,6 +86,9 @@ struct SaveKitTests {
         #expect(BoundedDecode.lzStringBase64("oDANfGV07fwxTktW9HNez3f8GFHEmlnkWVXU2130A")?.utf16.count == 1035)
         let unicode = "{\"party\":\"e\u{301}😀\"}"
         #expect(BoundedDecode.lzStringBase64(LZString.compressToBase64(unicode)) == unicode)
+        // The editor's strict decoder keeps phrases as (prefix, unit) pairs; it must still round-trip exactly.
+        let repeated = String(repeating: unicode, count: 300)
+        #expect(LZString.decompressFromBase64(LZString.compressToBase64(repeated)) == repeated)
 
         // Read real ZIP members, never deserialize Ren'Py's executable save payload.
         for (runtime, expected) in [("3661.9", "1:01:01" as String?), ("1e100", nil), ("-1", nil)] {

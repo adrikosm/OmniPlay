@@ -23,9 +23,16 @@ init 999 python hide:
     if switches.get("rollback"):
         config.rollback_enabled = True
         config.hard_rollback_limit = 256
+    # The player's own "skip unseen" choice is kept in persistent while OmniPlay overrides it, and put back once
+    # nothing does (the Skip control in the pause menu shares the same record).
     if switches.get("skipUnseen"):
         config.allow_skipping = True
+        if persistent._omniplay_skip_unseen is None:
+            persistent._omniplay_skip_unseen = preferences.skip_unseen
         preferences.skip_unseen = True
+    elif persistent._omniplay_skip_unseen is not None:
+        preferences.skip_unseen = persistent._omniplay_skip_unseen
+        persistent._omniplay_skip_unseen = None
     if switches.get("skipSplash"):
         config.label_overrides["splashscreen"] = "_omniplay_no_splash"
 

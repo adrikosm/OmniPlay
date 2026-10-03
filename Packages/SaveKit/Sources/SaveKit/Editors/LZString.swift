@@ -57,7 +57,24 @@ public enum LZString {
             }
             return bits
         }
-        var dictionary: [[UInt16]] = [[], [], []]
+        // Entries as (prefix code, last unit) like the compressor, plus their first unit: a few bytes each however long
+        // the phrase, so a crafted chain of ever-longer phrases cannot make the dictionary outgrow the output.
+        var result: [UInt16] = []
+        var prefix = [-1, -1, -1], last: [UInt16] = [0, 0, 0], head: [UInt16] = [0, 0, 0]
+        func add(_ code: Int, _ unit: UInt16) {
+            prefix.append(code)
+            last.append(unit)
+            head.append(code < 0 ? unit : head[code])
+        }
+        func emit(_ code: Int) {
+            let start = result.count
+            var c = code
+            while c >= 0 {
+                result.append(last[c])
+                c = prefix[c]
+            }
+            result[start...].reverse()
+        }
         var enlargeIn = 4, numBits = 3
         let first: UInt16
         switch read(2) {
@@ -65,16 +82,16 @@ public enum LZString {
         case 1: first = UInt16(read(16))
         default: return ""
         }
-        dictionary.append([first])
-        var w: [UInt16] = [first]
-        var result: [UInt16] = [first]
+        add(-1, first)
+        var w = prefix.count - 1
+        result.append(first)
         while true {
             guard index <= input.count, !malformed else { return nil }
             var c = read(numBits)
             switch c {
             case 0, 1:
-                dictionary.append([UInt16(read(c == 0 ? 8 : 16))])
-                c = dictionary.count - 1
+                add(-1, UInt16(read(c == 0 ? 8 : 16)))
+                c = prefix.count - 1
                 enlargeIn -= 1
             case 2:
                 return malformed ? nil : String(decoding: result, as: UTF16.self)
@@ -84,19 +101,19 @@ public enum LZString {
                 enlargeIn = 1 << numBits
                 numBits += 1
             }
-            let entry: [UInt16]
-            if c < dictionary.count {
-                entry = dictionary[c]
-            } else if c == dictionary.count {
-                entry = w + [w[0]]
+            guard c >= 3, c <= prefix.count else { return nil }
+            // `c == prefix.count` is the phrase being defined: w plus its own first unit.
+            let entryHead = c < prefix.count ? head[c] : head[w]
+            if c < prefix.count {
+                emit(c)
             } else {
-                return nil
+                emit(w)
+                result.append(entryHead)
             }
-            result += entry
-            guard result.count <= limit, !entry.isEmpty else { return nil }
-            dictionary.append(w + [entry[0]])
+            guard result.count <= limit else { return nil }
+            add(w, entryHead)
             enlargeIn -= 1
-            w = entry
+            w = c
             if enlargeIn == 0 {
                 enlargeIn = 1 << numBits
                 numBits += 1

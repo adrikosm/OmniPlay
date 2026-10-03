@@ -79,13 +79,20 @@
         }
     }
 
-    /// One request's reply, delivered once: by the engine thread's callback or by the timeout, whichever comes first.
+    /// One request's reply, delivered once: by the engine thread's callback or by the backstop, whichever comes first.
+    /// The engine's queue has no cancel, so a request carries its own deadline: Ruby refuses one it drains after
+    /// `timeout` ("timedOut"), and an edit the player was told timed out never applies later.
     final class RubyRequest: @unchecked Sendable {
         static let timeout: Duration = .seconds(2)
+        // ponytail: an op Ruby started before the deadline but that runs longer than the gap still reports a timeout.
+        /// Past the deadline Ruby answers on its next frame; this only covers an engine that never reaches one.
+        static let backstop: Duration = .seconds(4)
         let lock = NSLock()
         var continuation: CheckedContinuation<String, Error>?
 
         static func send(_ body: [String: Any]) async throws -> [String: Any] {
+            var body = body
+            body["expires"] = Date.now.timeIntervalSince1970 + Double(timeout.components.seconds)
             let data = try JSONSerialization.data(withJSONObject: body)
             guard data.count <= 256 << 10, let json = String(data: data, encoding: .utf8) else {
                 throw StateBridgeError.engine("request too large")
@@ -100,12 +107,15 @@
                     request.finish(.success(reply.map { String(cString: $0) } ?? ""))
                 }, context)
                 Task {
-                    try? await Task.sleep(for: timeout)
+                    try? await Task.sleep(for: backstop)
                     request.finish(.failure(StateBridgeError.timedOut))
                 }
             }
             guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else {
                 throw StateBridgeError.engine("unreadable reply")
+            }
+            if object["error"] as? String == "timedOut" {
+                throw StateBridgeError.timedOut
             }
             return object
         }

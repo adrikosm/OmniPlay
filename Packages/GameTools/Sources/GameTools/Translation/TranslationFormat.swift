@@ -40,10 +40,14 @@ public enum TranslationFormatDetector {
     /// a file at a path, for telling a patched copy of its data from arbitrary files.
     public static func detect(root: URL, files: [String], engine: EngineFamily, gameHas: (String) -> Bool) -> TranslationDetection {
         let lower = files.map { $0.lowercased() }
-        if engine == .renpy, let tl = lower.first(where: { $0.hasPrefix("game/tl/") }) {
-            let parts = tl.split(separator: "/")
-            let language = parts.count > 3 ? String(parts[2]) : ""
-            if language == "none" || language.isEmpty {
+        if engine == .renpy, lower.contains(where: { $0.hasPrefix("game/tl/") }) {
+            // Ren'Py's language names are case-sensitive (`translate Russian …`), so the name keeps its case; `None`
+            // holds the game's own strings and names no language.
+            let named = files.lazy.map { $0.split(separator: "/").map(String.init) }.first { (parts: [String]) -> Bool in
+                parts.count > 3 && parts[0].lowercased() == "game" && parts[1].lowercased() == "tl" && parts[2].lowercased() != "none"
+            }
+            let language = named?[2] ?? ""
+            if language.isEmpty {
                 return TranslationDetection(
                     format: .renpyTL,
                     language: "",

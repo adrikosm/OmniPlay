@@ -205,6 +205,8 @@
             for _ in 0 ..< 40 where !mkxp_isPaused() {
                 try? await Task.sleep(for: .milliseconds(50))
             }
+            // `stop` may have run while this waited; it already took the frozen frame down.
+            guard !stopping else { return }
             host?.showFrozenFrame(snapshotImage())
         }
 

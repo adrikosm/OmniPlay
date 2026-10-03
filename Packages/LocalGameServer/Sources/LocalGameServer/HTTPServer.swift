@@ -33,7 +33,8 @@ public actor HTTPServer {
                 return candidate
             } catch {
                 attempts += 1
-                if attempts >= 10 {
+                // `stop()` cancelled the listener while it was binding: the session is over, so bind nothing else.
+                if attempts >= 10 || error is CancellationError {
                     throw error
                 }
                 OPLog.log(.web, .default, "port \(candidate) unavailable (\(error)); choosing another")
@@ -185,6 +186,14 @@ final class HTTPConnection: Sendable {
                     }
                     buffer.removeFirst(consumed)
                     if request.method == "POST" {
+                        // Up to 64 MiB per body on 16 connections: a body nobody routes is never read. The router's
+                        // refusal goes out and the connection closes, since the unread body would follow.
+                        guard router.acceptsPost(request.path) else {
+                            var refusal = await router.post(request)
+                            refusal.headers.append(("Connection", "close"))
+                            try await write(refusal, head: false)
+                            return
+                        }
                         let length = request.contentLength
                         while buffer.count < length {
                             guard let more = try await receive() else { return }

@@ -166,7 +166,8 @@ public enum MediaProbe {
         private static func walk(_ d: Data, _ start: Data.Index, _ end: Data.Index, depth: Int, into out: inout [String]) {
             var i = start
             while i < end, out.count < 16, depth < 6 {
-                guard let (id, afterID) = readID(d, i), let (size, afterSize) = readSize(d, afterID) else { return }
+                // A child header that runs past its parent's end (a truncated or crafted file) ends this level.
+                guard let (id, afterID) = readID(d, i), let (size, afterSize) = readSize(d, afterID), afterSize <= end else { return }
                 let bodyEnd = size == nil ? end : min(end, afterSize.advanced(by: Int(min(size!, UInt64(end - afterSize)))))
                 if id == codecID, let s = String(bytes: d[afterSize ..< bodyEnd], encoding: .ascii) {
                     out.append(s)

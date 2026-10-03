@@ -42,6 +42,10 @@ enum { OP_TRANSCODE_CANCELLED = -100000, OP_TRANSCODE_NOTHING = -100001 };
 int op_transcode(const char *input, const char *output, const op_transcode_spec *spec, op_progress progress,
                  void *context, char *error, int error_size);
 
+// Nonzero when a failure code says the same file will always fail (damaged, or no codec for it); anything else, such
+// as a full disk or a lost hardware encoder, may pass on another try.
+int op_transcode_permanent(int code);
+
 #ifdef __cplusplus
 }
 #endif

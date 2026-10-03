@@ -59,6 +59,7 @@ public enum MediaTranscoder {
         public let code: Int32
         public let message: String
         public var cancelled: Bool { code == OP_TRANSCODE_CANCELLED }
+        public var permanent: Bool { op_transcode_permanent(code) != 0 }
         public var description: String { message }
     }
 

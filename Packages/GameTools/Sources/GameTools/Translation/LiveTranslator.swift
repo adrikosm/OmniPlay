@@ -10,6 +10,8 @@ import Translation
 @MainActor
 public final class LiveTranslator {
     public static let batchLimit = 50
+    /// Lines waiting while a batch is out; a page drawing faster than that gets the rest asked again on a later draw.
+    static let queueLimit = 500
     /// English is the only target (user decision, 27 Sep 2026), whatever the device language.
     public static let english = Locale.Language(identifier: "en")
     /// The cache file's ceiling; past it the oldest half is dropped.
@@ -23,8 +25,10 @@ public final class LiveTranslator {
     /// Insertion order, for dropping the oldest entries.
     private var order: [String] = []
     private var queued: [String] = []
+    /// Queued or being translated; once answered, a line is in `cache` instead.
     private var asked: Set<String> = []
     private var flushing: Task<Void, Never>?
+    private var writing: Task<Void, Never>?
     private var failed = false
 
     /// `cacheFolder` is the game's persistent data folder; the file is named after the pair, e.g. `ja-en.json`.
@@ -55,16 +59,17 @@ public final class LiveTranslator {
 
     /// A line the engine could not translate from its dictionaries.
     public func submit(_ text: String) {
-        guard !failed, !text.isEmpty, text.count <= 2000, cache[text] == nil, asked.insert(text).inserted else { return }
+        guard !failed, !text.isEmpty, text.count <= 2000, cache[text] == nil, queued.count < Self.queueLimit,
+              asked.insert(text).inserted else { return }
         queued.append(text)
-        if queued.count >= Self.batchLimit {
-            flushing?.cancel()
-            flushing = Task { await flush() }
-        } else if flushing == nil {
-            flushing = Task {
+        // One flush at a time, never cancelled (a cancelled translation would read as a failure); it drains the
+        // whole queue, so lines added while it runs go in its next batch.
+        guard flushing == nil else { return }
+        flushing = Task {
+            if queued.count < Self.batchLimit {
                 try? await Task.sleep(for: .milliseconds(150))
-                await flush()
             }
+            await flush()
         }
     }
 
@@ -76,6 +81,7 @@ public final class LiveTranslator {
             do {
                 let fresh = try await Self.translate(batch, from: source, to: target)
                 remember(fresh)
+                asked.subtract(batch)
                 deliver(fresh)
             } catch {
                 // The pack went missing or the framework refused: live translation stops for this session, and the
@@ -120,16 +126,22 @@ public final class LiveTranslator {
         for (key, value) in fresh where cache.updateValue(value, forKey: key) == nil {
             order.append(key)
         }
-        var pairs = order.compactMap { key in cache[key].map { [key, $0] } }
-        var data = (try? JSONEncoder().encode(pairs)) ?? Data()
-        if data.count > Self.cacheLimit {
+        // The file's size, estimated without encoding on the main actor: both strings plus JSON punctuation. Trimmed at
+        // three quarters of the limit, so escaped quotes and slashes still leave the file under what `load` reads.
+        let estimate = order.reduce(0) { $0 + $1.utf8.count + (cache[$1]?.utf8.count ?? 0) + 8 }
+        if estimate > Self.cacheLimit / 4 * 3 {
             let dropped = order.prefix(order.count / 2)
             dropped.forEach { cache[$0] = nil }
             order.removeFirst(dropped.count)
-            pairs = order.compactMap { key in cache[key].map { [key, $0] } }
-            data = (try? JSONEncoder().encode(pairs)) ?? Data()
         }
-        try? FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: cacheURL, options: .atomic)
+        let pairs = order.compactMap { key in cache[key].map { [key, $0] } }
+        let url = cacheURL
+        // Encoded and written off the main actor, one write after another so the newest cache lands last.
+        writing = Task.detached(priority: .utility) { [previous = writing] in
+            await previous?.value
+            guard let data = try? JSONEncoder().encode(pairs) else { return }
+            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? data.write(to: url, options: .atomic)
+        }
     }
 }

@@ -8,10 +8,18 @@ public enum NameDecoder {
 
     /// Nil when names are already fine, or the name of the charset to pass as `hdrcharset`.
     public static func charset(for url: URL, extractor: LibArchiveExtractor) throws -> String? {
-        guard try extractor.preflight(url).undecodableNames else { return nil }
-        for charset in candidates where (try? extractor.preflight(url, hdrcharset: charset).undecodableNames) == false {
-            return charset
+        try preflight(url, extractor: extractor).charset
+    }
+
+    /// The charset and the header pass made with it, so the caller does not list a compressed tar once more.
+    public static func preflight(_ url: URL, extractor: LibArchiveExtractor) throws -> (charset: String?, preflight: ArchivePreflight) {
+        let plain = try extractor.preflight(url)
+        guard plain.undecodableNames else { return (nil, plain) }
+        for charset in candidates {
+            if let pre = try? extractor.preflight(url, hdrcharset: charset), !pre.undecodableNames {
+                return (charset, pre)
+            }
         }
-        return nil // libarchive falls back to raw bytes; the validator still normalises to NFC
+        return (nil, plain) // libarchive falls back to raw bytes; the validator still normalises to NFC
     }
 }

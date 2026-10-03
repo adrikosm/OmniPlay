@@ -45,8 +45,12 @@ public enum StorageBudget {
     public static let reserve: Int64 = 1 << 30
     public static let temporaryMultiplier = 1.5
 
+    /// Saturates at `Int64.max`: archive headers declare sizes up to 2^63, which must read as "too big", not trap.
     public static func needed(for estimate: StorageEstimate) -> Int64 {
-        estimate.required + Int64(Double(estimate.temporary) * temporaryMultiplier) + reserve
+        let temporary = Double(estimate.temporary) * temporaryMultiplier
+        let (sum, o1) = estimate.required.addingReportingOverflow(temporary < 0x1p63 ? Int64(temporary) : .max)
+        let (need, o2) = sum.addingReportingOverflow(reserve)
+        return o1 || o2 ? .max : need
     }
 
     public static func check(_ estimate: StorageEstimate, at url: URL) -> StorageVerdict {

@@ -4,7 +4,12 @@
   const contexts = new Set();
   const Native = window.AudioContext || window.webkitAudioContext;
   if (Native) {
-    const Tracked = function (...args) { const ctx = new Native(...args); contexts.add(ctx); return ctx; };
+    const Tracked = function (...args) {
+      const ctx = new Native(...args);
+      contexts.add(ctx);
+      if (paused) ctx.suspend();
+      return ctx;
+    };
     Tracked.prototype = Native.prototype;
     window.AudioContext = Tracked;
     if (window.webkitAudioContext) window.webkitAudioContext = Tracked;
@@ -51,6 +56,14 @@
     }
   };
   document.addEventListener("omniplay:speed", (e) => { speed = Math.max(1, e.detail | 0); call(installSpeed); });
+  // A page reloaded while the host is paused (WebContent crash) starts paused; RPG Maker's scene is stopped once it runs.
+  if (__OMNIPLAY_PROFILE__.paused) {
+    paused = true;
+    const wait = setInterval(() => {
+      if (!paused) return clearInterval(wait);
+      if (window.SceneManager?._scene) { clearInterval(wait); paused = false; setPaused(true); }
+    }, 100);
+  }
   document.addEventListener("omniplay:pause", () => setPaused(true));
   document.addEventListener("omniplay:resume", () => setPaused(false));
 })();

@@ -47,7 +47,7 @@ public struct KiriKiriDetector: Detector {
     }
 
     /// The file names in an XP3 index. Handles the plain header and the 2.28+ layout whose first offset (0x17) points
-    /// at a second header holding the real index offset. The index is bounded to 64 MiB compressed.
+    /// at a second header holding the real index offset. The index is bounded to 16 MiB (about 100k files), packed or not.
     static func index(of url: URL) -> [String]? {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
@@ -68,20 +68,21 @@ public struct KiriKiriDetector: Detector {
         var index: Data
         if flag[flag.startIndex] & 0x07 == 1 {
             guard fileSize - offset >= 17, let packed = u64(offset + 1), let size = u64(offset + 9),
-                  packed < 64 << 20, size < 256 << 20,
+                  packed < 16 << 20, size < 16 << 20,
                   (try? handle.seek(toOffset: offset + 17)) != nil, let body = try? handle.read(upToCount: Int(packed)),
                   body.count == Int(packed), let raw = inflate(body, expected: Int(size)) else { return nil }
             index = raw
         } else {
-            guard let size = u64(offset + 1), size < 64 << 20, (try? handle.seek(toOffset: offset + 9)) != nil,
+            guard let size = u64(offset + 1), size < 16 << 20, (try? handle.seek(toOffset: offset + 9)) != nil,
                   let raw = try? handle.read(upToCount: Int(size)), raw.count == Int(size) else { return nil }
             index = raw
         }
         return entries(in: index)
     }
 
-    static func entries(in index: Data) -> [String] {
-        let bytes = [UInt8](index)
+    static func entries(in index: Data) -> [String] { index.withUnsafeBytes { entries(in: $0) } }
+
+    private static func entries(in bytes: UnsafeRawBufferPointer) -> [String] {
         func u32(_ i: Int) -> UInt32 { UInt32(bytes[i]) | UInt32(bytes[i + 1]) << 8 | UInt32(bytes[i + 2]) << 16 | UInt32(bytes[i + 3]) <<
             24
         }

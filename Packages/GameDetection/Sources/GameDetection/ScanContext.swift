@@ -58,6 +58,23 @@ public final class ScanContext: Sendable {
         smallFile(logical, max: max).flatMap { String(data: $0, encoding: .utf8) ?? String(data: $0, encoding: .isoLatin1) }
     }
 
+    /// An RPG Maker ini: UTF-8, else Shift-JIS when that reads as Japanese (it has kana, or two high bytes in a row as
+    /// every kanji-only title has), else Windows-1252. Latin-1 turns a Shift-JIS title into mojibake, and Shift-JIS turns
+    /// a Western `Pokémon` (one high byte between letters) into kanji.
+    public func iniText(_ logical: String) -> String? {
+        guard let data = smallFile(logical, max: 64 << 10) else { return nil }
+        if let utf8 = String(data: data, encoding: .utf8) {
+            return utf8
+        }
+        let sjis = String(data: data, encoding: .shiftJIS)
+        let doubleByte = zip(data, data.dropFirst()).contains { $0 >= 0x80 && $1 >= 0x80 }
+        if let sjis, doubleByte
+            || sjis.unicodeScalars.contains(where: { (0x3040 ... 0x30FF).contains($0.value) || (0xFF66 ... 0xFF9F).contains($0.value) }) {
+            return sjis
+        }
+        return String(data: data, encoding: .windowsCP1252) ?? sjis ?? String(data: data, encoding: .isoLatin1)
+    }
+
     /// Direct children of a logical directory (sorted by key), at most `limit`.
     public func children(_ logical: String, limit: Int = 512) -> [IndexedEntry] {
         (try? index.children(layer: Self.layer, directoryKey: PathKey.normalize(logical), limit: limit)) ?? []

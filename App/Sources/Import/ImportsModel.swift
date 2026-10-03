@@ -50,6 +50,11 @@ final class ImportsModel {
         let txn = await coordinator.enqueue(source: source) {
             let id = try await pipeline.run($0, options: options)
             pipeline.completeHashingLater(id)
+            // A Wi-Fi upload lands in our own staging; imported, it is only a second copy of the game.
+            let staging = pipeline.paths.tier(.importStaging, for: id).standardizedFileURL.path(percentEncoded: false)
+            if url.standardizedFileURL.path(percentEncoded: false).hasPrefix(staging) {
+                try? FileManager.default.removeItem(at: url)
+            }
             return id
         }
         items.insert(ImportItem(transaction: txn, name: url.lastPathComponent, options: options), at: 0)

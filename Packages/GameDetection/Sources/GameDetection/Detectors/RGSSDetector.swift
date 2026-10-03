@@ -96,15 +96,14 @@ public struct RGSSDetector: Detector {
         return r
     }
 
-    /// Game.ini: runtime library, title and RTP name (UTF-8 or Shift-JIS).
+    /// Game.ini: runtime library, title and RTP name (`ScanContext.iniText` picks the encoding).
     private func readGameIni(
         _ ctx: ScanContext,
         report r: inout DetectorReport,
         generation: inout EngineGeneration?,
         conflict: inout Bool
     ) {
-        if let ini = ctx.smallFile("Game.ini", max: 64 << 10) {
-            let text = String(data: ini, encoding: .utf8) ?? String(data: ini, encoding: .shiftJIS) ?? ""
+        if let text = ctx.iniText("Game.ini") {
             let fields = Self.iniFields(text)
             if let lib = fields["library"] {
                 let gen: EngineGeneration? = lib.uppercased().contains("RGSS1") ? .rgss1 : lib.uppercased().contains("RGSS2") ? .rgss2 : lib

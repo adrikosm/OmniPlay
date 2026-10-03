@@ -33,7 +33,10 @@ public struct ImportPathValidator: Sendable {
         let unified = rawPath.replacingOccurrences(of: "\\", with: "/")
         guard !unified.isEmpty else { throw ImportPathError.empty }
         guard !unified.hasPrefix("/") else { throw ImportPathError.absolute }
-        guard unified.unicodeScalars.allSatisfy({ $0.value >= 0x20 && $0.value != 0x7F }) else {
+        // C1 controls (NEL is 0x85) and the line/paragraph separators split the seal manifest's lines like `\n` would.
+        guard unified.unicodeScalars.allSatisfy({
+            $0.value >= 0x20 && !(0x7F ... 0x9F).contains($0.value) && $0.value != 0x2028 && $0.value != 0x2029
+        }) else {
             throw ImportPathError.controlCharacter
         }
 

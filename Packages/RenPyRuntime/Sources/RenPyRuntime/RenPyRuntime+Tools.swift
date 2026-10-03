@@ -61,10 +61,18 @@
 
         public func setFastForward(_ mode: Int) {
             fastForward = mode
+            // `_preferences` is the player's own, saved with the game: the value before the first change is kept in
+            // persistent and put back when Skip goes off (omniplay_host.rpy shares the record with its switch).
+            let keep = "if persistent._omniplay_skip_unseen is None: persistent._omniplay_skip_unseen = _preferences.skip_unseen\n"
             let code = switch mode {
-            case 2: "_preferences.skip_unseen = False\nrenpy.config.skipping = 'slow'"
-            case 3: "_preferences.skip_unseen = True\nrenpy.config.skipping = 'slow'"
-            default: "_preferences.skip_unseen = False\nrenpy.config.skipping = None"
+            case 2: keep + "_preferences.skip_unseen = False\nrenpy.config.skipping = 'slow'"
+            case 3: keep + "_preferences.skip_unseen = True\nrenpy.config.skipping = 'slow'"
+            default: """
+                if persistent._omniplay_skip_unseen is not None and not __import__("omniplay_host").switches().get("skipUnseen"):
+                    _preferences.skip_unseen = persistent._omniplay_skip_unseen
+                    persistent._omniplay_skip_unseen = None
+                renpy.config.skipping = None
+                """
             }
             Task {
                 let reply = try? await send(["op": "exec", "code": code])

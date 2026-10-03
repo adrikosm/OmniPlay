@@ -11,10 +11,8 @@ public struct RenPyDetector: Detector {
         var r = DetectorReport()
         let hasRenpy = ctx.entry("renpy")?.isDir == true
         let firstScript = ctx.glob("game/*.rpyc", limit: 1).first
-        let hasGame = ctx.entry("game")?.isDir == true && (firstScript != nil || !ctx.glob("game/*.rpa", limit: 1).isEmpty || !ctx.glob(
-            "game/*.rpy",
-            limit: 1
-        ).isEmpty)
+        let hasGame = ctx.entry("game")?.isDir == true
+            && (firstScript != nil || !ctx.glob("game/*.rpa", limit: 1).isEmpty || !ctx.glob("game/*.rpy", limit: 1).isEmpty)
         guard hasRenpy || hasGame else { return r }
         r.claimFamily(.renpy, hasRenpy && hasGame ? 0.97 : 0.85)
         if hasRenpy {
@@ -40,8 +38,10 @@ public struct RenPyDetector: Detector {
             version = EngineVersion(parsing: String(m.1))
             r.add(id, .version(path: "renpy/vc_version.py", value: String(m.1)), 0.97, .fileContent, "Ren'Py \(m.1)")
         } else if let initFile = ctx.text("renpy/__init__.py", max: 256 << 10) {
-            if let m = initFile.firstMatch(of: /version_tuple\s*=\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/) {
-                version = EngineVersion(major: Int(m.1)!, minor: Int(m.2)!, patch: Int(m.3)!)
+            // Digits past Int.max (a hostile file) fail the parse and the version stays unknown.
+            if let m = initFile.firstMatch(of: /version_tuple\s*=\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/),
+               let major = Int(m.1), let minor = Int(m.2), let patch = Int(m.3) {
+                version = EngineVersion(major: major, minor: minor, patch: patch)
                 r.add(id, .version(path: "renpy/__init__.py", value: version!.raw), 0.95, .fileContent, "Ren'Py \(version!.raw)")
             } else if let m = initFile.firstMatch(of: /version\s*=\s*"Ren'Py ([0-9.]+)/) {
                 version = EngineVersion(parsing: String(m.1))
@@ -49,8 +49,9 @@ public struct RenPyDetector: Detector {
             }
         }
         if version == nil, let sv = ctx.text("game/script_version.txt", max: 4096),
-           let m = sv.firstMatch(of: /(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/) {
-            version = EngineVersion(major: Int(m.1)!, minor: Int(m.2)!, patch: Int(m.3)!)
+           let m = sv.firstMatch(of: /(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/),
+           let major = Int(m.1), let minor = Int(m.2), let patch = Int(m.3) {
+            version = EngineVersion(major: major, minor: minor, patch: patch)
             r.add(
                 id,
                 .version(path: "game/script_version.txt", value: version!.raw),
@@ -95,8 +96,8 @@ public struct RenPyDetector: Detector {
         if ctx.exists("renpy.wasm") || ctx.exists("renpy.js") {
             r.partial.exportPlatform = .web
         }
-        if ctx.entry("game/live2d")?.isDir == true || !ctx.glob("*live2d*", limit: 1)
-            .isEmpty {
+        // Only the game's own content: the engine ships renpy/gl2/live2d.py(c) in every full distribution.
+        if ctx.entry("game/live2d")?.isDir == true || !ctx.glob("game/*.model3.json", limit: 1).isEmpty {
             r.partial.warnings.append(.live2dRequiresLicensedCore)
         }
         r.partial.version = version
