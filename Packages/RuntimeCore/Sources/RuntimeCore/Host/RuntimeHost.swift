@@ -222,9 +222,10 @@ public protocol RuntimeHost: AnyObject, Sendable {
             window.rootViewController?.view.layoutIfNeeded()
         }
 
-        /// Gives the overlay back to the host's own view; called when the session ends.
+        /// Gives the overlay back to the host's own view and hides the engine's window; called when the session
+        /// ends. A hung engine's window must not stay over the library.
         public func releaseEngineWindow() {
-            engineWindow?.isHidden = false
+            engineWindow?.isHidden = true
             engineWindow = nil
             pin(overlayView, into: view)
         }

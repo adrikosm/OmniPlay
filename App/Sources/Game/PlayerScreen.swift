@@ -30,6 +30,10 @@ struct PlayerScreen: View {
     @State var controlsSurface: ControlsPassthroughView?
     /// When the current session started, for telling a failure at boot from one mid-play (RUNTIME-007).
     @State var startedAt = ContinuousClock.now
+    /// The engine stopped responding for `NativeWatchdog.hangLimit`: its failure is a hang, never a boot crash.
+    @State var hung = false
+    /// A boot failure is being handled; the engine's repeated reports of it are dropped.
+    @State var failing = false
     @State var pausedFrame: UIImage?
     /// The engine is still starting; shown only if that takes longer than a second.
     @State var starting = false
@@ -186,8 +190,7 @@ struct PlayerScreen: View {
             .onChange(of: model.runtimeFailure) { _, message in
                 guard !leaving, let message else { return }
                 model.runtimeFailure = nil
-                let category: FailureCategory = ContinuousClock.now - startedAt <= FallbackPolicy.bootWindow ? .crashAtBoot : .crashInPlay
-                fail(message, category: category)
+                fail(message, category: crashCategory)
             }
             .alert(leaving ? "Save could not be confirmed" : "Game problem", isPresented: Binding(get: { failure != nil }, set: {
                 if !$0 {

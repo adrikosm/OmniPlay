@@ -67,9 +67,9 @@ public actor SessionSlotLedger {
                 // A clean stop of a soft-restart engine means it parked, ready for any game of its own.
                 states[slot] = .fresh
             case .one:
-                if states[slot] != .spent {
-                    states[slot] = .boundTo(game)
-                }
+                // One-shot adapters say `.clean` only when the engine never booted (a failed prepare, a cancel):
+                // nothing was spent, so the slot is not bound to this game.
+                break
             }
         }
     }

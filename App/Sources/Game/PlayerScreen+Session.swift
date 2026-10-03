@@ -53,8 +53,11 @@ extension PlayerScreen {
     }
 
     func start() async {
+        // A fallback retry must not start behind a screen the player already left.
+        guard !leaving else { return }
         // Only the drawn controls accept touches; the rest of the hosted layer passes through to the game.
         startedAt = .now
+        hung = false
         model.runtimeFailure = nil
         overlay.layouts = model.controlsLayouts(for: game.id) ?? builtInControls
         overlay.padKey = "omniplay.controls.visible.\(game.id)"
@@ -79,7 +82,7 @@ extension PlayerScreen {
         case let .profileHint(key, value):
             model.remember(hint: key, value: value, for: game.id)
         case let .ended(status):
-            let category: FailureCategory = ContinuousClock.now - startedAt <= FallbackPolicy.bootWindow ? .crashAtBoot : .crashInPlay
+            let category = crashCategory
             // An engine that reported an error before ending says why; a clean end with nothing said is the game's Quit.
             if let message = model.runtimeFailure {
                 model.runtimeFailure = nil
@@ -89,6 +92,8 @@ extension PlayerScreen {
             } else {
                 fail("The game stopped with an error (status \(status)). The session log has the details.", category: category)
             }
+        case let .watchdogStalled(seconds) where seconds >= NativeWatchdog.hangLimit:
+            hung = true
         case let .gradeReached(grade):
             // UX-PERF-001: Play to the engine's first picture (the web runtime: RPG Maker's scene loop running).
             OPLog.log(.ui, .info, "launch timing: \(grade) after \(Self.ms(since: startedAt)) ms")
@@ -144,6 +149,11 @@ extension PlayerScreen {
         }
         do {
             _ = try await model.play(game, snapshot: snapshot, host: host)
+            // Paused while preparing or starting: the coordinator could not pause then, so it is paused now, before
+            // a native engine's window covers the menu.
+            if overlay.paused {
+                await model.pause()
+            }
             OPLog.log(.ui, .info, "launch timing: runtime started after \(Self.ms(since: startedAt)) ms")
             if let line = model.launchNotice {
                 withAnimation(reduceMotion ? nil : Theme.quick) { notice = line }
@@ -184,18 +194,33 @@ extension PlayerScreen {
         }
     }
 
+    /// How an engine's end or error is classed: a hang, else a crash at boot or in play by the time since start.
+    var crashCategory: FailureCategory {
+        if hung {
+            return .hang
+        }
+        return ContinuousClock.now - startedAt <= FallbackPolicy.bootWindow ? .crashAtBoot : .crashInPlay
+    }
+
     /// A failure at boot gets one retry on a sibling runtime (`FallbackPolicy`); anything else, or a second failure,
     /// is shown to the player.
     func fail(_ message: String, category: FailureCategory) {
+        guard !failing else { return }
+        failing = true
         Task {
             let elapsed = ContinuousClock.now - startedAt
-            if !leaving, let runtime = await model.fallbackCandidate(for: game, snapshot: snapshot, failure: category, elapsed: elapsed) {
-                withAnimation(reduceMotion ? nil : Theme.quick) {
-                    notice = "Trying a compatible runtime (\(DetectionExplainer.name(runtime)))…"
-                }
+            if !leaving, category.mayFallBack, elapsed <= FallbackPolicy.bootWindow {
+                // Stopped first: the stop spends the engine's slots, and the candidate must see which are left.
                 await model.stopPlaying(reason: .crash(detail: message))
-                await start()
-                return
+                guard !leaving else { return }
+                if let runtime = await model.fallbackCandidate(for: game, snapshot: snapshot, failure: category, elapsed: elapsed) {
+                    withAnimation(reduceMotion ? nil : Theme.quick) {
+                        notice = "Trying a compatible runtime (\(DetectionExplainer.name(runtime)))…"
+                    }
+                    failing = false
+                    await start()
+                    return
+                }
             }
             model.fallbackFailed(for: game.id)
             notice = nil
@@ -280,6 +305,8 @@ extension PlayerScreen {
     func leave() async {
         guard !leaving else { return }
         leaving = true
+        // A fallback that has not played through the boot window is not kept, and must not linger for a later launch.
+        model.pendingFallback[game.id] = nil
         model.cancelMediaPreparation()
         closeMenu()
         capture?.stop()

@@ -23,12 +23,13 @@ extension AppModel {
         activeCapture?.mapping = mapping ?? .rpgMaker
     }
 
+    /// Nil is the built-in pad. A stored `""` is the player choosing it, so the package layout is imported only while
+    /// the key is absent.
     func controlsLayouts(for id: GameID) -> ControlsLayoutSet? {
-        if let json = (try? store?.overrides.get(game: id, key: Self.controlsLayoutKey)).flatMap(\.self),
-           let set = try? JSONDecoder().decode(ControlsLayoutSet.self, from: Data(json.utf8)) {
-            return set
+        guard let json = (try? store?.overrides.get(game: id, key: Self.controlsLayoutKey)).flatMap(\.self) else {
+            return importPackageLayout(for: id)
         }
-        return importPackageLayout(for: id)
+        return try? JSONDecoder().decode(ControlsLayoutSet.self, from: Data(json.utf8))
     }
 
     func setControlsLayouts(_ set: ControlsLayoutSet?, for id: GameID) {

@@ -222,6 +222,10 @@ public actor RuntimeCoordinator {
     }
 
     private func stopCurrent(reason: RuntimeStopReason, grade: PlayabilityGrade?, peak: Int64?) async -> TeardownVerdict {
+        // A launch already given up on never ends; waiting on it again only adds another timeout to every stop.
+        if restartRequired, launchTask != nil {
+            return .restartRequired
+        }
         if let launchTask {
             launchTask.cancel()
             // The cancelled launch runs its own teardown under `stopTimeout` once it notices the cancellation, so this

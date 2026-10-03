@@ -207,6 +207,8 @@ final class AppModel {
 
     private func prepareAndPlay(_ record: GameRecord, snapshot: DetectionSnapshot, host: any RuntimeHost) async throws -> ActiveSession {
         guard let coordinator, let store else { throw CoordinatorError.busy }
+        // The screen's record is as its page opened; the runtime choice or a new detection may have changed the row.
+        let record = (try? store.games.fetch(id: record.id)) ?? record
         try Task.checkCancellation()
         let resolution = await freshResolution(for: record, snapshot: snapshot)
         try Task.checkCancellation()
@@ -279,9 +281,11 @@ final class AppModel {
             }
         #endif
         try Task.checkCancellation()
-        var updated = record
-        updated.lastPlayedAt = .now
-        try? store.games.update(updated)
+        // Only the play time changes, on the row as it is now (the Runtime page can re-detect during the session).
+        if var updated = try? store.games.fetch(id: record.id) {
+            updated.lastPlayedAt = .now
+            try? store.games.update(updated)
+        }
         return session
     }
 

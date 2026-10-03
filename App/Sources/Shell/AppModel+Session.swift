@@ -166,11 +166,13 @@ extension AppModel {
     }
 
     /// Re-resolves a stored report against the runtimes this build actually has (a game imported before
-    /// a runtime landed keeps its report; only the choice is refreshed).
+    /// a runtime landed keeps its report; only the choice is refreshed). The runtime choice is read from the stored
+    /// row: a page's `record` may predate the player changing it.
     func freshResolution(for record: GameRecord, snapshot: DetectionSnapshot) async -> RuntimeResolution {
-        await RuntimeResolver(registry: registry).resolve(
+        let stored = (try? store?.games.fetch(id: record.id)) ?? record
+        return await RuntimeResolver(registry: registry).resolve(
             snapshot.report,
-            override: pendingFallback[record.id] ?? record.manualRuntimeOverride
+            override: pendingFallback[record.id] ?? stored.manualRuntimeOverride
         )
     }
 

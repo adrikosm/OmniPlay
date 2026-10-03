@@ -16,7 +16,7 @@ public enum FailureCategory: String, Sendable, Codable {
 
     /// Failures another engine of the same family might not have. A crash mid-play, a memory kill or a hang is the
     /// game or the device, and changing engines behind the player's back would hide it.
-    var mayFallBack: Bool {
+    public var mayFallBack: Bool {
         switch self {
         case .engineRefusedContent, .missingRuntimeFeature, .crashAtBoot: true
         case .crashInPlay, .memoryKill, .hang, .userExit: false

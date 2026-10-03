@@ -51,6 +51,14 @@ struct GameDetailView: View {
         var lastPlayedAt: Date?
     }
 
+    /// The cover is seeded once: `game` is the record as the page opened, and `.task` runs again whenever the page
+    /// comes back, after a new cover may have replaced (and deleted) the old file.
+    init(game: GameRecord, autoplay: Bool = false) {
+        self.game = game
+        self.autoplay = autoplay
+        _artworkPath = State(initialValue: game.artworkPath)
+    }
+
     var wide: Bool { Adaptive.wide(vertical: verticalSizeClass, horizontal: horizontalSizeClass, type: typeSize) }
 
     var body: some View {
@@ -83,7 +91,6 @@ struct GameDetailView: View {
             ToolbarItem(placement: .topBarTrailing) { coverMenu }
         }
         .task {
-            artworkPath = game.artworkPath
             lowMemory = model.isLowMemory(game.id)
             await load()
             if let snapshot {
@@ -93,6 +100,14 @@ struct GameDetailView: View {
                 autoplayed = true
                 play()
             }
+            // Deleted elsewhere (the other tab's page, the shelf): this page has no game behind it any more.
+            guard let rows = model.store?.observeGame(id: game.id) else { return }
+            do {
+                for try await record in rows where record == nil && !deleting {
+                    dismiss()
+                    return
+                }
+            } catch {}
         }
         .onChange(of: showEngineFiles) { _, open in
             if !open {

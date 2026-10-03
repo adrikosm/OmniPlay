@@ -121,8 +121,9 @@ extension GameDetailView {
         deleting = true
         deleteError = nil
         let failure = await GameDeletion.run(game, keepSaves: keepSaves, store: store, paths: model.paths)
-        deleting = false
+        // Still `deleting` on success, so the page's row observation leaves the dismiss to this one.
         if let failure {
+            deleting = false
             deleteError = "The game could not be deleted: \(failure)"
         } else {
             dismiss()

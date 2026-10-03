@@ -348,7 +348,10 @@ struct LogTailView: View {
             defer { try? handle.close() }
             let start = max(0, Int(size) - tailBytes)
             try? handle.seek(toOffset: UInt64(start))
-            guard let data = try? handle.readToEnd(), let text = String(data: data, encoding: .utf8) else { return [] }
+            // A tail can start inside a multibyte character: its continuation bytes are skipped (that partial first
+            // line is dropped below anyway), or the whole tail would fail to decode.
+            guard let data = try? handle.readToEnd(), let text = String(bytes: data.drop { $0 & 0xC0 == 0x80 }, encoding: .utf8)
+            else { return [] }
             var lines = text.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
             if start > 0, !lines.isEmpty {
                 lines.removeFirst()

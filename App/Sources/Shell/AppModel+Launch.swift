@@ -57,6 +57,8 @@ extension AppModel {
         try? JSONEncoder().encode(["game": id.description]).write(to: url, options: .atomic)
         OPLog.log(.runtime, .info, "relaunching to \(id)")
         try? await Task.sleep(for: .milliseconds(200))
+        // The host sink buffers for a second; exit would drop the line above.
+        await OPLog.defaultSession.flatMap(OPLog.sink(for:))?.flush()
         exit(0)
     }
 
