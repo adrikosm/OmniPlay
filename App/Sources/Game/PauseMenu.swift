@@ -1,4 +1,5 @@
 import Foundation
+import InputKit
 import RuntimeCore
 import SwiftUI
 import UIKit
@@ -45,6 +46,18 @@ struct PauseMenu: View {
     @State private var takingScreenshot = false
     @AppStorage(Haptics.intensityKey) private var haptics = 0.7
     @State private var showLogs = false
+    @State private var showTools = false
+    @Environment(AppModel.self) private var model
+    /// The row a controller's D-pad is on; nil until a controller is used, so touch never shows a ring.
+    @State private var focus: Item?
+
+    /// What a controller can reach: up and down move through these, A presses, B or Options resumes.
+    enum Item: Hashable { case resume, screenshot, tools, controls, engineMenu, logs, leave }
+
+    private var items: [Item] {
+        [.resume, .screenshot] + (gameTools == nil ? [] : [.tools]) + (hasTouchControls ? [.controls] : [])
+            + (engineMenu == nil ? [] : [.engineMenu]) + [.logs, .leave]
+    }
 
     var body: some View {
         NavigationStack {
@@ -69,6 +82,10 @@ struct PauseMenu: View {
             .toolbarVisibility(.hidden, for: .navigationBar)
             .background { backdropView }
             .navigationDestination(isPresented: $showLogs) { LogTailView(url: logURL) }
+            .navigationDestination(isPresented: $showTools) { gameTools }
+            // Only while the menu itself is on screen: a pushed page (the controller mapping screen) takes buttons.
+            .onAppear { model.controllerListener = { controller($0) } }
+            .onDisappear { model.controllerListener = nil }
             .confirmationDialog("Leave the game?", isPresented: $confirmExit, titleVisibility: .visible) {
                 Button("Leave", role: .destructive) { close(then: onExit) }
             } message: {
@@ -94,6 +111,47 @@ struct PauseMenu: View {
         .ignoresSafeArea()
     }
 
+    /// D-pad up/down moves the ring, A presses the ringed row, B or Options resumes. With the Leave question up, A
+    /// leaves and B keeps playing.
+    private func controller(_ button: ControllerButton) {
+        if confirmExit {
+            switch button {
+            case .a: confirmExit = false; close(then: onExit)
+            case .b, .options: confirmExit = false
+            default: break
+            }
+            return
+        }
+        switch button {
+        case .dpadDown, .dpadUp:
+            let index = focus.flatMap { items.firstIndex(of: $0) } ?? (button == .dpadDown ? -1 : items.count)
+            focus = items[min(max(index + (button == .dpadDown ? 1 : -1), 0), items.count - 1)]
+        case .a: press(focus ?? .resume)
+        case .b, .options: close(then: onResume)
+        default: break
+        }
+    }
+
+    private func press(_ item: Item) {
+        switch item {
+        case .resume: close(then: onResume)
+        case .screenshot: takeScreenshot()
+        case .tools: showTools = true
+        case .controls: close(then: onEditControls)
+        case .engineMenu: close(then: onEngineMenu)
+        case .logs: showLogs = true
+        case .leave: confirmExit = true
+        }
+    }
+
+    private func takeScreenshot() {
+        takingScreenshot = true
+        Task {
+            screenshotResult = await onScreenshot()
+            takingScreenshot = false
+        }
+    }
+
     /// The fade-out first, then the action (resume, editor, leave), so nothing cuts away.
     private func close(then action: @escaping () -> Void) {
         withAnimation(Theme.quick) { shown = false } completion: { action() }
@@ -116,18 +174,14 @@ struct PauseMenu: View {
             HStack(spacing: 10) {
                 Button { close(then: onResume) } label: { Label("Resume", systemImage: "play.fill").padding(.horizontal, Theme.s2) }
                     .buttonStyle(PillButtonStyle(kind: .accent, height: 52))
-                Button {
-                    takingScreenshot = true
-                    Task {
-                        screenshotResult = await onScreenshot()
-                        takingScreenshot = false
-                    }
-                } label: {
+                    .ring(focus == .resume, radius: 26)
+                Button { takeScreenshot() } label: {
                     Image(systemName: takingScreenshot ? "hourglass" : "camera").contentTransition(.symbolEffect(.replace))
                 }
                 .buttonStyle(.round(52))
                 .disabled(takingScreenshot)
                 .accessibilityLabel("Take a screenshot")
+                .ring(focus == .screenshot, radius: 26)
             }
             .padding(.top, 22)
             .rise(3)
@@ -157,10 +211,11 @@ struct PauseMenu: View {
         VStack(alignment: .leading, spacing: Theme.s3) {
             GlassSection {
                 if let gameTools {
-                    NavigationLink { gameTools } label: {
+                    Button { showTools = true } label: {
                         ListRow(icon: "slider.horizontal.3", title: "Game Tools", minHeight: 44) { Chevron() }
                     }
                     .buttonStyle(.row)
+                    .ring(focus == .tools)
                 }
                 if hasTouchControls {
                     Button { close(then: onEditControls) } label: {
@@ -174,12 +229,14 @@ struct PauseMenu: View {
                         }
                     }
                     .buttonStyle(.row)
+                    .ring(focus == .controls)
                 }
                 if let engineMenu {
                     Button { close(then: onEngineMenu) } label: {
                         ListRow(icon: "list.bullet.rectangle", title: engineMenu, minHeight: 44) { Chevron() }
                     }
                     .buttonStyle(.row)
+                    .ring(focus == .engineMenu)
                 }
             }
             if hasTouchControls {
@@ -208,6 +265,7 @@ struct PauseMenu: View {
                     ListRow(icon: "doc.text", title: "Session log", minHeight: 44) { Chevron() }
                 }
                 .buttonStyle(.row)
+                .ring(focus == .logs)
                 Button { confirmExit = true } label: {
                     HStack(spacing: Theme.s3) {
                         Image(systemName: "xmark").font(.body).frame(width: 26).accessibilityHidden(true)
@@ -221,142 +279,20 @@ struct PauseMenu: View {
                 }
                 .buttonStyle(.row)
                 .accessibilityLabel("Leave game")
+                .ring(focus == .leave)
             }
         }
     }
 }
 
-/// The last 64 KiB of the session log as a terminal readout, newest at the bottom: time, level, source, message.
-/// Only errors get colour. Never reads the whole file.
-struct LogTailView: View {
-    let url: URL?
-    @State private var lines: [Line] = []
-    @State private var level: Level = .all
-    @State private var bundleURL: URL?
-    @State private var exportError: String?
-
-    enum Level: Hashable { case all, info, debug, errors }
-
-    struct Line: Identifiable {
-        let id: Int
-        let time: String
-        let level: String
-        let source: String
-        let message: String
-        var isError: Bool { level == "error" || level == "fault" }
-
-        /// `2026-09-25T06:27:00.782Z<TAB>info<TAB>runtime<TAB>message`; anything else is kept whole as the message.
-        init(id: Int, raw: String) {
-            self.id = id
-            let parts = raw.split(separator: "\t", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
-            guard parts.count == 4 else {
-                (time, level, source, message) = ("", "", "", raw)
-                return
-            }
-            let stamp = parts[0]
-            time = stamp.firstIndex(of: "T").map { String(stamp[stamp.index(after: $0)...].prefix(12)) } ?? stamp
-            (level, source, message) = (parts[1], parts[2], parts[3])
-        }
-    }
-
-    private var shown: [Line] {
-        switch level {
-        case .all: lines
-        case .info: lines.filter { $0.level == "info" || $0.level == "notice" }
-        case .debug: lines.filter { $0.level == "debug" }
-        case .errors: lines.filter(\.isError)
-        }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Theme.s3) {
-            GlassSegmentBar(
-                items: [(Level.all, "All"), (.info, "Info"), (.debug, "Debug"), (.errors, "Errors")],
-                selection: $level,
-                counts: [
-                    .all: lines.count, .info: lines.count { $0.level == "info" || $0.level == "notice" },
-                    .debug: lines.count { $0.level == "debug" }, .errors: lines.count(where: \.isError),
-                ]
-            )
-            .fixedSize()
-            .rise(0)
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(shown) { line in row(line) }
-                    Text(lines.isEmpty ? "Nothing logged yet." : "End of session")
-                        .foregroundStyle(Theme.textTertiary)
-                        .padding(.horizontal, Theme.s4).padding(.vertical, 10)
-                }
-                .font(Theme.mono)
-                .textSelection(.enabled)
-                .padding(.vertical, Theme.s2)
-            }
-            .defaultScrollAnchor(.bottom)
-            .glass(radius: Theme.listRadius)
-            .rise(1)
-            if let exportError {
-                Text(exportError).font(.footnote).foregroundStyle(Theme.danger)
+private extension View {
+    /// The controller's focus ring: the accent outline around the row the D-pad is on.
+    func ring(_ on: Bool, radius: CGFloat = 10) -> some View {
+        overlay {
+            if on {
+                RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(Theme.accent, lineWidth: 2)
+                    .allowsHitTesting(false)
             }
         }
-        .padding(.horizontal, Theme.s4)
-        .padding(.vertical, Theme.s3)
-        .task { lines = await Self.tail(url).enumerated().map { Line(id: $0.offset, raw: $0.element) } }
-        .navigationTitle("Session log")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                if let bundleURL {
-                    ShareLink(item: bundleURL) { Image(systemName: "square.and.arrow.up") }
-                        .tint(Theme.textPrimary)
-                        .accessibilityLabel("Share session bundle")
-                } else if let dir = url?.deletingLastPathComponent() {
-                    Button {
-                        Task {
-                            do { bundleURL = try await SessionBundle.export(sessionDirectory: dir) } catch {
-                                exportError = error.localizedDescription
-                            }
-                        }
-                    } label: { Image(systemName: "square.and.arrow.up") }
-                        .tint(Theme.textPrimary)
-                        .accessibilityLabel("Export session bundle")
-                }
-            }
-        }
-        .canvas()
-    }
-
-    private func row(_ line: Line) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 14) {
-            Text(line.time).foregroundStyle(Theme.textTertiary).lineLimit(1).fixedSize().frame(minWidth: 96, alignment: .leading)
-            Text(line.level).foregroundStyle(line.isError ? Theme.danger : Theme.textPrimary).frame(width: 44, alignment: .leading)
-            Text(line.source).foregroundStyle(Theme.textSecondary).frame(width: 76, alignment: .leading).lineLimit(1)
-            Text(line.message).foregroundStyle(line.isError ? Color(hex: 0xFFB3AE) : Theme.textPrimary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal, Theme.s4)
-        .padding(.vertical, 5)
-        .background(line.isError ? Theme.danger.opacity(0.14) : .clear)
-        .accessibilityElement(children: .combine)
-    }
-
-    nonisolated static let tailBytes = 64 << 10
-
-    nonisolated static func tail(_ url: URL?) async -> [String] {
-        guard let url else { return [] }
-        return await Task.detached {
-            guard let handle = try? FileHandle(forReadingFrom: url), let size = try? handle.seekToEnd() else { return [] }
-            defer { try? handle.close() }
-            let start = max(0, Int(size) - tailBytes)
-            try? handle.seek(toOffset: UInt64(start))
-            // A tail can start inside a multibyte character: its continuation bytes are skipped (that partial first
-            // line is dropped below anyway), or the whole tail would fail to decode.
-            guard let data = try? handle.readToEnd(), let text = String(bytes: data.drop { $0 & 0xC0 == 0x80 }, encoding: .utf8)
-            else { return [] }
-            var lines = text.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
-            if start > 0, !lines.isEmpty {
-                lines.removeFirst()
-            }
-            return lines.suffix(500).map(\.self)
-        }.value
     }
 }
