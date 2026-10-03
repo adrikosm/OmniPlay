@@ -11,3 +11,12 @@ sdk_version() { xcrun --sdk "$1" --show-sdk-version; }
 require_tools() { for tool in "$@"; do command -v "$tool" >/dev/null || { echo "$tool missing: run Scripts/bootstrap-mac.sh" >&2; exit 1; }; done; }
 # No pipe: under pipefail, head closing early can kill xcodebuild with SIGPIPE and fail the check on Xcode 27 itself.
 require_xcode() { [[ "$(xcodebuild -version)" == "Xcode 27"* ]] || { echo "Xcode 27 required (xcode-select -s)" >&2; exit 1; }; }
+# apply_patches <submodule> <patch dir>: OmniPlay's fixes to a pinned submodule. Each applies once: a patch already in
+# the tree reverses cleanly and is skipped.
+apply_patches() {
+  local patch
+  for patch in "$2"/*.patch(N); do
+    git -C "$1" apply --reverse --check "$patch" 2>/dev/null && continue
+    git -C "$1" apply "$patch" || { echo "cannot apply ${patch:t} to $1" >&2; exit 1; }
+  done
+}

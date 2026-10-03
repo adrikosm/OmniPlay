@@ -129,7 +129,8 @@ OP_EXPORT void op_godot_app_event(int event) {
 	switch (event) {
 	case 0: os->on_focus_out(); break;
 	case 1: os->on_enter_background(); break;
-	case 2: os->on_exit_background(); break;
+	// Paused from the menu: leave the engine asleep; on_exit_background would restart rendering and audio.
+	case 2: if (status == OP_GODOT_STATUS_RUNNING) os->on_exit_background(); break;
 	case 3: if (status == OP_GODOT_STATUS_RUNNING) os->on_focus_in(); break;
 	case 4:
 		if (OS::get_singleton()->get_main_loop())

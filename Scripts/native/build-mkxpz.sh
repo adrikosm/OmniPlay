@@ -25,12 +25,8 @@ OUTROOT="$NATIVE_ROOT/Native/prebuilt/mkxp-z"
 # The fork's hmode7 submodule is pinned through an SSH URL; a clone without GitHub keys needs the HTTPS mirror.
 git -C "$ENGINE" config submodule.hmode7.url https://github.com/mateo-m/hmode7-apple-mobile.git
 [[ -f "$ENGINE/hmode7/src/hm7_apply_opacity.h" ]] || git -C "$ENGINE" submodule update --init --depth 1 hmode7
-# OmniPlay's fixes to the fork live in Native/patches/mkxp-z, since the submodule stays on the fork's commit. Each
-# applies once: a patch already in the tree reverses cleanly and is skipped.
-for patch in "$NATIVE_ROOT"/Native/patches/mkxp-z/*.patch(N); do
-  git -C "$ENGINE" apply --reverse --check "$patch" 2>/dev/null && continue
-  git -C "$ENGINE" apply "$patch" || { echo "cannot apply ${patch:t} to Native/mkxp-z" >&2; exit 1; }
-done
+# OmniPlay's fixes to the fork live in Native/patches/mkxp-z, since the submodule stays on the fork's commit.
+apply_patches "$ENGINE" "$NATIVE_ROOT/Native/patches/mkxp-z"
 "$ENGINE/tools/fetch-deps-ios.sh" --sdk "$WANT"
 for sdk in $sdks; do
   tree="$ENGINE/deps/build-$sdk-$ARCH"; angle="$ENGINE/deps/ANGLE/$sdk"

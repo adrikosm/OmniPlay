@@ -47,6 +47,8 @@
         private var watchdog: NativeWatchdog?
         private var monitor: Task<Void, Never>?
         private var stopping = false
+        /// Between willResignActive and didBecomeActive ScummVM sits in its suspend loop and counts no frames.
+        private var inactive = false
         private var lastFrames: UInt = 0
         private var lastRead = ContinuousClock.now
 
@@ -164,8 +166,20 @@
             ]
             observers = events.map { name, event in
                 center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.library?.appEvent(event) }
+                    MainActor.assumeIsolated { self?.lifecycle(event) }
                 }
+            }
+        }
+
+        private func lifecycle(_ event: Int32) {
+            library?.appEvent(event)
+            if event == 0 {
+                inactive = true
+            }
+            if event == 3 {
+                inactive = false
+                // Measure from now, not across the suspension.
+                (lastFrames, lastRead) = (library?.frames ?? 0, .now)
             }
         }
 
@@ -182,7 +196,7 @@
                 (lastFrames, lastRead) = (frames, now)
                 return NativeWatchdog.Reading(
                     terminated: library.status == .exited,
-                    paused: library.status != .playing || stopping,
+                    paused: library.status != .playing || stopping || inactive,
                     framesPerSecond: fps
                 )
             }, onStall: { [weak self] stalled in

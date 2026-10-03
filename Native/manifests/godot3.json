@@ -1,7 +1,7 @@
 {
   "arch": "arm64",
   "artefact": "Native/prebuilt/godot3",
-  "built_at": "2026-09-28T08:22:24+00:00",
+  "built_at": "2026-10-03T15:45:49+00:00",
   "component": "godot3",
   "flags": {
     "iphoneos_min": "27.0",
@@ -9,10 +9,10 @@
   },
   "outputs": {
     "Godot3.xcframework/Info.plist": "82c1800c2606b8c0bd1c21ce90d68db50746aae578efe6406103c60ae1626109",
-    "Godot3.xcframework/ios-arm64-simulator/Godot3.framework/Godot3": "617036e4cae3baaad286fcdf3bb8b2b9effd894f5f58344ca2ec8a950f2f1b7d",
+    "Godot3.xcframework/ios-arm64-simulator/Godot3.framework/Godot3": "4702ecbfb58cdf052a581fe8253da9e7b5d790c3bbd66a4732599bd6df41007b",
     "Godot3.xcframework/ios-arm64-simulator/Godot3.framework/Info.plist": "056165dd772291e2283fc88fce747ed3b56bb2b8c0e7eb9854d3c6d2ebd5f3d0",
     "Godot3.xcframework/ios-arm64-simulator/Godot3.framework/_CodeSignature/CodeResources": "dd0c47c6614382d66e999dd1b21132b8b07817b61c4a45ad839c4bf1ade4e998",
-    "Godot3.xcframework/ios-arm64/Godot3.framework/Godot3": "419643f357cea6bc464e3ca4f62959bbce57c926b5755bc0d99c54cd73af125a",
+    "Godot3.xcframework/ios-arm64/Godot3.framework/Godot3": "29d2ffed6611ed162c6e1a78c92bc327f8cc8f20bbe90f57c6a56d218212fa9a",
     "Godot3.xcframework/ios-arm64/Godot3.framework/Info.plist": "c6ff80cfcd1aada6dad86cf05d6d9e7e212567449d0fdf466473446d5aaee6e3",
     "Godot3.xcframework/ios-arm64/Godot3.framework/_CodeSignature/CodeResources": "5934eafb13600e5da4943f7cb0851f071eb1e8f2e916b0776d4241cde7cc4708"
   },

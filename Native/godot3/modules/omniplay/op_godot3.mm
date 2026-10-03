@@ -84,8 +84,9 @@ OP_EXPORT void op_godot3_request(int command) {
 		}
 		break;
 	case OP_GODOT3_COMMAND_STOP:
+		// As in Godot 4: send what iOS sends on backgrounding (NOTIFICATION_APP_PAUSED, where games save).
 		if (status == OP_GODOT3_STATUS_RUNNING || status == OP_GODOT3_STATUS_PAUSED) {
-			os->on_focus_out();
+			os->on_enter_background();
 			[view stopRendering];
 			status = OP_GODOT3_STATUS_STOPPED;
 		}
@@ -122,6 +123,9 @@ OP_EXPORT void op_godot3_app_event(int event) {
 		return;
 	switch (event) {
 	case 0: os->on_focus_out(); break;
+	case 1: os->on_enter_background(); break;
+	// Paused from the menu: leave the engine asleep; on_exit_background would restart rendering.
+	case 2: if (status == OP_GODOT3_STATUS_RUNNING) os->on_exit_background(); break;
 	case 3: if (status == OP_GODOT3_STATUS_RUNNING) os->on_focus_in(); break;
 	default: break;
 	}
