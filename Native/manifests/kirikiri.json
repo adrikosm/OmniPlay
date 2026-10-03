@@ -1,7 +1,7 @@
 {
   "arch": "arm64",
   "artefact": "Native/prebuilt/kirikiri",
-  "built_at": "2026-09-23T04:18:01+00:00",
+  "built_at": "2026-10-03T16:17:47+00:00",
   "component": "kirikiri",
   "flags": {
     "iphoneos_min": "27.0",
@@ -9,10 +9,10 @@
   },
   "outputs": {
     "KrKr2Web/assets.zip": "9725ff566ae92bbb651f532546eb46e942d5d85c6dc97884f8c632e37732fd5c",
-    "KrKr2Web/index.html": "26160df50b58b92d6c89b46b424ae6aa055110ea2aec2e730f24b57b73f8ea3e",
+    "KrKr2Web/index.html": "ca7b81471c40c282b7ca27b10ce46363d972df02be7478fd9045cf95d1b644a6",
     "KrKr2Web/index.js": "12a456acd075e68f45345da381c8e5febc4f64752173ccdaca9c2496568b43ac",
-    "KrKr2Web/index.wasm": "2cb3dc7b0dcab7be555532d709e38b509a235a61661013cbd9f9758038a35bb2",
-    "KrKr2Web/sw.js": "7ba8a6a261236962e08e5707d8abb196ee0dd1287732b157431f33419030ee01",
+    "KrKr2Web/index.wasm": "db29bd7e284cc7338fcb3d1d4c2f1dd18fc3394b0fa9bfbcaec64dbeba18f78b",
+    "KrKr2Web/sw.js": "2e990a4e115d94eff9632b7652fe9a9017f90931c60b219e716cfffef24eab7e",
     "KrKr2Web/vlfs.js": "60d44bf41062d69e593f5930025aeaab7e48eddbb6b355a72e21783cfbc32e45"
   },
   "sdks": {
