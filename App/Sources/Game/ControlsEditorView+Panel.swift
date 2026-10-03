@@ -108,7 +108,14 @@ extension ControlsEditorView {
                 selected = nil
             }
             Divider()
-            Button("Discard changes", systemImage: "xmark", role: .destructive, action: onCancel)
+            Button("Discard changes", systemImage: "xmark", role: .destructive) {
+                if let before {
+                    padVisible = before.padVisible
+                    opacity = before.opacity
+                    hideWithController = before.hideWithController
+                }
+                onCancel()
+            }
         } label: {
             Image(systemName: "ellipsis").font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.textPrimary)
                 .frame(width: 36, height: 36).background(Theme.fill, in: .circle)

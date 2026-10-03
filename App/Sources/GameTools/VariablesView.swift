@@ -57,7 +57,7 @@ struct VariablesView: View {
                 }
                 .rise(1)
                 if hasMore {
-                    Button("Show more") { Task { await load(more: true) } }.buttonStyle(.link).frame(maxWidth: .infinity)
+                    Button("Show more") { Task { await load(more: true) } }.buttonStyle(.link).frame(maxWidth: .infinity).disabled(loading)
                 }
             }
             .padding(.horizontal, Theme.s4)
@@ -220,23 +220,33 @@ struct VariablesView: View {
 
     private func load(more: Bool) async {
         guard let category else { return }
+        // "Show more" runs outside the view's task, so cancellation alone does not catch a category or query change.
+        let asked = TaskKey(category: category, query: query)
+        var current: Bool { !Task.isCancelled && asked == TaskKey(category: self.category, query: query) }
         loading = true
-        defer { loading = false }
+        defer {
+            if current {
+                loading = false
+            }
+        }
         let next = more ? page.next : StatePage(size: page.size)
         do {
             let result = try await tools.list(category, query: query.isEmpty ? nil : query, page: next)
             // The category or query changed while the game answered; the newer request owns the list.
-            guard !Task.isCancelled else { return }
+            guard current else { return }
             entries = more ? entries + result.entries : result.entries
             page = next
             hasMore = result.hasMore
             problem = nil
         } catch StateBridgeError.timedOut {
+            guard current else { return }
             problem = "The game did not answer in time. Resume it for a moment, then try again."
         } catch StateBridgeError.notInGame {
+            guard current else { return }
             entries = []
             problem = "The game has not reached its first scene yet."
         } catch {
+            guard current else { return }
             problem = "This list is not available: \(error)"
         }
     }

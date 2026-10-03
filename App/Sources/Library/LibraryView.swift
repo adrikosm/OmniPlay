@@ -47,6 +47,7 @@ struct LibraryContent: View {
     @Environment(\.verticalSizeClass) var verticalSizeClass
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
     @Environment(\.dynamicTypeSize) var typeSize
+    @Environment(\.scenePhase) var scenePhase
     @State var viewModel: LibraryViewModel
     @Binding var path: [GameRecord]
     @Binding var autoplay: GameID?
@@ -116,9 +117,13 @@ struct LibraryContent: View {
             }
         #endif
             .onChange(of: model.pendingOpen) { _, id in
-                if let id, let target = viewModel.games.first(where: { $0.id == id }) {
+                guard let id else { return }
+                if let target = viewModel.games.first(where: { $0.id == id }) {
                     path = [target]
                     model.clearPendingOpen()
+                } else if viewModel.filter != .all {
+                    // A filtered shelf may not hold the game: show All, and the games onChange below opens it.
+                    viewModel.filter = .all
                 }
             }
             .onChange(of: viewModel.games.map(\.id), initial: true) { _, ids in
@@ -129,6 +134,13 @@ struct LibraryContent: View {
                 // First load, or the featured game left this filter: feature the one last played.
                 if featuredID.map(ids.contains) != true {
                     featuredID = recent?.id ?? ids.first
+                }
+            }
+            // The hidden shelf locks again once the app goes to the background (not on .inactive: the passcode sheet
+            // itself makes the scene inactive), so the next look asks again.
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .background, viewModel.filter == .hidden {
+                    viewModel.filter = .all
                 }
             }
             .confirmationDialog(

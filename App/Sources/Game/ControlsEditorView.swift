@@ -19,6 +19,9 @@ struct ControlsEditorView: View {
     @State var wiggle = false
     @AppStorage("omniplay.controls.opacity") var opacity = 0.8
     @AppStorage("omniplay.controls.hideWithController") var hideWithController = true
+    /// Pad visibility, opacity and hide-with-controller save as they change; Discard puts these back.
+    @State var before: Saved?
+    struct Saved { let padVisible: Bool, opacity: Double, hideWithController: Bool }
     @Environment(\.accessibilityReduceMotion) var reduceMotion
 
     static let dpadID = "dpad"
@@ -65,6 +68,7 @@ struct ControlsEditorView: View {
             }
         }
         .onAppear {
+            before = before ?? Saved(padVisible: padVisible, opacity: opacity, hideWithController: hideWithController)
             withAnimation(Theme.motion(Theme.sheet, reduce: reduceMotion)) { panelIn = true }
             wiggle = !reduceMotion
         }

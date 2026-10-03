@@ -50,6 +50,8 @@ struct ValueForm: View {
     let onApplied: () -> Void
     @State private var member: RosterMember?
     @State private var value = 0.0
+    /// The value last read from the game.
+    @State private var seen = 0.0
     @State private var draft = ""
     @State private var working = false
     @State private var note: String?
@@ -61,13 +63,16 @@ struct ValueForm: View {
         return (member ?? roster.first).map { .actorProperty(actorID: $0.id, stat.property) }
     }
 
+    /// The engines' own ceilings (RPG Maker MZ HP 999,999; MV/MZ/VX Ace gold 99,999,999), raised to the value the game
+    /// reported when a plugin lifts them, so Apply never lowers what is there.
     private var range: ClosedRange<Double> {
-        switch stat {
+        let cap: ClosedRange<Double> = switch stat {
         case .level?: 1 ... 99
         case .tp?: 0 ... 100
-        case .hp?, .mp?: 0 ... 9999
-        default: 0 ... 9_999_999
+        case .hp?, .mp?: 0 ... 999_999
+        default: 0 ... Double(OfflineSaveInspector.maxGold)
         }
+        return cap.lowerBound ... max(cap.upperBound, seen)
     }
 
     var body: some View {
@@ -145,6 +150,7 @@ struct ValueForm: View {
             current = await (try? tools.read(target)) ?? nil
         }
         if case let .int(number)? = current {
+            seen = Double(number)
             value = min(max(Double(number), range.lowerBound), range.upperBound)
         }
     }
