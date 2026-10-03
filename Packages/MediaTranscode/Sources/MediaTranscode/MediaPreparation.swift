@@ -56,7 +56,13 @@ public enum MediaPreparation {
         for c in old?.conversions ?? [] where !Task.isCancelled && !kept.contains(c.output) {
             try? FileManager.default.removeItem(at: generatedRoot.appending(path: c.output))
         }
-        return Plan(version: rulesVersion, engine: engine, conversions: conversions, aliases: aliases, failed: [:])
+        let plan = Plan(version: rulesVersion, engine: engine, conversions: conversions, aliases: aliases, failed: [:])
+        // Saved here, not only by `run`: a game with nothing to convert never reaches `run` and would be scanned again
+        // on every launch. An interrupted scan is incomplete and is not saved.
+        if !Task.isCancelled {
+            save(plan, generatedRoot: generatedRoot)
+        }
+        return plan
     }
 
     /// Conversions whose output does not exist yet (and that have not failed before).
