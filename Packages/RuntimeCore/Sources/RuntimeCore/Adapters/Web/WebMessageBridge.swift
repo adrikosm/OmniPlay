@@ -37,7 +37,13 @@
             case "omniplay.console":
                 let level = (body["level"] as? String ?? "log").prefix(8)
                 let text = (body["message"] as? String ?? "").prefix(4096)
-                OPLog.log(.javascript, level == "error" ? .error : .debug, "\(text)", session: session)
+                // Every line lands in web-console.log; only errors also go to host.log, so a chatty page cannot rotate
+                // the session's own lines out of it.
+                if level == "error" {
+                    OPLog.log(.javascript, .error, "\(text)", session: session)
+                } else {
+                    OPLog.logger(.javascript).debug("\(text, privacy: .public)")
+                }
                 onEvent(.console(level: String(level), message: String(text)))
             case "omniplay.translate":
                 if let text = body["text"] as? String, text.count <= 2000 {
