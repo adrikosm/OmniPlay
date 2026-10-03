@@ -106,8 +106,9 @@ enum RTPArchive {
     private static func libarchive(_ url: URL, to folder: URL, offset: Int64, paths: AppPaths) throws -> RunningTotals {
         let extractor = LibArchiveExtractor()
         // Japanese releases name their files in CP932; the same judge as a game import picks the charset.
-        let charset = offset == 0 ? try NameDecoder.charset(for: url, extractor: extractor) : nil
-        let pre = try extractor.preflight(url, hdrcharset: charset, offset: offset)
+        // One header pass that also gives the preflight (a compressed tar is read in full by each pass).
+        let (charset, pre) = try offset == 0 ? try NameDecoder.preflight(url, extractor: extractor)
+            : (nil, extractor.preflight(url, offset: offset))
         guard !pre.encrypted else { throw Failure.passwordProtected }
         let hint = pre.sizesKnown ? pre.declaredBytes : Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) * 4
         try StorageBudget.require(.forArchive(uncompressedSizeHint: hint), at: paths.root)
