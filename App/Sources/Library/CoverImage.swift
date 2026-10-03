@@ -22,15 +22,30 @@ struct CoverImage: View {
             }
         }
         .task(id: path) {
-            image = nil
-            guard let path else { return }
-            let url = HostSession.shared.paths.url(forStored: path)
+            guard let path else {
+                image = nil
+                return
+            }
             let max = Int(maxPixels)
+            // Each cover is written under a new name, so a path never comes back with other pixels.
+            let key = "\(max) \(path)" as NSString
+            if let cached = Self.cache.object(forKey: key) {
+                image = cached
+                return
+            }
+            image = nil
+            let url = HostSession.shared.paths.url(forStored: path)
             let thumbnail = await Task.detached { Self.thumbnail(url, maxPixels: max) }.value
             guard !Task.isCancelled else { return }
+            if let thumbnail {
+                Self.cache.setObject(thumbnail, forKey: key)
+            }
             image = thumbnail
         }
     }
+
+    /// Decoded tiles, so returning to the library or scrolling back does not decode (and flash) them again.
+    private static let cache = NSCache<NSString, CGImage>()
 
     nonisolated static func thumbnail(_ url: URL, maxPixels: Int) -> CGImage? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
