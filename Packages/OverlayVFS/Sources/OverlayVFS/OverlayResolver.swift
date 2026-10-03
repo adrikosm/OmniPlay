@@ -54,7 +54,7 @@ public enum OverlayError: Error, Equatable, Sendable {
 }
 
 /// The logical union `Overrides/* → Generated/ → Original/ → RTP/`. iOS has no filesystem overlay, so the
-/// union is resolved here, one lookup per layer in priority order, through the case-insensitive index.
+/// union is resolved here through the case-insensitive index: one lookup across the layers, the first in priority order wins.
 public struct OverlayResolver: Sendable {
     public let layers: [OverlayLayer]
     public let index: PathIndex
@@ -81,8 +81,9 @@ public struct OverlayResolver: Sendable {
         if let target = aliases[key] {
             key = target
         }
+        let found = (try? index.lookup(layers: layers.map(\.name), key: key)) ?? []
         for layer in layers {
-            if let e = try? index.lookup(layer: layer.name, key: key) {
+            if let e = found.first(where: { $0.layer == layer.name }) {
                 return Resolution(layer: layer, entry: e)
             }
         }
