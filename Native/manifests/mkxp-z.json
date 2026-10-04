@@ -1,14 +1,14 @@
 {
   "arch": "arm64",
   "artefact": "Native/prebuilt/mkxp-z",
-  "built_at": "2026-09-26T09:53:42+00:00",
+  "built_at": "2026-10-04T01:00:19+00:00",
   "component": "mkxp-z",
   "flags": {
     "iphoneos_min": "27.0",
     "macosx_min": "15.0"
   },
   "outputs": {
-    "iphoneos-arm64/.mkxp-core-fingerprint": "08cd05aad484c0aa9879b30847629fa66f783028c863c0d2faaeb9ab69484d93",
+    "iphoneos-arm64/.mkxp-core-fingerprint": "e5d6666c481ea1d9eda86b16daf39a3820a3a33ebdb4ca2cc5065e537a3d0e87",
     "iphoneos-arm64/deps/angle-include/CL/.clang-format": "f8405bf75d1ab2ed2e69b525a538b409b801812a7c71225da7bb46434f7dcc18",
     "iphoneos-arm64/deps/angle-include/CL/README.md": "4bb252e68432d973e9c27403ceeb87fa0dd8803626c34bd68c71edd9ed5c2748",
     "iphoneos-arm64/deps/angle-include/CL/cl.h": "065f453d561c93fde178f4821fa767d58505d179fc3c2d9725d072af1129644b",
@@ -811,11 +811,11 @@
     "iphoneos-arm64/deps/ruby-stdlib/3.1.0/uri/version.rb": "4781e817337da555169ed1302fa3519d95c3c79f758698479c784d8fc7d3f102",
     "iphoneos-arm64/deps/ruby-stdlib/3.1.0/uri/ws.rb": "f87b5b0649cbfe34f874b8a3b101b6c79b6e350d95c5f122aa54414d795f847f",
     "iphoneos-arm64/deps/ruby-stdlib/3.1.0/uri/wss.rb": "faf0a834191115e659726a0681f81555e3ffef13d025dd63434f81a764eee386",
-    "iphoneos-arm64/libmkxpz-core.a": "4dff58334c9caff014bb2dbe2bd4a4506854031dc8632d77194b755d6284af07",
+    "iphoneos-arm64/libmkxpz-core.a": "7b85b2298f5a65a7310040a8b3e1c79b85fbde58763b9ee14548bbd8a29b53d7",
     "iphoneos-arm64/mkxp18-merged.o": "fef8e9c226ed3f7963abb3e1074d466d3fec68fd6c941946bfe3d4be46d9e38f",
     "iphoneos-arm64/mkxp19-merged.o": "2589a8fe8337d7596c94d7c0d819cb748500ac6acbd6d28c94c435acb88db9f8",
     "iphoneos-arm64/mkxp31-merged.o": "eb903f408ab1831927ffaa2d3daa5cd79f46f07e3d823616383bb6371a0ea45f",
-    "iphonesimulator-arm64/.mkxp-core-fingerprint": "08cd05aad484c0aa9879b30847629fa66f783028c863c0d2faaeb9ab69484d93",
+    "iphonesimulator-arm64/.mkxp-core-fingerprint": "e5d6666c481ea1d9eda86b16daf39a3820a3a33ebdb4ca2cc5065e537a3d0e87",
     "iphonesimulator-arm64/deps/angle-include/CL/.clang-format": "f8405bf75d1ab2ed2e69b525a538b409b801812a7c71225da7bb46434f7dcc18",
     "iphonesimulator-arm64/deps/angle-include/CL/README.md": "4bb252e68432d973e9c27403ceeb87fa0dd8803626c34bd68c71edd9ed5c2748",
     "iphonesimulator-arm64/deps/angle-include/CL/cl.h": "065f453d561c93fde178f4821fa767d58505d179fc3c2d9725d072af1129644b",
@@ -1618,7 +1618,7 @@
     "iphonesimulator-arm64/deps/ruby-stdlib/3.1.0/uri/version.rb": "4781e817337da555169ed1302fa3519d95c3c79f758698479c784d8fc7d3f102",
     "iphonesimulator-arm64/deps/ruby-stdlib/3.1.0/uri/ws.rb": "f87b5b0649cbfe34f874b8a3b101b6c79b6e350d95c5f122aa54414d795f847f",
     "iphonesimulator-arm64/deps/ruby-stdlib/3.1.0/uri/wss.rb": "faf0a834191115e659726a0681f81555e3ffef13d025dd63434f81a764eee386",
-    "iphonesimulator-arm64/libmkxpz-core.a": "30af32576b3a9958d4eb99780448acdf448874bc41df45c16e6bd3927ded1bd1",
+    "iphonesimulator-arm64/libmkxpz-core.a": "4fb877bd5a60743b6ed2d1c7f483711cd47fddb7f34ae3e10ee43480808933f0",
     "iphonesimulator-arm64/mkxp18-merged.o": "2f50e34237b10fedd5a9afefb04994205525200c5ceb7e917671cecfc091b15a",
     "iphonesimulator-arm64/mkxp19-merged.o": "615f857e1aaf3a7b421d87b9cfc511c9dc1b633ede1ca890a33afe7941720587",
     "iphonesimulator-arm64/mkxp31-merged.o": "573a1f82d4b828000aa0afd40d36fa8c9a4e1a83e0b87ed150c301430f620ad4"

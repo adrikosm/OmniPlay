@@ -220,6 +220,10 @@ extension PlayerScreen {
             }
             model.fallbackFailed(for: game.id)
             notice = nil
+            // A hung engine's own window stays key above the app's and would hide the alert.
+            if host.engineWindow?.isHidden == false {
+                host.showFrozenFrame(nil)
+            }
             failure = message
             overlay.failed = true
         }

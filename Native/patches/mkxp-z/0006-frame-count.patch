@@ -1,0 +1,37 @@
+--- a/src/app_bridge.h
++++ b/src/app_bridge.h
+@@ -354,6 +354,11 @@
+ // Engine state queries
+ 
+ double      mkxp_getAverageFPS(void);
++
++// Graphics.frame_count: it moves with every Graphics.update and stops
++// when Ruby stops reaching one. The average above keeps its last value
++// while Ruby is stuck, so the host's hang watchdog reads this instead.
++int         mkxp_getFrameCount(void);
+ 
+ // The frame rate the game asks for (`Graphics.frame_rate`). Games
+ // set their own cap: RPG Maker XP games usually run at 40, VX and
+@@ -693,6 +698,7 @@
+ static inline int         mkxp_isTextInputActive(void) { return 0; }
+ 
+ static inline double      mkxp_getAverageFPS(void) { return 0.0; }
++static inline int         mkxp_getFrameCount(void) { return 0; }
+ static inline int         mkxp_getTargetFPS(void) { return 0; }
+ static inline int         mkxp_getRGSSVersion(void) { return 0; }
+ static inline const char *mkxp_getGameTitle(void) { return ""; }
+--- a/src/app_bridge.cpp
++++ b/src/app_bridge.cpp
+@@ -345,6 +345,12 @@
+     if (s_engineTerminated.load(std::memory_order_acquire)) return 0.0;
+     if (!SharedState::instance) return 0.0;
+     return SharedState::instance->graphics().averageFrameRate();
++}
++
++int mkxp_getFrameCount(void) {
++    if (s_engineTerminated.load(std::memory_order_acquire)) return 0;
++    if (!SharedState::instance) return 0;
++    return SharedState::instance->graphics().getFrameCount();
+ }
+ 
+ int mkxp_getTargetFPS(void) {

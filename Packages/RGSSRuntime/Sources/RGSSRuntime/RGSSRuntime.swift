@@ -365,13 +365,15 @@
         // MARK: Watchdog
 
         func startWatchdog() {
-            // The fork publishes its own hang flag; the frame rate falls to zero while the RGSS thread is blocked.
+            // The fork publishes its own hang flag. Graphics.frame_count stops while Ruby is stuck; the fork's average
+            // frame rate does not, since it keeps its last value until the next frame.
+            var fps = FrameRateSampler(frames: UInt(bitPattern: Int(mkxp_getFrameCount())))
             let watchdog = NativeWatchdog(read: {
                 NativeWatchdog.Reading(
                     terminated: mkxp_isEngineTerminated() != 0,
                     paused: mkxp_isPaused() || mkxp_isPauseRequested(),
                     hung: mkxp_isEngineHung() != 0,
-                    framesPerSecond: mkxp_getAverageFPS()
+                    framesPerSecond: fps.sample(UInt(bitPattern: Int(mkxp_getFrameCount())))
                 )
             }, onStall: { [weak self] stalled in
                 guard let self else { return }

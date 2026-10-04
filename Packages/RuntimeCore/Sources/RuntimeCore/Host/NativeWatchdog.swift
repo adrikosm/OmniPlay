@@ -31,6 +31,8 @@ public final class NativeWatchdog {
     public static let interval: Duration = .seconds(2)
     /// Stalled for this long and the session is treated as hung rather than slow.
     public static let hangLimit: Double = 10
+    /// Running this long without a first frame is a hang too, not a slow load; a cold RGSS boot measured about 11 s.
+    public static let firstFrameLimit: Double = 30
 
     private let read: @MainActor () -> Reading
     private let onStall: @MainActor (Double) -> Void
@@ -39,6 +41,8 @@ public final class NativeWatchdog {
     /// Nothing counts as a stall until the engine has drawn once. Loading a game legitimately takes seconds at
     /// zero frames a second, and a watchdog that cannot tell that from a hang is worse than none.
     private var hasDrawn = false
+    /// Unpaused, foreground seconds spent waiting for that first frame.
+    private var waitedForFirstFrame = 0.0
 
     /// `onStall` receives how long the engine has been stuck, every interval while it stays stuck.
     public init(read: @escaping @MainActor () -> Reading, onStall: @escaping @MainActor (Double) -> Void) {
@@ -82,15 +86,29 @@ public final class NativeWatchdog {
     private func tick() {
         let reading = read()
         guard !reading.terminated else { stop(); return }
-        guard !reading.paused else { stalledSince = nil; return }
+        // Read even while the app is inactive, so the next sample measures from now: an engine in the background
+        // or under Control Center draws nothing on purpose.
+        guard !reading.paused, Self.appActive else { stalledSince = nil; return }
         if reading.framesPerSecond >= Self.stallFPS {
             hasDrawn = true
+        } else if !hasDrawn {
+            waitedForFirstFrame += Self.interval / .seconds(1)
         }
-        let stuck = reading.hung || (hasDrawn && reading.framesPerSecond < Self.stallFPS)
+        let stuck = reading.hung || reading.framesPerSecond < Self.stallFPS && (hasDrawn || waitedForFirstFrame >= Self.firstFrameLimit)
         guard stuck else { stalledSince = nil; return }
         let since = stalledSince ?? Date()
         stalledSince = since
         onStall(Date().timeIntervalSince(since))
+    }
+}
+
+private extension NativeWatchdog {
+    static var appActive: Bool {
+        #if canImport(UIKit)
+            UIApplication.shared.applicationState == .active
+        #else
+            true
+        #endif
     }
 }
 
