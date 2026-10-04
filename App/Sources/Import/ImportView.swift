@@ -135,6 +135,8 @@ private struct ImportRow: View {
     let open: (GameID) -> Void
     let resolve: (@escaping (inout ImportPipeline.Options) -> Void) -> Void
     @State private var passphrase = ""
+    /// The work stops at its next safe point; until then the row says so.
+    @State private var cancelling = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.s2) {
@@ -144,8 +146,14 @@ private struct ImportRow: View {
                 Spacer(minLength: 0)
                 if case let .ready(id) = item.state {
                     Button("Show") { open(id) }.buttonStyle(.link)
+                } else if cancelling, !item.state.isTerminal {
+                    Text("Cancelling…").font(.footnote).foregroundStyle(Theme.textSecondary)
                 } else if !item.state.isTerminal {
-                    Button("Cancel") { item.cancel() }.buttonStyle(.link)
+                    Button("Cancel") {
+                        cancelling = true
+                        item.cancel()
+                    }
+                    .buttonStyle(.link)
                 }
             }
             switch item.state {

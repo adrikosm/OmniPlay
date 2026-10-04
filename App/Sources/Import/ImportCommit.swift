@@ -208,6 +208,9 @@ extension ImportPipeline {
         let gameRoot = paths.game(id)
         let original = paths.tier(.original, for: id)
         try FileManager.default.moveItem(at: plan.stagedRoot, to: original)
+        // Sealing a big tree takes seconds; a Cancel that came first is honoured before it, through the rollback every
+        // failed install already takes.
+        try Task.checkCancellation()
         try OriginalGuard.seal(originalRoot: original, manifest: gameRoot.appending(path: "original.manifest"), hashing: .deferred)
         try PathIndex.open(at: gameRoot.appending(path: "index.sqlite")).rebuild(
             layer: "original",

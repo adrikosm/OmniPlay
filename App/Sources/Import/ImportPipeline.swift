@@ -62,6 +62,9 @@ struct ImportPipeline: Sendable {
             directoryHint: .isDirectory
         )
 
+        // Detection and the commit cannot stop half-way and take seconds on a big game: a Cancel tapped before them
+        // lands here instead of after them.
+        try Task.checkCancellation()
         await txn.transition(to: .detecting)
         // A picked or uploaded folder (`wifi-<uuid>/MyGame/…`) is named by its game folder when the game sits inside one.
         let firstFolder = located.relativePath.split(separator: "/").first.map(String.init)
@@ -80,6 +83,7 @@ struct ImportPipeline: Sendable {
         await txn.transition(to: .resolvingRuntime)
         let resolution = await RuntimeResolver(registry: registry).resolve(report)
 
+        try Task.checkCancellation()
         await txn.transition(to: .registering)
         let plan = CommitPlan(
             stagedRoot: staged.root,
