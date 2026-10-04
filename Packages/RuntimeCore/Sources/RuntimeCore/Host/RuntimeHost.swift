@@ -19,6 +19,9 @@ public protocol RuntimeHost: AnyObject, Sendable {
         /// Hides the engine's window behind `image` (black when nil) so the host's sheets can be reached.
         func showFrozenFrame(_ image: CGImage?)
         func hideFrozenFrame()
+        /// For an engine that decides its orientation itself (Godot's project setting): the host holds that lock from
+        /// now on, also while the engine's window is hidden behind the pause menu.
+        func lockOrientation(_ preference: OrientationPreference)
     #endif
 }
 
@@ -29,7 +32,7 @@ public protocol RuntimeHost: AnyObject, Sendable {
     /// safe areas, and hosts the overlay above the surface. Released with the session.
     public final class RuntimeHostViewController: UIViewController, RuntimeHost {
         public let sessionID: SessionID
-        public let orientationPreference: OrientationPreference
+        public private(set) var orientationPreference: OrientationPreference
         public let containerView = UIView()
         /// Transparent layer above the surface; only its subviews catch touches. It follows the picture: when an
         /// adapter hands over an engine-owned window it moves into that window, because that window draws above ours.
@@ -91,6 +94,25 @@ public protocol RuntimeHost: AnyObject, Sendable {
             ])
             pauseButton.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(drag(_:))))
             overlayView.onLayout = { [weak self] in self?.positionPauseButton() }
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(sceneDidBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil
+            )
+        }
+
+        /// The Home screen is portrait, so the scene turns portrait in the background and back on return. SDL
+        /// engines that sit out the background in a wait loop (Ren'Py, EasyRPG) drop the resize that brings them back,
+        /// re-create their display at the portrait size and draw in a strip at the bottom left. Once they are back,
+        /// a one-point nudge of SDL's view sends them a fresh resize to the real size.
+        @objc private func sceneDidBecomeActive() {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(500))
+                guard let self, let window = engineWindow, frozenFrameView.isHidden,
+                      let root = window.rootViewController?.view else { return }
+                fit(window)
+                root.frame = window.bounds.insetBy(dx: 0, dy: 1)
+                root.layoutIfNeeded()
+                fit(window)
+            }
         }
 
         override public func viewDidLayoutSubviews() {
@@ -171,9 +193,16 @@ public protocol RuntimeHost: AnyObject, Sendable {
                 current.setNeedsUpdateOfSupportedInterfaceOrientations()
                 controller = current.presentedViewController
             }
+            // The engine's window is key and its controller is asked too (Godot 3 turned with the phone otherwise).
+            engineWindow?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
             if mask != .all {
                 view.window?.windowScene?.requestGeometryUpdate(.iOS(interfaceOrientations: mask))
             }
+        }
+
+        public func lockOrientation(_ preference: OrientationPreference) {
+            orientationPreference = preference
+            lockScene(to: supportedInterfaceOrientations)
         }
 
         override public var supportedInterfaceOrientations: UIInterfaceOrientationMask {

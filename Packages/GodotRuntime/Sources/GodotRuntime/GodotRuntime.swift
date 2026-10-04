@@ -16,7 +16,6 @@
     /// game per process: every stop is `.slotSpent`.
     @MainActor
     public final class GodotRuntime: GameRuntime {
-
         public enum Failure: Error, CustomStringConvertible {
             case notPrepared
             case engineMissing
@@ -107,9 +106,16 @@
                 try await Task.sleep(for: .milliseconds(100))
             }
             guard library.frames >= 3 else { throw Failure.noFrames }
+            // Godot's view controller answers with the project's handheld orientation once set up. The host holds it,
+            // because the scene asks the app, not Godot, while Godot's window is hidden behind the pause menu; left to
+            // follow the device the game came back portrait from Home (Godot 4) or turned with the phone (Godot 3).
+            let mask = window.rootViewController?.supportedInterfaceOrientations ?? .all
+            let orientation: OrientationPreference =
+                mask.isSubset(of: .landscape) ? .landscape : mask.isSubset(of: [.portrait, .portraitUpsideDown]) ? .portrait : .any
+            host.lockOrientation(orientation)
             observeLifecycle()
             host.runtimeDidEmit(.gradeReached(.intro))
-            OPLog.log(.runtime, .info, "godot drawing", session: configuration.sessionID)
+            OPLog.log(.runtime, .info, "godot drawing, \(orientation)", session: configuration.sessionID)
         }
 
         /// Godot 3 and 4 read `UIApplication.shared.delegate.window` on every frame once the device's motion sensors
