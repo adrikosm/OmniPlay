@@ -143,10 +143,11 @@ public protocol RuntimeHost: AnyObject, Sendable {
             let safe = overlayView.safeAreaLayoutGuide.layoutFrame
             guard safe.width > 0, safe.height > 0 else { return }
             // Kept whole inside the safe area: in landscape the top inset is zero and 4% of the height is less
-            // than half the button, which left it hanging off the screen.
-            let half = 22.0
-            pauseCenterX?.constant = min(max(safe.width * pausePosition.x, half), safe.width - half)
-            pauseCenterY?.constant = min(max(safe.height * pausePosition.y, half), safe.height - half)
+            // than half the button, which left it hanging off the screen. In portrait the side insets are zero too,
+            // so it keeps a margin from the edge as well.
+            let inset = 22.0 + 8
+            pauseCenterX?.constant = min(max(safe.width * pausePosition.x, inset), safe.width - inset)
+            pauseCenterY?.constant = min(max(safe.height * pausePosition.y, inset), safe.height - inset)
         }
 
         @objc private func drag(_ pan: UIPanGestureRecognizer) {

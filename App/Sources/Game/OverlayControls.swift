@@ -83,6 +83,9 @@ struct OverlayControls: View {
     @AppStorage("omniplay.controls.hideWithController") private var hideWithController = true
     @AppStorage("omniplay.tip.editControls") private var tipShown = false
     @State private var tip = false
+    /// Puts the row level with the host's pause button, which by default sits a tenth of the way down: in portrait that
+    /// is well below 20 points, and the button hung on a row of its own.
+    @State private var rowTop = 20.0
     /// A swipe on the buttons also ends as a tap on one of them; that tap is dropped.
     @State private var swipedAt: ContinuousClock.Instant?
     @State private var holdingSpeed = false
@@ -134,7 +137,7 @@ struct OverlayControls: View {
                     Spacer()
                 }
                 .padding(.horizontal, Theme.s3)
-                .padding(.top, 20)
+                .padding(.top, rowTop)
                 .animation(reduceMotion ? nil : Theme.quick, value: overlay.keyStrip)
                 .animation(reduceMotion ? nil : Theme.quick, value: overlay.chromeHidden)
                 .overlay(alignment: .top) {
@@ -154,6 +157,7 @@ struct OverlayControls: View {
         }
         .onPreferenceChange(ControlHitRegions.self, perform: onHitRegions)
         .onGeometryChange(for: Bool.self) { $0.size.width > $0.size.height } action: { overlay.landscape = $0 }
+        .onGeometryChange(for: Double.self) { max(20, $0.size.height * 0.1 - 22) } action: { rowTop = $0 }
         .animation(reduceMotion ? nil : Theme.quick, value: overlay.padVisible)
         .task {
             // Once per install, a moment after the game appears, then it fades.
