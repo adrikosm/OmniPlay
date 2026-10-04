@@ -179,8 +179,9 @@ struct GameDetailView: View {
                 }
             }
             .rise(0)
+            // Smaller beside the cover: a two-line title at 50 pushed the stats under the tab bar in landscape.
             Text(game.title)
-                .display(50)
+                .display(wide ? 40 : 50)
                 .lineLimit(2)
                 .minimumScaleFactor(0.55)
                 .fixedSize(horizontal: false, vertical: true)
