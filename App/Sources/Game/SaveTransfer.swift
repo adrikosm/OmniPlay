@@ -65,8 +65,8 @@ struct SaveTransfer: Sendable {
     }
 
     /// The import's files under `staging/tree`: a folder copied, a ZIP extracted through the import's safety limits,
-    /// or a single file placed as a slot.
-    private static func stage(_ source: URL, into staging: URL) throws -> URL {
+    /// or a single file placed as a slot. Also the ZIP's link entries, which extraction leaves out.
+    private static func stage(_ source: URL, into staging: URL) throws -> (tree: URL, links: [String]) {
         let fm = FileManager.default
         let tree = staging.appending(path: "tree")
         var isDir: ObjCBool = false
@@ -77,13 +77,14 @@ struct SaveTransfer: Sendable {
             try StorageBudget.require(.forCopy(bytes: bytes), at: staging); try fm.copyItem(at: source, to: tree)
         } else if !saveExtensions.contains(source.pathExtension.lowercased()), (try? ContainerSniffer.identify(source)) == .zip {
             // A Ren'Py `.save` is itself a ZIP; picked on its own it is one save, not an archive of them.
-            try StorageBudget.require(.forArchive(uncompressedSizeHint: LibArchiveExtractor().preflight(source).declaredBytes), at: staging)
-            _ = try LibArchiveExtractor().extract(source, to: tree)
+            let preflight = try LibArchiveExtractor().preflight(source)
+            try StorageBudget.require(.forArchive(uncompressedSizeHint: preflight.declaredBytes), at: staging)
+            _ = try LibArchiveExtractor().extract(source, to: tree); return (tree, preflight.links)
         } else {
             try fm.createDirectory(at: tree.appending(path: "slots"), withIntermediateDirectories: true)
             try fm.copyItem(at: source, to: tree.appending(path: "slots/\(source.lastPathComponent)"))
         }
-        return tree
+        return (tree, [])
     }
 
     /// The staged tree sorted for import. Ren'Py's `persistent` and `sync/` sit beside the slots (`slotData`): kept at
@@ -96,9 +97,9 @@ struct SaveTransfer: Sendable {
         var links: [String] = []
     }
 
-    private static func contents(of tree: URL) throws -> Contents {
-        var c = Contents()
-        try LazyDirectoryWalker.walk(root: tree) { entry in
+    private static func contents(of staged: (tree: URL, links: [String])) throws -> Contents {
+        var c = Contents(links: staged.links)
+        try LazyDirectoryWalker.walk(root: staged.tree) { entry in
             guard !entry.isDirectory else { return .continue }
             // A copied folder keeps its links; installed, one would make the game read a file outside its saves.
             if (try? entry.url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
@@ -128,8 +129,7 @@ struct SaveTransfer: Sendable {
         let staging = paths.tier(.importStaging, for: target.id).appending(path: "saves-\(UUID().uuidString)", directoryHint: .isDirectory)
         try fm.createDirectory(at: staging, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: staging) }
-        let tree = try Self.stage(source, into: staging)
-        let contents = try Self.contents(of: tree)
+        let contents = try Self.contents(of: Self.stage(source, into: staging))
         var (slotFiles, persistentFiles) = (contents.slotFiles, contents.persistentFiles)
         let (manifest, slotData, links) = (contents.manifest, contents.slotData, contents.links)
         guard links.isEmpty else { return .nothingRecognised(links.map { "\($0) is a link to another file, not a save." }) }

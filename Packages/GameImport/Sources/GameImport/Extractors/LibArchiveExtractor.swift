@@ -10,6 +10,8 @@ public struct ArchivePreflight: Sendable, Hashable {
     public var encrypted = false
     /// Some entry names could not be decoded as UTF-8; retry with `hdrcharset: "CP932"`.
     public var undecodableNames = false
+    /// Link entries, which extraction skips; the first ten names, so a caller can say why nothing usable came out.
+    public var links: [String] = []
 }
 
 public enum ExtractionError: Error, Sendable, Hashable {
@@ -66,6 +68,9 @@ public struct LibArchiveExtractor: Sendable {
             }
             if archive_entry_is_encrypted(entry) != 0 {
                 result.encrypted = true
+            }
+            if Self.kind(archive_entry_filetype(entry)) == .symlink || archive_entry_hardlink(entry) != nil, result.links.count < 10 {
+                result.links.append(archive_entry_pathname_utf8(entry).map { String(cString: $0) } ?? "(unnamed entry)")
             }
             if result.entries > limits.maxEntries {
                 break
