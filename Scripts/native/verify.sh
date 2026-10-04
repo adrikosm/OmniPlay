@@ -8,6 +8,11 @@ for manifest in Native/manifests/${1:-*}.json; do
   [[ -f "$manifest" ]] || { echo "verify: no manifest for ${1:-any component}" >&2; exit 2; }
   python3 - "$manifest" <<'PY' || rc=1
 import hashlib, json, os, sys
+def _sha256(fh):  # hashlib.file_digest needs Python 3.11; Xcode's python3 is 3.9
+    h = hashlib.sha256()
+    for chunk in iter(lambda: fh.read(1 << 20), b""):
+        h.update(chunk)
+    return h
 m = json.load(open(sys.argv[1]))
 bad = []
 for rel, want in m["outputs"].items():
@@ -15,7 +20,7 @@ for rel, want in m["outputs"].items():
     if not os.path.exists(p):
         bad.append(f"missing {rel}"); continue
     with open(p, "rb") as fh:
-        if hashlib.file_digest(fh, "sha256").hexdigest() != want:
+        if _sha256(fh).hexdigest() != want:
             bad.append(f"changed {rel}")
 if bad:
     print(f"verify {m['component']}: FAILED " + "; ".join(bad[:5]))
