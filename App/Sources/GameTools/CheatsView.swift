@@ -46,41 +46,28 @@ struct CheatsView: View {
 
     var body: some View {
         let groups = CheatHeader.Group.allCases.map { group in (group, headers.filter { $0.group == group }) }.filter { !$0.1.isEmpty }
-        ScrollView {
-            Group {
-                if headers.isEmpty {
-                    if readingRoster {
-                        ProgressView("Reading the party…").frame(maxWidth: .infinity).padding(.top, Theme.s8)
-                    } else {
-                        ContentUnavailableView(
-                            "No cheats available", systemImage: "sparkle",
-                            description: Text("This game's engine does not expose values cheats can change.")
-                        )
-                    }
-                } else if wide {
-                    HStack(alignment: .top, spacing: Theme.s6) {
-                        if let setup {
-                            lists(groups).frame(maxWidth: 440)
-                            form(setup)
-                                .frame(maxWidth: 320)
-                                .id(setup)
-                                .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
-                        } else {
-                            // Nothing being set up: the groups share both columns.
-                            let half = (groups.count + 1) / 2
-                            lists(Array(groups.prefix(half)))
-                            lists(Array(groups.dropFirst(half)))
-                        }
-                    }
-                } else {
-                    lists(groups)
-                }
+        HStack(alignment: .top, spacing: 0) {
+            ScrollView {
+                content(groups)
+                    .padding(.horizontal, Theme.s4)
+                    .padding(.vertical, Theme.s3)
             }
-            .padding(.horizontal, Theme.s4)
-            .padding(.vertical, Theme.s3)
+            .scrollDismissesKeyboard(.interactively)
+            .scrollBounceBehavior(.basedOnSize)
+            // Beside the list and outside its scroll: inside it, the form sat at the top of the content, off-screen
+            // once the list had been scrolled down to the row that opened it.
+            if wide, let setup {
+                ScrollView {
+                    form(setup).padding(.vertical, Theme.s3)
+                }
+                .scrollDismissesKeyboard(.interactively)
+                .scrollBounceBehavior(.basedOnSize)
+                .frame(maxWidth: 320)
+                .padding(.trailing, Theme.s4)
+                .id(setup)
+                .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
+            }
         }
-        .scrollDismissesKeyboard(.interactively)
-        .scrollBounceBehavior(.basedOnSize)
         .canvas()
         .navigationTitle("Cheats")
         .navigationBarTitleDisplayMode(.inline)
@@ -129,6 +116,28 @@ struct CheatsView: View {
     }
 
     // MARK: Lists
+
+    @ViewBuilder func content(_ groups: [(CheatHeader.Group, [CheatHeader])]) -> some View {
+        if headers.isEmpty {
+            if readingRoster {
+                ProgressView("Reading the party…").frame(maxWidth: .infinity).padding(.top, Theme.s8)
+            } else {
+                ContentUnavailableView(
+                    "No cheats available", systemImage: "sparkle",
+                    description: Text("This game's engine does not expose values cheats can change.")
+                )
+            }
+        } else if wide, setup == nil {
+            // Nothing being set up: the groups share both columns.
+            let half = (groups.count + 1) / 2
+            HStack(alignment: .top, spacing: Theme.s6) {
+                lists(Array(groups.prefix(half)))
+                lists(Array(groups.dropFirst(half)))
+            }
+        } else {
+            lists(groups)
+        }
+    }
 
     func lists(_ groups: [(CheatHeader.Group, [CheatHeader])]) -> some View {
         VStack(alignment: .leading, spacing: Theme.s4) {
