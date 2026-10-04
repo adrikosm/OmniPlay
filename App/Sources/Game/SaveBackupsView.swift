@@ -82,7 +82,7 @@ struct SaveBackupsView: View {
                                 ListRow(title: store.kind.title, subtitle: Self.storeSummary(store)) {
                                     Button("Reset", role: .destructive) { pendingReset = store }
                                         .buttonStyle(.link)
-                                        .disabled(busy || running || !store.isPresent)
+                                        .disabled(busy || running || store.resettablePaths.isEmpty)
                                 }
                                 .accessibilityElement(children: .combine)
                                 .accessibilityIdentifier("persistentStore.\(store.kind.rawValue)")

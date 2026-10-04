@@ -55,6 +55,8 @@ public struct PersistentStoreInfo: Sendable, Hashable, Identifiable {
     public let bytes: Int64
     public let modifiedAt: Date?
     public var isPresent: Bool { files > 0 }
+    /// Reset keeps the save list, so a store holding only that has nothing to reset.
+    public var resettablePaths: [String] { paths.filter { !SaveSlots.isSaveList(($0 as NSString).lastPathComponent) } }
 }
 
 /// What persistent stores a game has: the kinds its engine uses, plus anything actually on disk.
@@ -88,8 +90,7 @@ public enum PersistentStoreRegistry {
     /// Empties one store after a snapshot; the game starts fresh next launch and the snapshot brings it back. The save
     /// list stays: without it every slot drops off the game's Load screen.
     public static func reset(_ store: PersistentStoreInfo, location: SaveLocation, identityHash: String) async throws {
-        let files = store.paths.filter { !SaveSlots.isSaveList(($0 as NSString).lastPathComponent) }
-            .map { location.root.appending(path: $0) }
+        let files = store.resettablePaths.map { location.root.appending(path: $0) }
         guard !files.isEmpty else { return }
         let targets = files
         let txn = SafePersistTransaction(location: location, identityHash: identityHash)

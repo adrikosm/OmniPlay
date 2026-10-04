@@ -111,7 +111,7 @@ struct PersistentDataView: View {
                     .disabled(!store.isPresent)
                 Divider()
                 Button("Reset", systemImage: "exclamationmark.triangle", role: .destructive) { pendingReset = store }
-                    .disabled(!store.isPresent || running)
+                    .disabled(store.resettablePaths.isEmpty || running)
             } label: {
                 Image(systemName: "ellipsis").font(.footnote.weight(.bold)).foregroundStyle(Theme.textPrimary)
                     .frame(width: 30, height: 30).background(Theme.fill, in: .circle)
