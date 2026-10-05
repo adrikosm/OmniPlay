@@ -128,6 +128,8 @@ struct OverlayControls: View {
                     if overlay.keyStrip, !overlay.chromeHidden {
                         KeyStripView(send: send)
                             .gameControlHitRegion()
+                            // In landscape the button column runs down the trailing edge; the strip stops before it.
+                            .padding(.trailing, overlay.landscape ? 54 : 0)
                             .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
                     }
                     Spacer()
