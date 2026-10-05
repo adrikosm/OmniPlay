@@ -119,7 +119,8 @@ public struct RGSSDetector: Detector {
                 }
             }
             if let title = fields["title"], !title.isEmpty {
-                r.partial.title = title
+                // Some creators leave the executable's name there (Akumu Oni: "Akumu.exe").
+                r.partial.title = title.lowercased().hasSuffix(".exe") && title.count > 4 ? String(title.dropLast(4)) : title
             }
             // Every title menu draws the windowskin first; a game that ships its own characters but not that still
             // reads the rest from the RTP (Crysalis), and the engine stops at the first missing picture.
