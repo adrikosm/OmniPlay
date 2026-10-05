@@ -30,6 +30,12 @@ public struct RenPyDetector: Detector {
            // Closed by the quote that opened it: "Ren'Py Tutorial Game" keeps its apostrophe.
            let m = options.firstMatch(of: /define\s+config\.name\s*=\s*_?\(?\s*u?(["'])([^\n]+?)\1/) {
             r.partial.title = String(m.2)
+        } else if let launcher = ctx.glob("*.py", limit: 4).map(\.realRel)
+            .first(where: { !$0.contains("/") && $0.lowercased() != "renpy.py" }) {
+            // A distribution names its launchers after the build (ButterflySoup.py/.exe/.sh); a compiled-only game is
+            // better called that than by its folder or a README beside it.
+            let stem = (launcher as NSString).deletingPathExtension
+            r.partial.title = stem.replacing(/([a-z])([A-Z])/) { "\($0.1) \($0.2)" }.replacing(/[_-]+/, with: " ")
         }
 
         var version: EngineVersion?
