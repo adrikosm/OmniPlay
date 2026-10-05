@@ -17,6 +17,8 @@ struct RuntimePageView: View {
     @State private var advanced = false
     @State private var message: String?
     @State private var settings: [String: String] = [:]
+    /// Conversions for this game's engine (MEDIA-008's jobs), for the Media card.
+    @State private var media: [MediaJobRecord] = []
 
     var body: some View {
         ScrollView {
@@ -61,6 +63,15 @@ struct RuntimePageView: View {
                             ForEach(settings, id: \.key) { key, value in
                                 row(key, value.count > 60 ? String(value.prefix(57)) + "…" : value)
                             }
+                        }
+                    }
+                }
+                if !media.isEmpty {
+                    card("Media") {
+                        let failed = media.count { $0.state == "failed" }
+                        row("Converted for \(media[0].targetRuntime)", "\(media.count { $0.state == "done" }) of \(media.count)")
+                        if failed > 0 {
+                            row("Could not convert", "\(failed); Diagnostics says why")
                         }
                     }
                 }
@@ -177,6 +188,7 @@ struct RuntimePageView: View {
     private func reload() async {
         guard let snapshot, let record = try? model.store?.games.fetch(id: game.id) else { return }
         resolution = await model.freshResolution(for: record, snapshot: snapshot)
+        media = (try? model.store?.fetchAll(MediaJobRecord.self, game: game.id)) ?? []
     }
 
     private func redetect() async {
