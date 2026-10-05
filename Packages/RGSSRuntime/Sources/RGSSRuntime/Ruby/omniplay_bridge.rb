@@ -456,12 +456,38 @@ module OmniPlay
     end
 
     def save_slot(file)
+      # Saved off a map (the title, a load screen) the slot would load into a game with no map and end it.
+      return { "error" => "the game can only save while it is on a map" } if !$game_map || $game_map.map_id.to_i <= 0
+      # Nor with a message or choice up: the game never saves then, and a choice holds a Proc no save can store.
+      showing = ($game_message.respond_to?(:busy?) && $game_message.busy?) ||
+                ($game_temp.respond_to?(:message_window_showing) && $game_temp.message_window_showing)
+      return { "error" => "the game can only save when no message is on screen" } if showing
       if defined?(DataManager)
-        return { "error" => "the game could not save #{file}" } unless DataManager.save_game(slot_index(file))
-      elsif defined?(Scene_Save)
-        File.open(file, "wb") { |f| Scene_Save.new.send(:write_save_data, f) }
-      elsif defined?(Scene_File)
-        File.open(file, "wb") { |f| Scene_File.new(true, false, false).send(:write_save_data, f) }
+        # save_game swallows the reason; the version without the rescue says what went wrong, and like
+        # save_game, a failed write leaves no half-written slot behind.
+        index = slot_index(file)
+        begin
+          if DataManager.respond_to?(:save_game_without_rescue)
+            DataManager.save_game_without_rescue(index)
+          elsif !DataManager.save_game(index)
+            return { "error" => "the game could not save #{file}" }
+          end
+        rescue StandardError => e
+          File.delete(DataManager.make_filename(index)) rescue nil
+          # Name the part of the save that would not serialise (a script's Proc in $game_system, say).
+          part = (DataManager.make_save_contents.find { |_, v| (Marshal.dump(v) && false) rescue true } rescue nil)
+          where = part ? " (in #{part[0]})" : ""
+          return { "error" => "the game could not save #{file}: #{e.class}: #{e.message}#{where}" }
+        end
+      elsif defined?(Scene_Save) || defined?(Scene_File)
+        begin
+          File.open(file, "wb") do |f|
+            defined?(Scene_Save) ? Scene_Save.new.send(:write_save_data, f) : Scene_File.new(true, false, false).send(:write_save_data, f)
+          end
+        rescue StandardError => e
+          File.delete(file) rescue nil
+          return { "error" => "the game could not save #{file}: #{e.class}: #{e.message}" }
+        end
       else
         return { "error" => "this game has no save code OmniPlay knows" }
       end

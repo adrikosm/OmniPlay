@@ -198,7 +198,9 @@ extension AppModel {
             if let read = try? await inspector.inspect(.get(.variable(1))) {
                 OPLog.log(.runtime, .info, "STATEPROBE read back variable 1 = \(read.entries.first?.value ?? .null)")
             }
+            await probeSlots(inspector)
             await probeCheats()
+            await probeSlots(inspector)
             await probeTools([
                 (.increment(by: 8), .variable(1)),
                 (.setValue(.int(-5)), .gold),
@@ -206,6 +208,27 @@ extension AppModel {
                 (.setValue(.int(999_999_999)), .gold),
                 (.setQuantity(150), .item(kind: .item, id: 2)),
             ])
+        }
+
+        /// SAVE-009 through the game's own save code: a value edited in play survives save → reset → load.
+        private func probeSlots(_ inspector: any StateInspecting) async {
+            guard let slots = inspector as? any SlotEditing else { return }
+            let file = "Save1.rxdata" // XP's name; VX Ace's DataManager only reads the slot number from it
+            do {
+                _ = await inspector.mutate(StateMutation(target: .variable(1), requested: .int(77)))
+                try await slots.saveSlot(file: file)
+                _ = await inspector.mutate(StateMutation(target: .variable(1), requested: .int(0)))
+                try await slots.loadSlot(file: file)
+                try await Task.sleep(for: .seconds(2))
+                let read = try await inspector.inspect(.get(.variable(1)))
+                OPLog.log(
+                    .runtime,
+                    .info,
+                    "STATEPROBE slot round trip: saved 77, reset to 0, loaded → \(read.entries.first?.value ?? .null)"
+                )
+            } catch {
+                OPLog.log(.runtime, .info, "STATEPROBE slot round trip failed: \(error)")
+            }
         }
 
         private func probeRenPyState(_ inspector: any StateInspecting, store: StateInspectionResult) async {
