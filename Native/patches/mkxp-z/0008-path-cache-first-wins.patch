@@ -1,0 +1,29 @@
+diff --git a/src/filesystem/filesystem.cpp b/src/filesystem/filesystem.cpp
+index 987fdf1..589b136 100644
+--- a/src/filesystem/filesystem.cpp
++++ b/src/filesystem/filesystem.cpp
+@@ -445,8 +445,12 @@ static PHYSFS_EnumerateCallbackResult cacheEnumCB(void *d, const char *origdir,
+     strTolower(lowerFilename);
+     list.push_back(lowerFilename);
+ 
+-    /* Add the lower -> mixed mapping of the file's full path */
+-    data.p->pathCache.insert(lowerCase, originalPath);
++    /* Add the lower -> mixed mapping of the file's full path. The first
++     * search-path entry wins (patches, archive, game folder, then RTP): a
++     * game's "title.png" must not be shadowed by the RTP's "Title.png",
++     * which only the RTP can open under that exact case. */
++    if (!data.p->pathCache.contains(lowerCase))
++      data.p->pathCache.insert(lowerCase, originalPath);
+   }
+ 
+   return PHYSFS_ENUM_OK;
+@@ -544,7 +548,8 @@ dirRefreshEnumCB(void *d, const char *origdir, const char *fname) {
+       : data.lowerDir + "/" + lowerFilename;
+ 
+   data.list->push_back(lowerFilename);
+-  data.p->pathCache.insert(lowerFull, originalPath);
++  if (!data.p->pathCache.contains(lowerFull))
++    data.p->pathCache.insert(lowerFull, originalPath);
+ 
+   return PHYSFS_ENUM_OK;
+ }
