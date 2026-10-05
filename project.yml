@@ -181,6 +181,9 @@ targets:
         LSSupportsOpeningDocumentsInPlace: true
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+          # Web games are served from http://127.0.0.1, so a page's protocol-relative CDN script (jQuery from
+          # //ajax.googleapis.com) became plain http and ATS refused it. Web content only; OmniPlay's own code is unchanged.
+          NSAllowsArbitraryLoadsInWebContent: true
         CFBundleDocumentTypes:
           - CFBundleTypeName: Game distribution
             CFBundleTypeRole: Viewer
