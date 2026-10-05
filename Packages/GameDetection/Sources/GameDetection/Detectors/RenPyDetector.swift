@@ -24,19 +24,7 @@ public struct RenPyDetector: Detector {
         if !hasRenpy {
             r.partial.warnings.append(.note("renpy/ folder missing; detected from game/ scripts only"))
         }
-        // The game's own name when its options script ships as source (`define config.name = _("The Question")`);
-        // compiled-only games keep the folder name.
-        if let options = ctx.text("game/options.rpy", max: 256 << 10),
-           // Closed by the quote that opened it: "Ren'Py Tutorial Game" keeps its apostrophe.
-           let m = options.firstMatch(of: /define\s+config\.name\s*=\s*_?\(?\s*u?(["'])([^\n]+?)\1/) {
-            r.partial.title = String(m.2)
-        } else if let launcher = ctx.glob("*.py", limit: 4).map(\.realRel)
-            .first(where: { !$0.contains("/") && $0.lowercased() != "renpy.py" }) {
-            // A distribution names its launchers after the build (ButterflySoup.py/.exe/.sh); a compiled-only game is
-            // better called that than by its folder or a README beside it.
-            let stem = (launcher as NSString).deletingPathExtension
-            r.partial.title = stem.replacing(/([a-z])([A-Z])/) { "\($0.1) \($0.2)" }.replacing(/[_-]+/, with: " ")
-        }
+        r.partial.title = Self.title(ctx)
 
         var version: EngineVersion?
         // Ren'Py writes `version = '8.5.3.26051504'` (7.8.x: `u'...'`); `vc_version = 1234` in older releases is not it.
@@ -124,5 +112,23 @@ public struct RenPyDetector: Detector {
         case .renpyPy312: v.major < 8 || v.minor < 4
         default: false
         }
+    }
+
+    /// The game's own name when its options script ships as source (`define config.name = _("The Question")`), else
+    /// the launcher a distribution names after the build; nil leaves the folder name.
+    static func title(_ ctx: ScanContext) -> String? {
+        if let options = ctx.text("game/options.rpy", max: 256 << 10),
+           // Closed by the quote that opened it: "Ren'Py Tutorial Game" keeps its apostrophe.
+           let m = options.firstMatch(of: /define\s+config\.name\s*=\s*_?\(?\s*u?(["'])([^\n]+?)\1/) {
+            return String(m.2)
+        } else if let launcher = ctx.glob("*.py", limit: 4).map(\.realRel)
+            .first(where: { !$0.contains("/") && $0.lowercased() != "renpy.py" }) {
+            // A distribution names its launchers after the build (ButterflySoup.py/.exe/.sh); a compiled-only game is
+            // better called that than by its folder or a README beside it.
+            let stem = (launcher as NSString).deletingPathExtension
+            return stem.replacing(/([a-z])([A-Z])/) { "\($0.1) \($0.2)" }.replacing(/[_-]+/, with: " ")
+        }
+
+        return nil
     }
 }
