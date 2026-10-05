@@ -28,9 +28,14 @@ extension PlayerScreen {
 
     /// This engine's own pad: the RPG Maker keys for RPG Maker (XP confirming with Enter), the general keys otherwise.
     var builtInControls: ControlsLayoutSet {
+        .defaults(rpgMaker: padFamily != "keyboard", xp: padFamily == "rpgMakerXP")
+    }
+
+    /// Games whose pads share keys, and so can share a layout: "rpgMakerXP", "rpgMaker" or "keyboard".
+    var padFamily: String {
         let engine = snapshot.report.descriptor.engine
-        let rpgMaker: Set<EngineFamily> = [.rpgMakerXP, .rpgMakerVX, .rpgMakerVXAce, .rpgMakerMV, .rpgMakerMZ, .rpgMaker2000, .rpgMaker2003]
-        return .defaults(rpgMaker: rpgMaker.contains(engine), xp: engine == .rpgMakerXP)
+        let rpgMaker: Set<EngineFamily> = [.rpgMakerVX, .rpgMakerVXAce, .rpgMakerMV, .rpgMakerMZ, .rpgMaker2000, .rpgMaker2003]
+        return engine == .rpgMakerXP ? "rpgMakerXP" : rpgMaker.contains(engine) ? "rpgMaker" : "keyboard"
     }
 
     /// The controller icon: hold the game still and open the editor over it; Done or Cancel resumes.
@@ -59,7 +64,7 @@ extension PlayerScreen {
         startedAt = .now
         hung = false
         model.runtimeFailure = nil
-        overlay.layouts = model.controlsLayouts(for: game.id) ?? builtInControls
+        overlay.layouts = model.controlsLayouts(for: game.id, family: padFamily) ?? builtInControls
         overlay.padKey = "omniplay.controls.visible.\(game.id)"
         if model.profileValue("mouseMode", for: game.id).flatMap(MouseMode.init(rawValue:)) == .touchpad {
             overlay.touchpadSpeed = model.profileValue("mouseSpeed", for: game.id).flatMap(Double.init) ?? 1
@@ -137,7 +142,10 @@ extension PlayerScreen {
         OPLog.log(
             .ui,
             .info,
-            "touch controls visible=\(overlay.padVisible) opacity=\(controlsOpacity) controllers=\(overlay.controllers)"
+            """
+            touch controls visible=\(overlay.padVisible) layout=\(overlay.layouts?.source ?? "built-in") \
+            opacity=\(overlay.layouts?.opacity ?? controlsOpacity) controllers=\(overlay.controllers)
+            """
         )
         self.capture = capture
     }

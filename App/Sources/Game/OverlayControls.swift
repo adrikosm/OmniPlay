@@ -108,7 +108,7 @@ struct OverlayControls: View {
                     TouchpadLayer(speed: speed, send: send).ignoresSafeArea().gameControlHitRegion()
                 }
                 if shows {
-                    VirtualControlsView(opacity: opacity, layouts: overlay.layouts) { send($0) }
+                    VirtualControlsView(opacity: overlay.layouts?.opacity ?? opacity, layouts: overlay.layouts) { send($0) }
                         .ignoresSafeArea(.keyboard)
                         .transition(.opacity)
                 }

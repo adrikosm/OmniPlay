@@ -133,14 +133,15 @@ struct PlayerScreen: View {
                     ControlsEditorView(
                         layouts: overlay.layouts,
                         builtIn: builtInControls,
-                        padVisible: $overlay.padVisible
-                    ) { edited in
-                        model.setControlsLayouts(edited, for: game.id)
-                        overlay.layouts = edited
-                        finishEditing()
-                    } onCancel: {
-                        finishEditing()
-                    }
+                        padVisible: $overlay.padVisible,
+                        onDone: { edited in
+                            model.setControlsLayouts(edited, for: game.id)
+                            overlay.layouts = edited
+                            finishEditing()
+                        },
+                        onCancel: { finishEditing() },
+                        onShare: { model.setSharedControlsLayouts($0, family: padFamily) }
+                    )
                 }
             }
             .fullScreenCover(isPresented: $menuShown, onDismiss: {
@@ -155,7 +156,15 @@ struct PlayerScreen: View {
                     played: Self.played(since: startedAt),
                     hasTouchControls: overlay.hasPad,
                     controlsVisible: $overlay.padVisible,
-                    controlsOpacity: $controlsOpacity,
+                    controlsOpacity: Binding(get: { overlay.layouts?.opacity ?? controlsOpacity }, set: { value in
+                        // A layout with its own opacity keeps it; the slider changes that one, else the app's.
+                        if overlay.layouts?.opacity != nil {
+                            overlay.layouts?.opacity = value
+                            model.setControlsLayouts(overlay.layouts, for: game.id)
+                        } else {
+                            controlsOpacity = value
+                        }
+                    }),
                     controllerConnected: overlay.controllers > 0,
                     logURL: model.sessionLog,
                     fastForward: overlay.speed == nil ? nil : overlay.fastForward,

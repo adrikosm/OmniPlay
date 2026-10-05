@@ -7,6 +7,8 @@ import SwiftUI
 /// delete it; ••• has undo, reset, add and discard. Done saves the pair as the game's own layout.
 struct ControlsEditorView: View {
     let onDone: (ControlsLayoutSet) -> Void
+    /// "Use for all games like this": the layout becomes the default for games with the same pad.
+    let onShare: ((ControlsLayoutSet) -> Void)?
     let onCancel: () -> Void
     @Binding var padVisible: Bool
     @State var set: ControlsLayoutSet
@@ -33,13 +35,15 @@ struct ControlsEditorView: View {
         builtIn: ControlsLayoutSet,
         padVisible: Binding<Bool>,
         onDone: @escaping (ControlsLayoutSet) -> Void,
-        onCancel: @escaping () -> Void
+        onCancel: @escaping () -> Void,
+        onShare: ((ControlsLayoutSet) -> Void)? = nil
     ) {
         _set = State(initialValue: layouts ?? builtIn)
         self.builtIn = builtIn
         _padVisible = padVisible
         self.onDone = onDone
         self.onCancel = onCancel
+        self.onShare = onShare
     }
 
     var body: some View {

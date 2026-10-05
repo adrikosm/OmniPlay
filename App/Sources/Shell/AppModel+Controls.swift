@@ -23,11 +23,15 @@ extension AppModel {
         activeCapture?.mapping = mapping ?? .rpgMaker
     }
 
-    /// Nil is the built-in pad. A stored `""` is the player choosing it, so the package layout is imported only while
-    /// the key is absent.
-    func controlsLayouts(for id: GameID) -> ControlsLayoutSet? {
+    /// Nil is the built-in pad. A stored `""` is the player choosing it, so the package layout, and after it the
+    /// layout shared by every game with `family`'s pad, apply only while the key is absent.
+    func controlsLayouts(for id: GameID, family: String? = nil) -> ControlsLayoutSet? {
         guard let json = (try? store?.overrides.get(game: id, key: Self.controlsLayoutKey)).flatMap(\.self) else {
-            return importPackageLayout(for: id)
+            return importPackageLayout(for: id) ?? family.flatMap(sharedControlsLayouts).map {
+                var shared = $0
+                shared.source = "shared"
+                return shared
+            }
         }
         return try? JSONDecoder().decode(ControlsLayoutSet.self, from: Data(json.utf8))
     }
@@ -35,6 +39,18 @@ extension AppModel {
     func setControlsLayouts(_ set: ControlsLayoutSet?, for id: GameID) {
         let json = set.flatMap { try? JSONEncoder().encode($0) }.flatMap { String(data: $0, encoding: .utf8) } ?? ""
         try? store?.overrides.set(game: id, key: Self.controlsLayoutKey, valueJson: json)
+    }
+
+    /// "Use for all games like this": one layout per pad family (RPG Maker keys differ from keyboard games'), kept
+    /// on this device for games without a layout of their own.
+    func sharedControlsLayouts(family: String) -> ControlsLayoutSet? {
+        UserDefaults.standard.data(forKey: "omniplay.controls.shared.\(family)").flatMap {
+            try? JSONDecoder().decode(ControlsLayoutSet.self, from: $0)
+        }
+    }
+
+    func setSharedControlsLayouts(_ set: ControlsLayoutSet, family: String) {
+        UserDefaults.standard.set(try? JSONEncoder().encode(set), forKey: "omniplay.controls.shared.\(family)")
     }
 
     /// The layout a JoiPlay package shipped, translated and stored once.

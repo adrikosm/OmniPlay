@@ -12,11 +12,9 @@ extension ControlsEditorView {
                         .accessibilityAddTraits(.isHeader)
                     Spacer()
                     moreMenu(landscape)
-                    Button("Done") {
-                        onDone(ControlsLayoutSet(landscape: set.landscape, portrait: set.portrait, opacity: set.opacity, source: "user"))
-                    }
-                    .buttonStyle(.link)
-                    .font(.body.weight(.semibold))
+                    Button("Done") { onDone(result) }
+                        .buttonStyle(.link)
+                        .font(.body.weight(.semibold))
                 }
                 GlassSegmentBar(
                     items: [(Arrangement.diamond, "Diamond"), (.row, "Row"), (.hidden, "Hidden")],
@@ -32,7 +30,9 @@ extension ControlsEditorView {
                 VStack(spacing: 0) {
                     HStack(spacing: 14) {
                         Text("Opacity").font(.subheadline).foregroundStyle(Theme.textPrimary)
-                        Slider(value: $opacity, in: 0.2 ... 1.0).tint(Theme.textPrimary).accessibilityLabel("Touch control opacity")
+                        // This layout's own opacity, starting from the app's setting.
+                        Slider(value: Binding(get: { set.opacity ?? opacity }, set: { set.opacity = $0 }), in: 0.2 ... 1.0)
+                            .tint(Theme.textPrimary).accessibilityLabel("Touch control opacity")
                     }
                     .padding(.horizontal, 14).frame(minHeight: 48)
                     Rectangle().fill(Theme.separator).frame(height: 0.5).padding(.leading, 14)
@@ -50,6 +50,11 @@ extension ControlsEditorView {
         }
         .scrollBounceBehavior(.basedOnSize)
         .scrollIndicators(.hidden)
+    }
+
+    /// The edited pair as the player's own layout.
+    var result: ControlsLayoutSet {
+        ControlsLayoutSet(landscape: set.landscape, portrait: set.portrait, opacity: set.opacity, source: "user")
     }
 
     /// Size for the selected control, else how the canvas works.
@@ -101,6 +106,12 @@ extension ControlsEditorView {
                 selected = id
             } label: {
                 Label("Add a button", systemImage: "plus.circle")
+            }
+            if let onShare {
+                Button("Use for all games like this", systemImage: "square.on.square") {
+                    onShare(result)
+                    onDone(result)
+                }
             }
             Button("Reset to the built-in layout", systemImage: "arrow.counterclockwise") {
                 remember()
