@@ -74,6 +74,13 @@ public enum GameRootLocator {
         let rootRel = rel(root, in: stagingRoot)
         // A marked root decides it; the candidate walk below is only for a root without one.
         if hasMarker(root) {
+            // A Game.ini with neither the RGSS archive nor Data/ beside it is a launcher's copy: Träumerei ships one
+            // beside a packed .exe and the game itself in System/. The folder that holds the game is the root.
+            if isHollowRGSSRoot(root), let payload = try rgssPayload(under: root) {
+                let payloadRel = rel(payload, in: stagingRoot)
+                sidecars.notes.append("game found in \(payloadRel) beside a launcher's Game.ini")
+                return LocatedRoot(relativePath: payloadRel, sidecars: sidecars)
+            }
             return LocatedRoot(relativePath: rootRel, sidecars: sidecars)
         }
         // Candidates are found under the unwrapped root but reported against the staging tree, like the root itself:
@@ -182,6 +189,39 @@ public enum GameRootLocator {
             }
         }
         return (dirs.sorted { $0.path() < $1.path() }, files.sorted { $0.path() < $1.path() })
+    }
+
+    static let rgssArchives: Set<String> = ["game.rgssad", "game.rgss2a", "game.rgss3a"]
+
+    /// RGSS needs its scripts: from the encrypted archive or from Data/.
+    static func hasRGSSPayload(_ dir: URL) -> Bool {
+        guard let (dirs, files) = try? shallow(dir) else { return false }
+        return files.contains { rgssArchives.contains($0.lastPathComponent.lowercased()) }
+            || dirs.contains { $0.lastPathComponent.lowercased() == "data" }
+    }
+
+    static func isHollowRGSSRoot(_ dir: URL) -> Bool {
+        guard let (_, files) = try? shallow(dir), files.contains(where: { $0.lastPathComponent.lowercased() == "game.ini" }),
+              !files.contains(where: { $0.lastPathComponent.lowercased().hasPrefix("rpg_rt.") }) else { return false }
+        return !hasRGSSPayload(dir)
+    }
+
+    /// The first folder up to two levels down with a Game.ini and the scripts it needs.
+    static func rgssPayload(under root: URL) throws -> URL? {
+        var found: URL?
+        try LazyDirectoryWalker.walk(root: root) { entry in
+            guard entry.isDirectory else { return .continue }
+            if entry.relativePath.split(separator: "/").count > 2 {
+                return .skipDescendants
+            }
+            let hasIni = (try? shallow(entry.url))?.files.contains { $0.lastPathComponent.lowercased() == "game.ini" } ?? false
+            if hasIni, hasRGSSPayload(entry.url) {
+                found = entry.url
+                return .stop
+            }
+            return .continue
+        }
+        return found
     }
 
     static func hasMarker(_ dir: URL) -> Bool {
