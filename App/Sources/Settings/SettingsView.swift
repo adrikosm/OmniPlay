@@ -13,6 +13,8 @@ struct SettingsView: View {
     @State private var exporting = false
     @State private var exportError: String?
     @State private var footprint: UInt64 = 0
+    @State private var everything: URL?
+    @State private var testing: String?
     @AppStorage(AppModel.prepareBeforePlayKey) private var prepareMedia = true
 
     var body: some View {
@@ -62,6 +64,22 @@ struct SettingsView: View {
                                 .buttonStyle(.row)
                                 .disabled(exporting)
                             }
+                            if let everything {
+                                ShareLink(item: everything) {
+                                    ListRow(icon: "shippingbox", title: "Share the backup") { Chevron() }
+                                }
+                                .buttonStyle(.row)
+                            } else {
+                                Button { backUpEverything() } label: {
+                                    ListRow(
+                                        icon: "shippingbox",
+                                        title: testing == "export" ? "Backing up…" : "Back up everything",
+                                        subtitle: "Saves, mods, settings and the library, in one ZIP"
+                                    )
+                                }
+                                .buttonStyle(.row)
+                                .disabled(testing != nil)
+                            }
                             NavigationLink { LicencesView() } label: {
                                 ListRow(icon: "doc.text", title: "Licences") { Chevron() }
                             }
@@ -70,6 +88,26 @@ struct SettingsView: View {
                         GlassSection("About") {
                             ListRow(title: "Version") { RowValue(text: "\(Bundle.main.version) (\(Bundle.main.build))") }
                             ListRow(title: "Memory in use") { RowValue(text: Int64(footprint).formatted(.byteCount(style: .memory))) }
+                            if let expiry = PhoneTesting.signingExpiry {
+                                // A Personal Team build stops opening after seven days; rebuilding keeps every game and save.
+                                ListRow(
+                                    title: "Signed until",
+                                    subtitle: expiry < .now.addingTimeInterval(2 * 86400) ? "Rebuild from your Mac soon" : nil
+                                ) {
+                                    RowValue(text: expiry.formatted(date: .abbreviated, time: .shortened))
+                                }
+                            }
+                        }
+                        GlassSection("Testing", footer: testingFooter) {
+                            ForEach([8, 32], id: \.self) { size in
+                                Button { makeLargeGame(size) } label: {
+                                    ListRow(title: "Make a \(size) GB test game in Files")
+                                }
+                                .buttonStyle(.row)
+                                .disabled(testing != nil)
+                            }
+                            Button { PhoneTesting.simulateMemoryWarning() } label: { ListRow(title: "Simulate a memory warning") }
+                                .buttonStyle(.row)
                         }
                         #if DEBUG
                             DeveloperSection()
@@ -93,6 +131,38 @@ struct SettingsView: View {
         let installed = RTPFamily.allCases.count { RTPManager.isInstalled($0, paths: model.paths) }
         let font = MIDISoundFont.imported(paths: model.paths)?.deletingPathExtension().lastPathComponent ?? "GeneralUser GS"
         return "\(installed) of \(RTPFamily.allCases.count) RTPs · \(font)"
+    }
+
+    private var testingFooter: String {
+        testing.map { $0 == "export" ? "Writing the backup…" : $0 }
+            ?? "A synthetic game in On My iPhone → OmniPlay → Test games, for checking large imports; "
+            + "most of its size is declared, not written."
+    }
+
+    private func makeLargeGame(_ gigabytes: Int) {
+        testing = "Making the \(gigabytes) GB test game…"
+        let documents = model.paths.exportsRoot.deletingLastPathComponent().deletingLastPathComponent()
+        Task {
+            let result = await Task.detached {
+                Result { try PhoneTesting.makeLargeGame(gigabytes: gigabytes, documents: documents) { _ in } }
+            }.value
+            testing = nil
+            exportError = (try? result.get()).map { _ in nil } ?? "The test game could not be made."
+        }
+    }
+
+    private func backUpEverything() {
+        guard let store = model.store else { return }
+        testing = "export"
+        let paths = model.paths
+        Task {
+            let result = await Task.detached { Result { try PhoneTesting.exportEverything(paths: paths, store: store) } }.value
+            testing = nil
+            switch result {
+            case let .success(url): everything = url
+            case let .failure(error): exportError = "The backup could not be written: \(error.localizedDescription)"
+            }
+        }
     }
 
     private func export() {

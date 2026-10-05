@@ -23,6 +23,11 @@ public final class GameStore: Sendable {
         return try GameStore(pool: pool)
     }
 
+    /// A consistent copy of the whole database at `url` (SQLite's online backup), for Export Everything.
+    public func backup(to url: URL) throws {
+        try pool.backup(to: DatabaseQueue(path: url.path(percentEncoded: false)))
+    }
+
     public init(pool: DatabasePool) throws {
         self.pool = pool
         do { try Migrations.migrator.migrate(pool) } catch { throw GameStoreError(operation: "migrate", underlying: error) }

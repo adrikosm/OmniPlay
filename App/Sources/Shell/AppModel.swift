@@ -143,6 +143,7 @@ final class AppModel {
             self.store = store
             phase = .ready
             reportUnfinishedSessions()
+            Task { await PhoneTesting.remindBeforeExpiry() }
             Task { await self.repairPluginRefusals(store: store) }
             pendingOpen = Self.consumeRelaunchRequest(paths: paths)
             #if DEBUG
