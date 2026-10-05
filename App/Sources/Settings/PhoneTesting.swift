@@ -19,14 +19,16 @@ enum PhoneTesting {
         let root = documents.appending(path: "OmniPlay/Test games/Large test game \(gigabytes) GB", directoryHint: .isDirectory)
         try? fm.removeItem(at: root)
         let total = Int64(gigabytes) << 30, count = gigabytes * 3000
-        let folders: [(String, String, Double)] = [
-            ("www/img/pictures", "png", 0.35), ("www/img/tilesets", "png", 0.1), ("www/img/characters", "png", 0.05),
-            ("www/audio/bgm", "ogg", 0.2), ("www/audio/se", "ogg", 0.05), ("www/movies", "webm", 0.2), ("www/data", "json", 0.05),
+        // Folder and its share of the size; the extension follows the folder.
+        let folders: [(String, Double)] = [
+            ("www/img/pictures", 0.35), ("www/img/tilesets", 0.1), ("www/img/characters", 0.05),
+            ("www/audio/bgm", 0.2), ("www/audio/se", 0.05), ("www/movies", 0.2), ("www/data", 0.05),
         ]
         var block = Data(count: 1 << 20)
         block.withUnsafeMutableBytes { arc4random_buf($0.baseAddress, $0.count) }
         var made = 0
-        for (folder, ext, share) in folders {
+        for (folder, share) in folders {
+            let ext = folder.contains("img") ? "png" : folder.contains("audio") ? "ogg" : folder.hasSuffix("movies") ? "webm" : "json"
             let dir = root.appending(path: folder, directoryHint: .isDirectory)
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
             let files = max(1, Int(Double(count) * share)), size = Int64(Double(total) * share) / Int64(files)
