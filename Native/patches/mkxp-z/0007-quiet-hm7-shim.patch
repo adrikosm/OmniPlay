@@ -1,0 +1,17 @@
+diff --git a/scripts/postload/hmode7_shim.rb b/scripts/postload/hmode7_shim.rb
+index 0c81744..dc18657 100644
+--- a/scripts/postload/hmode7_shim.rb
++++ b/scripts/postload/hmode7_shim.rb
+@@ -299,9 +299,9 @@ begin
+         s.dispose
+       end
+     end
+-  else
+-    MKXP.puts '[hm7-shim] WARNING: HM7::Tilemap#initialize patch skipped: ' \
+-              "HM7::Tilemap defined?=#{defined?(HM7::Tilemap).inspect}"
++  elsif defined?(HM7::Tilemap)
++    # Only a game that ships HM7 without the expected constructor is worth a warning; most games have no HM7 at all.
++    MKXP.puts '[hm7-shim] WARNING: HM7::Tilemap#initialize patch skipped: no initialize to wrap'
+   end
+ 
+   # Optional: expose a global flag so game scripts / debug overlays

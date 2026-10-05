@@ -113,22 +113,18 @@ struct OverlayControls: View {
                         .transition(.opacity)
                 }
                 VStack(spacing: Theme.s2) {
-                    HStack(spacing: 10) {
-                        Spacer()
-                        if !overlay.chromeHidden, overlay.hasPad {
-                            gameButtons
+                    if !overlay.landscape {
+                        HStack(spacing: 10) {
+                            Spacer()
+                            if !overlay.chromeHidden, overlay.hasPad {
+                                gameButtons
+                            }
+                            eyeButton
                         }
-                        eyeButton
+                        // Room for the host's own pause button, which sits in the top-right corner.
+                        .padding(.trailing, 54)
+                        .simultaneousGesture(swipeToHidePad)
                     }
-                    // Room for the host's own pause button, which sits in the top-right corner.
-                    .padding(.trailing, 54)
-                    // Swipe down on the buttons to put the pad away, up to bring it back.
-                    .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { drag in
-                        guard overlay.hasPad, !overlay.chromeHidden,
-                              abs(drag.translation.height) > abs(drag.translation.width) else { return }
-                        swipedAt = .now
-                        overlay.padVisible = drag.translation.height < 0
-                    })
                     if overlay.keyStrip, !overlay.chromeHidden {
                         KeyStripView(send: send)
                             .gameControlHitRegion()
@@ -138,6 +134,17 @@ struct OverlayControls: View {
                 }
                 .padding(.horizontal, Theme.s3)
                 .padding(.top, rowTop)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                // Landscape games are pillarboxed: a column down the trailing edge, under the pause button, stays off
+                // the picture, where a row across the top covered titles and message windows.
+                .overlay(alignment: .topTrailing) {
+                    if overlay.landscape {
+                        VStack(spacing: 10) { buttons }
+                            .padding(.trailing, Theme.s3)
+                            .padding(.top, rowTop + 54)
+                            .simultaneousGesture(swipeToHidePad)
+                    }
+                }
                 .animation(reduceMotion ? nil : Theme.quick, value: overlay.keyStrip)
                 .animation(reduceMotion ? nil : Theme.quick, value: overlay.chromeHidden)
                 .overlay(alignment: .top) {
@@ -167,6 +174,23 @@ struct OverlayControls: View {
             tipShown = true
             try? await Task.sleep(for: .seconds(4))
             withAnimation(Theme.motion(.easeOut(duration: 0.6), reduce: reduceMotion)) { tip = false }
+        }
+    }
+
+    /// The landscape column: the eye nearest the pause button, then the game's buttons.
+    @ViewBuilder private var buttons: some View {
+        eyeButton
+        if !overlay.chromeHidden, overlay.hasPad {
+            gameButtons
+        }
+    }
+
+    /// Swipe down on the buttons to put the pad away, up to bring it back.
+    private var swipeToHidePad: some Gesture {
+        DragGesture(minimumDistance: 24).onEnded { drag in
+            guard overlay.hasPad, !overlay.chromeHidden, abs(drag.translation.height) > abs(drag.translation.width) else { return }
+            swipedAt = .now
+            overlay.padVisible = drag.translation.height < 0
         }
     }
 
