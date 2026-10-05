@@ -108,13 +108,15 @@
             mkxp_setGameControllerCaptureEnabled(false)
             // Touches are the mouse only in direct mode; the host's touchpad layer sends its own pointer events.
             let mouseMode = configuration.profile.overrides["mouseMode"]
-            mkxp_setTouchMouseEnabled(mouseMode == nil ? configuration.profile.overrides["touchMouse"] != "false" : mouseMode == "direct")
+            let touchMouse = mouseMode == nil ? configuration.profile.overrides["touchMouse"] != "false" : mouseMode == "direct"
+            mkxp_setTouchMouseEnabled(touchMouse)
             mkxp_setCheatsEnabled(configuration.profile.overrides["cheats"] == "true")
             mkxp_installFatalErrorHandlers()
             OPLog.log(
                 .ruby,
                 .info,
                 "rgss\(session.rgssVersion) on \(ruby.rawValue), \(session.patches.count) overlay roots, "
+                    + "mouse \(mouseMode ?? "default") (touches \(touchMouse ? "click" : "do not click")), "
                     + "config \(configFile.path(percentEncoded: false))",
                 session: configuration.sessionID
             )
