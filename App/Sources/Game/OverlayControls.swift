@@ -89,6 +89,8 @@ struct OverlayControls: View {
     /// A swipe on the buttons also ends as a tap on one of them; that tap is dropped.
     @State private var swipedAt: ContinuousClock.Instant?
     @State private var holdingSpeed = false
+    /// The top safe-area inset: 44 or more is a Dynamic Island (or notch) band above the game in portrait.
+    @State private var topInset = 0.0
 
     private func unlessSwiped(_ action: () -> Void) {
         if swipedAt.map({ $0.duration(to: .now) > .milliseconds(300) }) ?? true {
@@ -113,7 +115,22 @@ struct OverlayControls: View {
                         .transition(.opacity)
                 }
                 VStack(spacing: Theme.s2) {
-                    if !overlay.landscape {
+                    if !overlay.landscape, topInset >= 44 {
+                        // Portrait beside a Dynamic Island: the band at the top is not the game's (the web view and
+                        // the engines' pictures start below it), so the buttons go there, either side of the island.
+                        // The layout editor stays in the pause menu.
+                        HStack(spacing: 10) {
+                            if !overlay.chromeHidden, overlay.hasPad {
+                                padButton
+                                keysButton
+                            }
+                            Spacer()
+                            eyeButton
+                        }
+                        .padding(.trailing, 54)
+                        .offset(y: (topInset - 44) / 2 - topInset - rowTop)
+                        .simultaneousGesture(swipeToHidePad)
+                    } else if !overlay.landscape {
                         HStack(spacing: 10) {
                             Spacer()
                             if !overlay.chromeHidden, overlay.hasPad {
@@ -167,6 +184,7 @@ struct OverlayControls: View {
         .onPreferenceChange(ControlHitRegions.self, perform: onHitRegions)
         .onGeometryChange(for: Bool.self) { $0.size.width > $0.size.height } action: { overlay.landscape = $0 }
         .onGeometryChange(for: Double.self) { max(20, $0.size.height * 0.1 - 22) } action: { rowTop = $0 }
+        .onGeometryChange(for: Double.self) { $0.safeAreaInsets.top } action: { topInset = $0 }
         .animation(reduceMotion ? nil : Theme.quick, value: overlay.padVisible)
         .task {
             // Once per install, a moment after the game appears, then it fades.
@@ -213,6 +231,25 @@ struct OverlayControls: View {
         )
     }
 
+    private var padButton: some View {
+        Button { unlessSwiped { overlay.padVisible.toggle() } } label: {
+            Image(systemName: overlay.padVisible ? "dpad.fill" : "dpad")
+        }
+        .buttonStyle(.round)
+        .gameControlHitRegion()
+        .accessibilityLabel(overlay.padVisible ? "Hide touch controls" : "Show touch controls")
+    }
+
+    private var keysButton: some View {
+        Button { unlessSwiped { overlay.keyStrip.toggle() } } label: {
+            Image(systemName: overlay.keyStrip ? "keyboard.chevron.compact.down" : "keyboard")
+        }
+        .buttonStyle(.round)
+        .gameControlHitRegion()
+        .accessibilityLabel(overlay.keyStrip ? "Hide keys" : "Show keys")
+        .accessibilityValue(overlay.keyStrip ? "Shown" : "Hidden")
+    }
+
     /// Fast forward, the pad, the key strip and the controls editor, for engines that take the host's keys.
     @ViewBuilder private var gameButtons: some View {
         if let fastest = overlay.speed?.options.last?.value, fastest > 1 {
@@ -233,19 +270,8 @@ struct OverlayControls: View {
                 .accessibilityLabel("Fast forward while held")
                 .accessibilityAddTraits(.isButton)
         }
-        Button { unlessSwiped { overlay.padVisible.toggle() } } label: {
-            Image(systemName: overlay.padVisible ? "dpad.fill" : "dpad")
-        }
-        .buttonStyle(.round)
-        .gameControlHitRegion()
-        .accessibilityLabel(overlay.padVisible ? "Hide touch controls" : "Show touch controls")
-        Button { unlessSwiped { overlay.keyStrip.toggle() } } label: {
-            Image(systemName: overlay.keyStrip ? "keyboard.chevron.compact.down" : "keyboard")
-        }
-        .buttonStyle(.round)
-        .gameControlHitRegion()
-        .accessibilityLabel(overlay.keyStrip ? "Hide keys" : "Show keys")
-        .accessibilityValue(overlay.keyStrip ? "Shown" : "Hidden")
+        padButton
+        keysButton
         Button { unlessSwiped(onEditControls) } label: { Image(systemName: "gamecontroller") }
             .buttonStyle(.round)
             .gameControlHitRegion()

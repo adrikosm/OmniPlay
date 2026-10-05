@@ -176,7 +176,15 @@
             webView.navigationDelegate = bridge
             webView.customUserAgent = Self.userAgent(profile.userAgent)
             host.containerView.addSubview(webView)
-            webView.pinEdges(to: host.containerView)
+            // Inside the safe area at the top and sides, so no page draws under the Dynamic Island in either
+            // orientation; the bottom stays full height, since the home indicator only overlays a thin bar.
+            let guide = host.containerView.safeAreaLayoutGuide
+            NSLayoutConstraint.activate([
+                webView.topAnchor.constraint(equalTo: guide.topAnchor),
+                webView.bottomAnchor.constraint(equalTo: host.containerView.bottomAnchor),
+                webView.leadingAnchor.constraint(equalTo: guide.leadingAnchor),
+                webView.trailingAnchor.constraint(equalTo: guide.trailingAnchor),
+            ])
             self.webView = webView
             let entry = entryPage
             guard let url = URL(string: "http://127.0.0.1:\(port)/\(entry)") else { throw Failure.navigation("bad entry \(entry)") }

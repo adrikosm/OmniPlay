@@ -148,6 +148,12 @@ public protocol RuntimeHost: AnyObject, Sendable {
             let inset = 22.0 + 8
             pauseCenterX?.constant = min(max(safe.width * pausePosition.x, inset), safe.width - inset)
             pauseCenterY?.constant = min(max(safe.height * pausePosition.y, inset), safe.height - inset)
+            // In portrait on a phone with a Dynamic Island, the band beside the island is free of the game: the
+            // button sits there unless the player has moved it.
+            let top = overlayView.safeAreaInsets.top
+            if safe.height > safe.width, top >= 44, UserDefaults.standard.array(forKey: Self.positionKey) == nil {
+                pauseCenterY?.constant = -top / 2
+            }
         }
 
         @objc private func drag(_ pan: UIPanGestureRecognizer) {
