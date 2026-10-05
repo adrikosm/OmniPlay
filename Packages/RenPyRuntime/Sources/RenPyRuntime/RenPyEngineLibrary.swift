@@ -217,7 +217,7 @@ public final class RenPyEngineLibrary {
         nonisolated(unsafe) let buffer = UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>.allocate(capacity: argv.count)
         buffer.initialize(from: argv, count: argv.count)
         let argc = Int32(argv.count - 1)
-        EngineMainThread.run {
+        EngineMainThread.run("Ren'Py \(engine.version)") {
             api.run(argc, buffer)
         } exited: { status in
             self.phase = .exited(status)

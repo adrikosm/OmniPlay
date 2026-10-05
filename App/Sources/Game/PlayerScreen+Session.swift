@@ -70,6 +70,8 @@ extension PlayerScreen {
         }
         host.onPauseRequested = { Task { await pause() } }
         host.onEvent = { event in handle(event) }
+        // A crash on one of the engine's own threads stops that thread, not the app; the game has to end with it.
+        CrashGuard.onThreadCrash = { status in handle(.ended(status: status)) }
         if capture == nil {
             startCapture()
         }
@@ -84,7 +86,10 @@ extension PlayerScreen {
         case let .ended(status):
             let category = crashCategory
             // An engine that reported an error before ending says why; a clean end with nothing said is the game's Quit.
-            if let message = model.runtimeFailure {
+            if let crash = CrashGuard.describe(status: status) {
+                model.runtimeFailure = nil
+                fail(crash, category: CrashGuard.statusBase - status == SIGEMT ? .hang : category)
+            } else if let message = model.runtimeFailure {
                 model.runtimeFailure = nil
                 fail(message, category: category)
             } else if status == 0 {
@@ -320,6 +325,7 @@ extension PlayerScreen {
         model.cancelMediaPreparation()
         closeMenu()
         capture?.stop()
+        CrashGuard.onThreadCrash = nil
         removeControls()
         await model.stopPlaying()
         if let warning = model.saveWarning {

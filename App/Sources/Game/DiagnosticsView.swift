@@ -24,8 +24,10 @@ struct DiagnosticsView: View {
         var memory: MemorySummary?
         var consoleErrors: [String] = []
         var newestSession: URL?
-        /// Sessions whose log folder holds a MetricKit crash or hang report.
+        /// Sessions whose log folder holds a crash report: OmniPlay's own `crash.txt` or MetricKit's.
         var crashReports: Set<UUID> = []
+        /// The newest `crash.txt` among those sessions, with the cause it names.
+        var crashReport: (url: URL, what: String)?
     }
 
     struct MemorySummary: Sendable {
@@ -158,6 +160,12 @@ struct DiagnosticsView: View {
                     RowValue(text: "\(imp.container.capitalizedFirst) · \(imp.bytes.formatted(.byteCount(style: .file)))")
                 }
             }
+            if let report = data.crashReport {
+                NavigationLink { CrashReportView(url: report.url) } label: {
+                    ListRow(title: "Crash report", subtitle: report.what) { Chevron() }
+                }
+                .buttonStyle(.row)
+            }
             if let reason = data.termination["reason"] ?? data.termination.values.first {
                 ListRow(title: "Web view ended", subtitle: reason)
             }
@@ -207,6 +215,9 @@ struct DiagnosticsView: View {
             .memory {
             lines.append("memory start \(Self.mib(Int64(m.first))) peak \(Self.mib(Int64(m.peak))) end \(Self.mib(Int64(m.last)))")
         }
+        if let report = data.crashReport {
+            lines.append("crash: \(report.what)")
+        }
         lines += data.consoleErrors.prefix(10)
         return lines.joined(separator: "\n")
     }
@@ -226,8 +237,16 @@ struct DiagnosticsView: View {
             out.crashReports = Set(out.sessions.prefix(10).map(\.id).filter { session in
                 let files = (try? FileManager.default
                     .contentsOfDirectory(atPath: paths.logs(game: id, session: session).path(percentEncoded: false))) ?? []
-                return files.contains { $0.hasPrefix("metrickit-") }
+                return files.contains { $0.hasPrefix("metrickit-") || $0 == CrashGuard.reportName }
             })
+            // Sessions come newest first.
+            for session in out.sessions.prefix(10) where out.crashReports.contains(session.id) {
+                let folder = paths.logs(game: id, session: session.id)
+                if let report = CrashGuard.lastReport(in: folder) {
+                    out.crashReport = (folder.appending(path: CrashGuard.reportName), report.what)
+                    break
+                }
+            }
             let gameLogs = paths.logs(game: id, session: UUID()).deletingLastPathComponent()
             let dirs = ((try? FileManager.default.contentsOfDirectory(
                 at: gameLogs,
@@ -303,6 +322,25 @@ private struct MemoryBars: View {
         .frame(height: 58, alignment: .bottom)
         .frame(maxWidth: .infinity)
         .onAppear { grown = true }
+    }
+}
+
+/// A `crash.txt` read from the top: cause, thread, engine, outcome, then the stack and the last log lines.
+private struct CrashReportView: View {
+    let url: URL
+    @State private var text = ""
+
+    var body: some View {
+        ScrollView {
+            Text(text).font(Theme.mono).foregroundStyle(Theme.textSecondary).textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(Theme.s4)
+        }
+        .navigationTitle("Crash report")
+        .navigationBarTitleDisplayMode(.inline)
+        .canvas()
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { ShareLink(item: url) } }
+        .task { text = await LogTailView.tail(url).joined(separator: "\n") }
     }
 }
 

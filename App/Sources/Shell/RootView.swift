@@ -55,20 +55,27 @@ struct RootView: View {
             }
         }
         .alert(
-            "A game closed unexpectedly",
-            isPresented: Binding(get: { !model.unexpectedEnds.isEmpty && introDone }, set: {
+            model.unexpectedEnds.isEmpty ? "OmniPlay closed unexpectedly" : "A game closed unexpectedly",
+            isPresented: Binding(get: { !(model.unexpectedEnds.isEmpty && model.lastCrash == nil) && introDone }, set: {
                 if !$0 {
                     model.unexpectedEnds = []
+                    model.lastCrash = nil
                 }
             })
         ) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text(
-                "OmniPlay stopped while \(ListFormatter.localizedString(byJoining: model.unexpectedEnds)) was running. "
-                    + "Saves and backups has a copy of any saves from before that session, and its log is under Diagnostics."
-            )
+            Text(unexpectedEndMessage)
         }
+    }
+
+    private var unexpectedEndMessage: String {
+        let cause = model.lastCrash.map { "\n\nCause: \($0)" } ?? ""
+        guard !model.unexpectedEnds.isEmpty else {
+            return "The crash report is in Settings → Export diagnostics.\(cause)"
+        }
+        return "OmniPlay stopped while \(ListFormatter.localizedString(byJoining: model.unexpectedEnds)) was running. "
+            + "Saves and backups has a copy of any saves from before that session, and its log is under Diagnostics.\(cause)"
     }
 }
 

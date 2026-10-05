@@ -112,7 +112,7 @@ public final class EasyRPGEngineLibrary {
         nonisolated(unsafe) let buffer = UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>.allocate(capacity: argv.count)
         buffer.initialize(from: argv, count: argv.count)
         let argc = Int32(argv.count - 1)
-        EngineMainThread.run {
+        EngineMainThread.run("EasyRPG Player") {
             api.run(argc, buffer)
         } exited: { status in
             self.phase = .exited(status)

@@ -39,6 +39,8 @@
         private weak var host: (any RuntimeHost)?
         private var window: UIWindow?
         private var observers: [NSObjectProtocol] = []
+        /// True while `pumpUnderCrashGuard` turns the run loop for Godot.
+        private var pumping = false
 
         public init(bucket: GodotBucket) {
             self.bucket = bucket
@@ -99,6 +101,7 @@
             window.makeKeyAndVisible()
             self.window = window
             host.adoptEngineWindow(window)
+            pumpUnderCrashGuard(name: library.engine == .godot4 ? "Godot 4" : "Godot 3")
 
             // Start-up (setup2, the main scene) happens over Godot's first display-link frames.
             let deadline = ContinuousClock.now + .seconds(30)
@@ -116,6 +119,23 @@
             observeLifecycle()
             host.runtimeDidEmit(.gradeReached(.intro))
             OPLog.log(.runtime, .info, "godot drawing, \(orientation)", session: configuration.sessionID)
+        }
+
+        /// Godot draws from display-link callbacks on the main run loop, not from a main loop of its own. Turning that
+        /// run loop here, inside `EngineMainThread`, puts those callbacks under the crash guard like the other native
+        /// engines' loops: a crash or hang in Godot ends the session, not the app.
+        private func pumpUnderCrashGuard(name: String) {
+            pumping = true
+            EngineMainThread.run(name) { [self] in
+                while MainActor.assumeIsolated({ pumping }) {
+                    CFRunLoopRunInMode(.defaultMode, 0.25, false)
+                }
+                return 0
+            } exited: { [weak self] status in
+                guard let self, status != 0 else { return }
+                pumping = false
+                host?.runtimeDidEmit(.ended(status: status))
+            }
         }
 
         /// Godot 3 and 4 read `UIApplication.shared.delegate.window` on every frame once the device's motion sensors
@@ -165,6 +185,7 @@
             guard library != nil, library?.status != .idle else { return .clean }
             observers.forEach(NotificationCenter.default.removeObserver)
             observers = []
+            pumping = false
             host?.hideFrozenFrame()
             library?.request(.stop)
             host?.releaseEngineWindow()

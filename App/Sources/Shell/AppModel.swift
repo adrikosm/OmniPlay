@@ -69,6 +69,8 @@ final class AppModel {
     @ObservationIgnored var pendingFallback: [GameID: RuntimeIdentifier] = [:]
     /// Games whose last session ended without teardown (a crash or a kill mid-game), named once after launch.
     var unexpectedEnds: [String] = []
+    /// What the crash report says ended the last session or launch early, if it wrote one.
+    var lastCrash: String?
 
     init(paths: AppPaths = HostSession.shared.paths) {
         self.paths = paths
@@ -272,14 +274,7 @@ final class AppModel {
             }
         }
         #if DEBUG
-            // Containment checks: a crash mid-session must leave a marker for the next launch and, on a device,
-            // a MetricKit report.
-            if let delay = DebugLaunch.value(for: "--debug-crash-in-game").flatMap(Double.init) {
-                Task {
-                    try? await Task.sleep(for: .seconds(delay))
-                    fatalError("crash requested by --debug-crash-in-game")
-                }
-            }
+            debugFaultIfRequested()
         #endif
         try Task.checkCancellation()
         // Only the play time changes, on the row as it is now (the Runtime page can re-detect during the session).

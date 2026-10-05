@@ -157,6 +157,7 @@ public actor RuntimeCoordinator {
         let marker = SessionMarker(directory: request.configuration.logDirectory)
         marker.write(game: session.gameID, runtime: "\(runtimeID)")
         self.marker = marker
+        CrashGuard.setDirectory(request.configuration.logDirectory)
         try? store?.sessions.begin(SessionRecord(id: session.id, gameId: session.gameID, runtime: runtimeID))
         let adapter = await factory(request.configuration)
         runtime = adapter
@@ -277,6 +278,7 @@ public actor RuntimeCoordinator {
     private func clearMarker() {
         marker?.clear()
         marker = nil
+        CrashGuard.setDirectory(nil)
     }
 
     // MARK: Memory around transitions (RUNTIME-009)

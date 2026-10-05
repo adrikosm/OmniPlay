@@ -10,7 +10,7 @@ public enum LogRetention {
 
     /// A session is pinned while it holds a crash marker or was exported as a bundle. `.ended-unexpectedly` is the
     /// tombstone `SessionMarker` leaves on a session that never tore down (RuntimeCore names it; this package cannot).
-    public static let pinMarkers = ["termination.json", "crash.json", ".exported", ".ended-unexpectedly"]
+    public static let pinMarkers = ["termination.json", "crash.txt", ".exported", ".ended-unexpectedly"]
 
     struct Session {
         let url: URL

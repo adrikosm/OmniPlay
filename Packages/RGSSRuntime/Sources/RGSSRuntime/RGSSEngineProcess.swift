@@ -55,7 +55,7 @@ public enum RGSSEngineProcess {
         guard phase == .notStarted else { throw Failure.alreadySpent(phase) }
         phase = .running
         OPLog.log(.ruby, .info, "starting the mkxp-z engine on the main thread (one boot per app launch)", session: session)
-        EngineMainThread.run {
+        EngineMainThread.run("mkxp-z (RGSS)") {
             omniplay_mkxp_run()
         } exited: { status in
             phase = .exited(status)

@@ -109,9 +109,16 @@ public enum EngineMainThread {
     /// re-entrantly: an engine started from `DispatchQueue.main.async` keeps drawing while every main-actor
     /// continuation in the app, the adapter's own `start` included, waits for the session to end. From a run-loop
     /// block, the engine's event pump spinning CFRunLoop keeps the host's UI and main-actor work alive.
-    public static func run(_ engine: @escaping @Sendable () -> Int32, exited: @escaping @MainActor @Sendable (Int32) -> Void) {
+    ///
+    /// The engine runs under `CrashGuard`: if it crashes or hangs on the main thread, `exited` gets a status
+    /// `CrashGuard.describe(status:)` explains, and the app carries on without it. `name` goes into the crash report.
+    public static func run(
+        _ name: String,
+        _ engine: @escaping @Sendable () -> Int32,
+        exited: @escaping @MainActor @Sendable (Int32) -> Void
+    ) {
         RunLoop.main.perform(inModes: [.common]) {
-            let status = engine()
+            let status = CrashGuard.run(engine: name, engine)
             MainActor.assumeIsolated { exited(status) }
         }
     }

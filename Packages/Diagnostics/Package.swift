@@ -9,9 +9,11 @@ let package = Package(
         .package(path: "../GameCore"),
     ],
     targets: [
+        .target(name: "CCrashGuard"),
         .target(
             name: "Diagnostics",
             dependencies: [
+                "CCrashGuard",
                 .product(name: "GameCore", package: "GameCore"),
             ]
         ),
