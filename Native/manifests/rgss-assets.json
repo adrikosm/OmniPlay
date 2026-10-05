@@ -1,7 +1,7 @@
 {
   "arch": "arm64",
   "artefact": "Native/prebuilt/rgss-assets",
-  "built_at": "2026-09-24T07:33:30+00:00",
+  "built_at": "2026-10-05T12:48:04+00:00",
   "component": "rgss-assets",
   "flags": {
     "iphoneos_min": "27.0",
@@ -15,7 +15,7 @@
     "Assets.bundle/Postload/cheat_rpgmvx.rb": "462bd57eb026173bf6ac55a8a3314332b25938999a245aebc2e5cc8ce3f1a88d",
     "Assets.bundle/Postload/cheat_rpgmvxace.rb": "e5ef69c72c3aefeaa4e900175426e34541cf53eeaa65e651bd9b2ca9eba23a18",
     "Assets.bundle/Postload/cheat_rpgmxp.rb": "05b1508504adfb31982ebaad48bd1b4438a7b75e2d6b2bdb7b4183930a8010e2",
-    "Assets.bundle/Postload/hmode7_shim.rb": "6dbc9da744d2a6e7d3b6cfdd28a8058b32ca480a2de1ef597573ed0fc4fec09b",
+    "Assets.bundle/Postload/hmode7_shim.rb": "f80b3d4cfdae8c7f172d2b52aeb8b1f187e7b8983a3ee67e6e1d46b149d49486",
     "Assets.bundle/Postload/nilclass_safe_stubs.rb": "479ee8ff552b928abc6d8a2445d361d12fef38eb37fdc10e47f0b68262d52ec2",
     "Assets.bundle/Postload/pokemon_delta_compat.rb": "ba6596f80ec5580e3e304cdd832797ee9cdbc0f6440b2d98aa45c3280e33a95a",
     "Assets.bundle/Postload/pokemon_graphics_compat.rb": "1a8eed01b3e500e7296b93f5e7dacd6f3647d2b6e55149cf70a0c969c768a81b",
