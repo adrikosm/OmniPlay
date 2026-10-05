@@ -61,6 +61,17 @@ public struct AppPaths: Sendable, Equatable {
     public func game(_ id: GameID) -> URL { games().appending(path: id.description, directoryHint: .isDirectory) }
     public func runtimesData() -> URL { sub("Runtimes") }
     public func rtp(_ family: RTPFamily) -> URL { sub("RTP").appending(path: family.rawValue, directoryHint: .isDirectory) }
+
+    /// The RTP a game reads: the player's own import when it holds anything, else the copy built into the app
+    /// (`<bundle>/RTP/<family>`), else the empty import folder.
+    public func rtpRoot(_ family: RTPFamily) -> URL {
+        let own = rtp(family), fm = FileManager.default
+        let hasOwn = ((try? fm.contentsOfDirectory(atPath: own.path(percentEncoded: false))) ?? []).contains { !$0.hasPrefix(".") }
+        guard !hasOwn, let bundled = Bundle.main.resourceURL?.appending(path: "RTP/\(family.rawValue)", directoryHint: .isDirectory),
+              fm.fileExists(atPath: bundled.path(percentEncoded: false)) else { return own }
+        return bundled
+    }
+
     public func soundFonts() -> URL { sub("SoundFonts") }
     public func importStaging(txn: UUID) -> URL { sub("ImportStaging").appending(path: txn.uuidString, directoryHint: .isDirectory) }
 

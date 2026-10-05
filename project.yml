@@ -77,6 +77,12 @@ targets:
         buildPhase: resources
         type: folder
         optional: true
+      # RPG Maker RTPs copied from the owner's own extracted copies (Scripts/native/bundle-rtp.sh), never committed;
+      # a player's own import still wins. Absent, RTP games ask for an import as before.
+      - path: Native/prebuilt/rtp/RTP
+        buildPhase: resources
+        type: folder
+        optional: true
       # MIDI for RPG Maker XP/VX: the default soundfont (Scripts/native/build-fluidsynth.sh).
       - path: Native/prebuilt/soundfont/GeneralUser-GS.sf2
         buildPhase: resources

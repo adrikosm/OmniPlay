@@ -34,6 +34,8 @@ out="$PWD/.build/device-handoff"
 mkdir -p "$out"
 # An earlier manifest must not look like evidence for a failed new attempt.
 rm -f "$out/manifest.json"
+# The owner's RTPs go into the phone build when they are on this Mac and not bundled yet.
+[[ -d Native/prebuilt/rtp/RTP || ! -d Fixtures/private/rtp ]] || Scripts/native/bundle-rtp.sh
 Scripts/generate-project.sh
 args=(-project OmniPlay.xcodeproj -scheme OmniPlay -configuration "$configuration" -sdk iphoneos
       -derivedDataPath .build/DeviceDerivedData)

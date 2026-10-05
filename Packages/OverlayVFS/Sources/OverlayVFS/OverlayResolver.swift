@@ -185,7 +185,7 @@ public enum LayerSetBuilder {
         )
         layers.append(OverlayLayer(tier: .original, root: gameRoot, name: "original", priority: originalPriority))
         if let rtp = rtpFamily(for: descriptor.engine) {
-            layers.append(OverlayLayer(tier: .rtp, root: paths.rtp(rtp), name: "rtp", priority: rtpPriority))
+            layers.append(OverlayLayer(tier: .rtp, root: paths.rtpRoot(rtp), name: "rtp", priority: rtpPriority))
         }
         return layers
     }

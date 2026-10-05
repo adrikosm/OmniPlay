@@ -31,7 +31,7 @@ public enum RTPManager {
     }
 
     public static func isInstalled(_ family: RTPFamily, paths: AppPaths) -> Bool {
-        looksLikeRTP(paths.rtp(family), family)
+        looksLikeRTP(paths.rtpRoot(family), family)
     }
 
     /// What the player needs to know before launching. `warnings` carries the RTP name the game's `Game.ini`
@@ -108,7 +108,7 @@ public enum RTPManager {
     }
 
     private static func variantFile(_ family: RTPFamily, paths: AppPaths) -> URL {
-        paths.rtp(family).appending(path: ".omniplay-variant")
+        paths.rtpRoot(family).appending(path: ".omniplay-variant")
     }
 
     /// Removes an installed RTP. The files are the user's own copy; nothing else depends on them.
