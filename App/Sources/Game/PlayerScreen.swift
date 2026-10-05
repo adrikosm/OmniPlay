@@ -77,6 +77,10 @@ struct PlayerScreen: View {
                         Text(status.line).font(.footnote).foregroundStyle(Theme.textPrimary).multilineTextAlignment(.center)
                         Text("Converting the game's media for this engine. This happens once.")
                             .font(.caption).foregroundStyle(Theme.textSecondary).multilineTextAlignment(.center)
+                        Button("Play anyway") { model.skipMediaPreparation() }
+                            .font(.footnote.weight(.semibold)).foregroundStyle(Theme.textPrimary)
+                            .frame(minHeight: 44)
+                            .accessibilityHint("Starts now; videos that are not converted yet may not play.")
                     }
                     .padding(Theme.s4)
                     .frame(maxWidth: 360)

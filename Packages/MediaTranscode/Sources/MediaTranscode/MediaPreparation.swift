@@ -1,4 +1,5 @@
 import Foundation
+import GameCore
 import ImageIO
 import MediaCompat
 import UniformTypeIdentifiers
@@ -39,7 +40,12 @@ public enum MediaPreparation {
         public let file: String
         /// Of the current file; -1 when its length is unknown.
         public let fraction: Double
+        /// Waiting for the phone to cool down before the next file.
+        public var cooling = false
     }
+
+    /// Seconds between checks while the phone is too hot to convert.
+    static let coolingPoll: TimeInterval = 5
 
     static let markerName = ".omniplay-media.json"
 
@@ -90,13 +96,38 @@ public enum MediaPreparation {
         for (i, conversion) in todo.enumerated() where !stopped {
             guard !Task.isCancelled,
                   progress(Progress(index: i, count: todo.count, file: conversion.source, fraction: 0)) else { break }
+            // A critical phone waits; a hot one converts smaller and rests between files (MEDIA-004).
+            while ProcessInfo.processInfo.thermalState == .critical, !stopped {
+                stopped = Task.isCancelled
+                    || !progress(Progress(index: i, count: todo.count, file: conversion.source, fraction: -1, cooling: true))
+                if !stopped {
+                    Thread.sleep(forTimeInterval: coolingPoll)
+                }
+            }
+            if stopped {
+                break
+            }
+            var spec = spec(for: conversion.target, engine: plan.engine)
+            if ProcessInfo.processInfo.thermalState == .serious {
+                Thread.sleep(forTimeInterval: 2)
+                spec = spec.cooler
+            }
             let input = gameRoot.appending(path: conversion.source)
             let output = generatedRoot.appending(path: conversion.output)
+            // The output can reach twice the source (VP9 to H.264); past the storage reserve, nothing more is converted.
+            let size = Int64((try? input.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+            if case .insufficient = StorageBudget.check(.init(required: size * 2, reason: "convert media"), at: generatedRoot) {
+                for rest in todo[i...] {
+                    plan.failed[rest.source] = "not enough free space"
+                    retry.append(rest.source)
+                }
+                break
+            }
             do {
                 if conversion.target == .png {
                     try convertImage(input, to: output)
                 } else {
-                    try MediaTranscoder.transcode(input, to: output, spec: spec(for: conversion.target, engine: plan.engine)) { fraction in
+                    try MediaTranscoder.transcode(input, to: output, spec: spec) { fraction in
                         let go = progress(Progress(index: i, count: todo.count, file: conversion.source, fraction: fraction))
                         if !go {
                             stopped = true
@@ -147,6 +178,14 @@ public enum MediaPreparation {
         case .ogv: TranscodeSpec(target: .ogvTheoraVorbis, maxWidth: 1920, maxHeight: 1080, maxFPS: 60)
         case .ogg, .png: TranscodeSpec(target: .oggVorbis)
         }
+    }
+
+    /// Clears recorded failures so the next launch tries those files again.
+    public static func retryFailures(generatedRoot: URL) {
+        let marker = generatedRoot.appending(path: markerName)
+        guard let data = try? Data(contentsOf: marker), var plan = try? JSONDecoder().decode(Plan.self, from: data) else { return }
+        plan.failed = [:]
+        save(plan, generatedRoot: generatedRoot)
     }
 
     // MARK: Scanning

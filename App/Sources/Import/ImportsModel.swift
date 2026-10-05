@@ -15,7 +15,12 @@ final class ImportItem: Identifiable {
     private(set) var state: ImportState = .queued
     private var watcher: Task<Void, Never>?
 
-    init(transaction: ImportTransaction, name: String, options: ImportPipeline.Options = .init()) {
+    init(
+        transaction: ImportTransaction,
+        name: String,
+        options: ImportPipeline.Options = .init(),
+        onReady: (@MainActor (GameID) -> Void)? = nil
+    ) {
         id = transaction.id
         self.transaction = transaction
         self.name = name
@@ -24,6 +29,9 @@ final class ImportItem: Identifiable {
             for await state in await transaction.states {
                 guard let self else { return }
                 self.state = state
+                if case let .ready(id) = state {
+                    onReady?(id)
+                }
             }
         }
     }
@@ -35,6 +43,8 @@ final class ImportItem: Identifiable {
 @Observable @MainActor
 final class ImportsModel {
     private(set) var items: [ImportItem] = []
+    /// Each game an import registers, once.
+    var onImported: (@MainActor (GameID) -> Void)?
     private let coordinator: ImportCoordinator
     private let pipeline: ImportPipeline
 
@@ -57,7 +67,10 @@ final class ImportsModel {
             }
             return id
         }
-        items.insert(ImportItem(transaction: txn, name: url.lastPathComponent, options: options), at: 0)
+        items.insert(
+            ImportItem(transaction: txn, name: url.lastPathComponent, options: options) { [weak self] in self?.onImported?($0) },
+            at: 0
+        )
     }
 
     /// Re-runs an import with one more answer (duplicate choice, passphrase, chosen root) and drops the row that asked.

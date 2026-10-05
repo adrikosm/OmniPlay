@@ -8,10 +8,17 @@ let package = Package(
     name: "MediaTranscode",
     platforms: [.iOS("27.0"), .macOS("15.0")],
     products: [.library(name: "MediaTranscode", targets: ["MediaTranscode"])],
-    dependencies: [.package(path: "../MediaCompat")],
+    dependencies: [.package(path: "../MediaCompat"), .package(path: "../GameCore")],
     targets: [
         .target(name: "CTranscode", cSettings: [.headerSearchPath("ffmpeg")]),
-        .target(name: "MediaTranscode", dependencies: ["CTranscode", .product(name: "MediaCompat", package: "MediaCompat")]),
+        .target(
+            name: "MediaTranscode",
+            dependencies: [
+                "CTranscode",
+                .product(name: "MediaCompat", package: "MediaCompat"),
+                .product(name: "GameCore", package: "GameCore"),
+            ]
+        ),
     ],
     swiftLanguageModes: [.v6]
 )

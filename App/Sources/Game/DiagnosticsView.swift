@@ -2,6 +2,7 @@ import Diagnostics
 import GameCore
 import GameDetection
 import GameStore
+import MediaTranscode
 import SwiftUI
 
 /// Everything OmniPlay knows about one game, without Xcode: what detection found, every session with its
@@ -14,6 +15,10 @@ struct DiagnosticsView: View {
     @State private var data = Loaded()
     @State private var bundleURL: URL?
     @State private var copied = false
+    @State private var retriedMedia = false
+
+    private var mediaFailed: Int { data.media.count { $0.state == "failed" } }
+    private var mediaPending: Int { data.media.count { $0.state != "done" } }
 
     struct Loaded: Sendable {
         var sessions: [SessionRecord] = []
@@ -149,8 +154,19 @@ struct DiagnosticsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Theme.danger.opacity(0.12))
             }
-            ListRow(title: "Media") {
-                RowValue(text: data.media.isEmpty ? "Nothing to convert" : "\(data.media.count) to convert")
+            ListRow(title: "Media", subtitle: mediaFailed > 0 ? "\(mediaFailed) could not be converted" : nil) {
+                RowValue(text: data.media
+                    .isEmpty ? "Nothing to convert" : "\(data.media.count - mediaPending) of \(data.media.count) ready")
+            }
+            if mediaFailed > 0 {
+                Button {
+                    MediaPreparation.retryFailures(generatedRoot: model.paths.tier(.generated, for: game.id))
+                    retriedMedia = true
+                } label: {
+                    ListRow(title: retriedMedia ? "They will be tried again next time you play" : "Try failed conversions again")
+                }
+                .buttonStyle(.row)
+                .disabled(retriedMedia)
             }
             ListRow(title: "Save index") {
                 RowValue(text: data.saves.isEmpty ? "No slots yet" : "\(data.saves.count) slot\(data.saves.count == 1 ? "" : "s")")

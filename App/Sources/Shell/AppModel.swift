@@ -43,6 +43,10 @@ final class AppModel {
     /// Progress while a game's media is converted before it starts (`AppModel+Media`).
     var preparingMedia: MediaStatus?
     @ObservationIgnored private(set) var mediaCancel = MediaCancel()
+    /// Set by "Play anyway": the conversions stop and the game starts with what is ready.
+    @ObservationIgnored private(set) var mediaSkip = MediaCancel()
+    /// Conversions started right after an import, one per game; a Play takes over from them.
+    @ObservationIgnored var mediaPrewarm: [GameID: Task<Void, Never>] = [:]
     @ObservationIgnored private var playTask: Task<ActiveSession, Error>?
     @ObservationIgnored private var stopTask: Task<Void, Never>?
     @ObservationIgnored private var inputGeneration = UUID()
@@ -134,6 +138,7 @@ final class AppModel {
                 coordinator: importer,
                 pipeline: ImportPipeline(paths: paths, store: store, session: HostSession.shared.sessionID, registry: registry)
             )
+            imports?.onImported = { [weak self] id in self?.prepareMediaInBackground(for: id) }
             // Publishing the store starts library observation and may trigger a pending game launch.
             self.store = store
             phase = .ready
@@ -197,6 +202,7 @@ final class AppModel {
         }
         guard playTask == nil, stopTask == nil, playing == nil else { throw CoordinatorError.busy }
         mediaCancel = MediaCancel()
+        mediaSkip = MediaCancel()
         saveWarning = nil
         let task = Task { try await self.prepareAndPlay(record, snapshot: snapshot, host: host) }
         playTask = task

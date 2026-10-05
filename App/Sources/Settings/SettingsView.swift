@@ -13,6 +13,7 @@ struct SettingsView: View {
     @State private var exporting = false
     @State private var exportError: String?
     @State private var footprint: UInt64 = 0
+    @AppStorage(AppModel.prepareBeforePlayKey) private var prepareMedia = true
 
     var body: some View {
         NavigationStack {
@@ -28,6 +29,13 @@ struct SettingsView: View {
                             .buttonStyle(.row)
                         }
                         .rise(4)
+                        GlassSection(footer: "Videos, music and pictures an engine cannot play are converted once, after import "
+                            + "or before the first play. Off, games start at once and skip what their engine cannot play.") {
+                                ListRow(icon: "film.stack", title: "Prepare media before first play", minHeight: 44) {
+                                    Toggle("Prepare media before first play", isOn: $prepareMedia).labelsHidden()
+                                }
+                            }
+                            .rise(5)
                     }
                 } trailing: {
                     VStack(alignment: .leading, spacing: Theme.s6) {

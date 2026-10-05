@@ -35,6 +35,15 @@ public struct TranscodeSpec: Sendable, Codable, Hashable {
         self.maxHeight = maxHeight
         self.maxFPS = maxFPS
     }
+
+    /// At most 720p30, for a phone that is already hot.
+    public var cooler: TranscodeSpec {
+        var spec = self
+        spec.maxWidth = min(maxWidth > 0 ? maxWidth : 1280, 1280)
+        spec.maxHeight = min(maxHeight > 0 ? maxHeight : 720, 720)
+        spec.maxFPS = min(maxFPS > 0 ? maxFPS : 30, 30)
+        return spec
+    }
 }
 
 /// File-to-file conversion over `op_transcode.c`. Synchronous and CPU-heavy: call it off the main actor. The output
