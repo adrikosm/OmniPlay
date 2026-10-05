@@ -302,6 +302,16 @@ def elide_filename(fn):
     return _elide_filename(fn)
 
 
+_index_files = None
+
+
+def index_files():
+    _index_files()
+    for finder in sys.meta_path:
+        if type(finder).__name__ == "RenpyImporter":
+            finder.invalidate_caches()
+
+
 def alternate_base(basedir, always=False):
     """
     Ren'Py's bootstrap loop calls this before every game. The first time, the game is the one on the command line.
@@ -315,6 +325,16 @@ def alternate_base(basedir, always=False):
     if renpy.main.main is not run_game:
         _main = renpy.main.main
         renpy.main.main = run_game
+
+    # Ren'Py rebuilds its file index for each game but leaves its importer's module list as it was built: an import
+    # resolved earlier (this script's own, or the previous game's) kept game/python-packages out of reach, and
+    # KSRE's "import pypresence" failed. Rebuilding the index now clears that list too.
+    import renpy.loader
+
+    global _index_files
+    if getattr(renpy.loader, "index_files", index_files) is not index_files:
+        _index_files = renpy.loader.index_files
+        renpy.loader.index_files = index_files
 
     if _parking:
         _parking = False
