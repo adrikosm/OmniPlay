@@ -116,6 +116,8 @@
                 overlays: overlays.map { $0.path(percentEncoded: false) },
                 keep: library.mayPark
             )
+            session?.writedir = configuration.persistentDirectory.appending(path: "game-files", directoryHint: .isDirectory)
+                .path(percentEncoded: false)
             // Developer switches from Ren'Py Tools, applied by the host script at init 999.
             for name in RenPyEngineLibrary.Session.switchNames where configuration.profile.overrides["renpy.\(name)"] == "1" {
                 session?.switches[name] = true

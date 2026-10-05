@@ -62,6 +62,9 @@ public final class RenPyEngineLibrary {
         public var cachedir: String
         public var snapshot: String
         public var overlays: [String]
+        /// Where files the game writes into its own folder go (DDLC's firstrun and characters), kept with its
+        /// persistent data; the imported game stays read-only.
+        public var writedir: String?
         /// Park after the game instead of ending Python. False when the engine started above another parked one.
         public var keep: Bool
         /// Names the game uses (relative to game/, lower-cased) → converted files, absolute.

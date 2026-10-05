@@ -62,6 +62,9 @@ def native(s):
 
 
 def install():
+    # First, before anything imports Ren'Py: renpy.compat binds open when it is imported.
+    install_write_layer()
+
     import launcher
 
     # On iOS, Ren'Py puts every game's saves in the app's Documents folder and ignores save_directory; its logs
@@ -121,6 +124,8 @@ def start_session():
     if state is not None:
         state.forget_frozen()
 
+    start_write_layer(_session.get("basedir"), _session.get("writedir"))
+
     # The host script lives in a writable folder, because Ren'Py writes the compiled .rpyc beside it.
     hostdir = _session.get("hostdir")
     if hostdir:
@@ -165,6 +170,8 @@ def predefined_searchpath(commondir):
     cache = _session.get("cachedir")
     if not cache:
         return overlays + rest
+    global _os_makedirs
+    _os_makedirs = os.makedirs
 
     import renpy
 
@@ -175,7 +182,11 @@ def predefined_searchpath(commondir):
         import traceback
 
         traceback.print_exc()
-    return [cache] + overlays + rest
+    # Files the game wrote into its own game/ folder (DDLC's firstrun) are found by Ren'Py's loader too.
+    written = os.path.join(_write_root, "game") if _write_root else None
+    if written and not os.path.isdir(written):
+        _os_makedirs(written)
+    return [cache] + overlays + ([written] if written else []) + rest
 
 
 def mirror_scripts(mirror, dirs):
@@ -300,6 +311,170 @@ def elide_filename(fn):
         if inside.startswith(prefix):
             return _elide_filename(os.path.join(renpy.config.gamedir, inside[len(prefix):].lstrip("/")))
     return _elide_filename(fn)
+
+
+# Writes into the game folder. OmniPlay keeps the imported game read-only, but some games write beside themselves:
+# DDLC refuses to start unless it can create game/firstrun, and it adds and deletes characters/*.chr as part of its
+# story; Ren'Py 7 writes compiled translations (tl/*.rpymc) there. Python file calls aimed inside the game folder go
+# to a per-game writable folder kept with the saves instead: reads look there first, writes always land there, and a
+# deleted original is remembered in a list so it stays deleted. Paths outside the game folder are untouched.
+_write_base = None
+_write_root = None
+_write_removed = set()
+_orig = {}
+_os_makedirs = None
+
+
+def start_write_layer(base, write):
+    global _write_base, _write_root, _write_removed
+    _write_base = os.path.join(os.path.abspath(base), "") if base and write else None
+    _write_root = write if _write_base else None
+    _write_removed = set()
+    if _write_root:
+        if not os.path.isdir(_write_root):
+            os.makedirs(_write_root)
+        try:
+            with _orig["open"](os.path.join(_write_root, ".omniplay-removed.json"), "r") as f:
+                _write_removed = set(json.load(f))
+        except Exception:
+            pass
+
+
+def _rel(path):
+    """The game-relative path for a path inside the game folder, else None. abspath only: no filesystem calls."""
+    if not _write_base or isinstance(path, int):
+        return None
+    try:
+        if hasattr(os, "fspath"):
+            path = os.fspath(path)
+        if isinstance(path, bytes) and not isinstance(path, str):
+            path = path.decode("utf-8")
+        full = os.path.abspath(path)
+    except Exception:
+        return None
+    if os.path.join(full, "") == _write_base:
+        return ""
+    return full[len(_write_base):] if full.startswith(_write_base) else None
+
+
+def _save_removed():
+    with _orig["open"](os.path.join(_write_root, ".omniplay-removed.json"), "w") as f:
+        json.dump(sorted(_write_removed), f)
+
+
+def _missing(path):
+    import errno
+
+    return OSError(errno.ENOENT, "No such file or directory", path)
+
+
+def _written(rel):
+    return os.path.join(_write_root, rel)
+
+
+def _layer_bopen(path, mode="r", *args, **kwargs):
+    """The builtin open: on Python 2 it returns byte-string files where io.open returns unicode ones."""
+    return _layer_open(path, mode, *args, _opener=_orig["bopen"], **kwargs)
+
+
+def _layer_open(path, mode="r", *args, **kwargs):
+    opener = kwargs.pop("_opener", None) or _orig["open"]
+    rel = _rel(path)
+    if rel is None:
+        return opener(path, mode, *args, **kwargs)
+    target = _written(rel)
+    if any(c in mode for c in "wax+"):
+        folder = os.path.dirname(target)
+        if not os.path.isdir(folder):
+            _orig["makedirs"](folder)
+        if rel in _write_removed:
+            _write_removed.discard(rel)
+            _save_removed()
+        return opener(target, mode, *args, **kwargs)
+    if _orig["exists"](target):
+        return opener(target, mode, *args, **kwargs)
+    if rel in _write_removed:
+        raise _missing(path)
+    return opener(path, mode, *args, **kwargs)
+
+
+def _layer_stat(path, *args, **kwargs):
+    rel = _rel(path)
+    if rel is not None:
+        if _orig["exists"](_written(rel)):
+            return _orig["stat"](_written(rel), *args, **kwargs)
+        if rel in _write_removed:
+            raise _missing(path)
+    return _orig["stat"](path, *args, **kwargs)
+
+
+def _layer_listdir(path="."):
+    rel = _rel(path)
+    if rel is None:
+        return _orig["listdir"](path)
+    names = set()
+    found = False
+    for folder in (path, _written(rel)):
+        if os.path.isdir(folder):
+            found = True
+            names.update(_orig["listdir"](folder))
+    if not found:
+        raise _missing(path)
+    prefix = os.path.join(rel, "") if rel else ""
+    return sorted(n for n in names if prefix + n not in _write_removed and n != ".omniplay-removed.json")
+
+
+def _layer_remove(path, *args, **kwargs):
+    rel = _rel(path)
+    if rel is None:
+        return _orig["remove"](path, *args, **kwargs)
+    had = False
+    if _orig["exists"](_written(rel)):
+        _orig["remove"](_written(rel))
+        had = True
+    if _orig["exists"](path) and rel not in _write_removed:
+        _write_removed.add(rel)
+        _save_removed()
+        had = True
+    if not had:
+        raise _missing(path)
+
+
+def _layer_mkdir(path, *args, **kwargs):
+    rel = _rel(path)
+    if rel is None:
+        return _orig["mkdir"](path, *args, **kwargs)
+    return _orig["mkdir"](_written(rel), *args, **kwargs)
+
+
+def _layer_rename(src, dst, *args, **kwargs):
+    if _rel(src) is None and _rel(dst) is None:
+        return _orig["rename"](src, dst, *args, **kwargs)
+    with _layer_open(src, "rb") as f:
+        data = f.read()
+    with _layer_open(dst, "wb") as f:
+        f.write(data)
+    _layer_remove(src)
+
+
+def install_write_layer():
+    if _orig:
+        return
+    try:
+        import builtins
+    except ImportError:  # Python 2
+        import __builtin__ as builtins
+    import io
+
+    _orig.update(open=io.open, bopen=builtins.open, stat=os.stat, listdir=os.listdir, remove=os.remove, mkdir=os.mkdir,
+                 rename=os.rename, makedirs=os.makedirs, exists=os.path.exists)
+    builtins.open = _layer_bopen
+    io.open = _layer_open
+    os.stat = _layer_stat
+    os.listdir = _layer_listdir
+    os.remove = os.unlink = _layer_remove
+    os.mkdir = _layer_mkdir
+    os.rename = _layer_rename
 
 
 _index_files = None
