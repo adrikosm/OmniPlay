@@ -1,7 +1,7 @@
 {
   "arch": "arm64",
   "artefact": "Native/prebuilt/rgss-assets",
-  "built_at": "2026-10-05T12:48:04+00:00",
+  "built_at": "2026-10-06T06:28:08+00:00",
   "component": "rgss-assets",
   "flags": {
     "iphoneos_min": "27.0",
@@ -27,7 +27,7 @@
     "Assets.bundle/Preload/http_compat.rb": "4ba4d930fb975f06ce962f27cf4afaccf3e53a5d24513916db2250ecc023ddec",
     "Assets.bundle/Preload/mkxp_wrap.rb": "260d9910be466bc942bb9af85135a07e600a707069007050c600285a4e023e1d",
     "Assets.bundle/Preload/net_http_compat.rb": "b1bde9533e43d201174ccfe27f8dfdf48b9bedea0cd8b7d31403cc08a2bae437",
-    "Assets.bundle/Preload/platform_compat.rb": "31f805602a0f94b9e46d8cabc65079bd470306ee2d00c649da54659a83616ffb",
+    "Assets.bundle/Preload/platform_compat.rb": "d1151d4749ce840f9145ca71a55bef1cd29d581628c435600212d41ba34f1804",
     "Assets.bundle/Preload/pokemon_compat.rb": "c7afab81dcc9ca388925edc3e485f7ac7c51bc700e34c7d747cf6fe822596d76",
     "Assets.bundle/Preload/raise_trace.rb": "2e743245472baa2cacfa4faac1370f5d2bf6633135742758d8b040f359e3dace",
     "Assets.bundle/Preload/win32_wrap.rb": "42d3279f5b2a50675dfaf346a061545c3841fdd7cb94617f18cead41cd1abaac",

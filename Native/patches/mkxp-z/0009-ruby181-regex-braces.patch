@@ -1,0 +1,59 @@
+diff -ruN a/binding/binding-mri.cpp b/binding/binding-mri.cpp
+--- a/binding/binding-mri.cpp	2026-10-06 09:26:26
++++ b/binding/binding-mri.cpp	2026-10-06 09:26:26
+@@ -1831,6 +1831,23 @@
+                 SyntaxTransformGuard guard;
+ #endif // MKXPZ_HAVE_SYNTAX_TRANSFORM_PATCHES
+                 mkxp::ScriptBootstrap::evalRubyString((void *)string, (void *)fname, &state);
++
++                /* Ruby 1.8.1 (RGSS1) read a '{' with no pattern before it
++                 * as a literal brace; 1.8.7 refuses the script. The
++                 * preload's MkxpRegexCompat escapes the refused braces and
++                 * the script runs again. */
++                if (state && rb_obj_is_kind_of(rb_gv_get("$!"), rb_eSyntaxError) &&
++                    rb_const_defined(rb_cObject, rb_intern("MkxpRegexCompat"))) {
++                    VALUE message = rb_funcall(rb_gv_get("$!"), rb_intern("message"), 0);
++                    VALUE fixed = rb_funcall(rb_const_get(rb_cObject, rb_intern("MkxpRegexCompat")),
++                                             rb_intern("fix"), 2, string, message);
++                    if (fixed != Qnil) {
++                        mkxp_debugLog("TRACE", "binding-mri.cpp [C++]", "retrying with Ruby 1.8.1 regex braces");
++                        rb_gv_set("$!", Qnil);
++                        string = fixed;
++                        mkxp::ScriptBootstrap::evalRubyString((void *)string, (void *)fname, &state);
++                    }
++                }
+             }
+ 
+             /* On iOS, native DLL/library loading (LoadError) and missing
+diff -ruN a/scripts/preload/platform_compat.rb b/scripts/preload/platform_compat.rb
+--- a/scripts/preload/platform_compat.rb	2026-10-06 09:26:26
++++ b/scripts/preload/platform_compat.rb	2026-10-06 09:26:26
+@@ -977,3 +977,28 @@
+     end
+   end
+ end
++
++# --- Ruby 1.8.1 regular expressions ---
++# RGSS1 shipped Ruby 1.8.1, which read a '{' with no pattern before it
++# (/{atk}/, used by battle systems for text templates) as a literal
++# brace. Ruby 1.8.7 refuses the whole script instead. Given that
++# refusal, fix returns the source with each refused brace escaped, or
++# nil when the message names none; the binding then runs it again.
++module MkxpRegexCompat
++  module_function
++
++  def fix(source, message)
++    fixed = source.dup
++    message.each_line do |line|
++      next unless line =~ /to which '\{' would define cardinality at (\d+): \/(.*)\/\s*\z/
++      at = $1.to_i - 1
++      body = $2
++      next unless at >= 0 && body[at, 1] == '{'
++      escaped = body[0, at] + '\\' + body[at..-1]
++      fixed = fixed.gsub("/#{body}/") { "/#{escaped}/" }
++    end
++    fixed == source ? nil : fixed
++  rescue StandardError
++    nil
++  end
++end
