@@ -2,7 +2,7 @@ import Foundation
 import GameCore
 
 public enum ContainerKind: String, Sendable, Hashable, CaseIterable {
-    case folder, zip, sevenZip, rar4, rar5, tar, gzip, xz, zstd, cab, pe, asar, unknown
+    case folder, zip, sevenZip, rar4, rar5, tar, gzip, xz, zstd, cab, pe, asar, godotPack, unknown
 }
 
 /// Identifies the input by bytes, never by extension. Reads at most 64 KiB.
@@ -26,6 +26,7 @@ public enum ContainerSniffer {
             kind: .zstd
         ),
         Magic(offset: 0, bytes: Array("MSCF".utf8), kind: .cab), Magic(offset: 257, bytes: Array("ustar".utf8), kind: .tar),
+        Magic(offset: 0, bytes: Array("GDPC".utf8), kind: .godotPack), // a Godot export's separate .pck
     ]
 
     public static func identify(header h: Data) -> ContainerKind {

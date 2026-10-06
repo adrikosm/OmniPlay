@@ -149,6 +149,8 @@ struct ImportPipeline: Sendable {
         case .asar:
             totals = try await extractAsar(source.url, to: stagedRoot, txn: txn)
             sourceBytes = fileSize(source.url)
+        case .godotPack:
+            (totals, sourceBytes) = try await stageWhole(source.url, to: stagedRoot, txn: txn)
         case .unknown:
             throw ImportFailure.unsupportedContainer(firstBytesHex: ContainerSniffer.firstBytesHex(source.url))
         }
@@ -200,16 +202,7 @@ struct ImportPipeline: Sendable {
         case .godotPCK:
             // Godot opens its own self-contained executables (`--main-pack Game.exe` finds the pack from the tail),
             // and a pack's offsets can be absolute within the .exe, so the file is kept whole rather than cut out.
-            let size = fileSize(url) ?? 0
-            try StorageBudget.require(.forCopy(bytes: size), at: paths.root)
-            await txn.transition(to: .staging(.init(completedBytes: 0, totalBytes: size)))
-            try FileManager.default.createDirectory(at: stagedRoot, withIntermediateDirectories: true)
-            try FileManager.default.copyItem(at: url, to: stagedRoot.appending(path: url.lastPathComponent))
-            totals = RunningTotals()
-            totals.entries = 1
-            totals.declaredBytes = size
-            totals.writtenBytes = size
-            sourceBytes = size
+            (totals, sourceBytes) = try await stageWhole(url, to: stagedRoot, txn: txn)
         case let .enigmaVB(offset):
             // The virtual files are the game; the packed program stays behind like any installer's.
             let size = fileSize(url) ?? 0
@@ -229,6 +222,20 @@ struct ImportPipeline: Sendable {
         case .none: throw ImportFailure.unsupportedContainer(firstBytesHex: "a Windows program with no game data inside")
         }
         return (totals, sourceBytes)
+    }
+
+    /// Copies a file the game runs as it is (a Godot pack or a self-contained Godot executable) into the staged tree.
+    func stageWhole(_ url: URL, to stagedRoot: URL, txn: ImportTransaction) async throws -> (RunningTotals, Int64?) {
+        let size = fileSize(url) ?? 0
+        try StorageBudget.require(.forCopy(bytes: size), at: paths.root)
+        await txn.transition(to: .staging(.init(completedBytes: 0, totalBytes: size)))
+        try FileManager.default.createDirectory(at: stagedRoot, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: url, to: stagedRoot.appending(path: url.lastPathComponent))
+        var totals = RunningTotals()
+        totals.entries = 1
+        totals.declaredBytes = size
+        totals.writtenBytes = size
+        return (totals, size)
     }
 
     /// The staged tree is one Windows installer and nothing else (macOS resource forks aside), as when a site zips up
