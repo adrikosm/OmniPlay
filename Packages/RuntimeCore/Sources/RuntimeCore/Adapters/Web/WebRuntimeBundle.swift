@@ -2,7 +2,7 @@ import Foundation
 
 /// The injected scripts, loaded from the package resources and specialised with the game's profile and saves.
 public enum WebRuntimeBundle {
-    public static let version = 13
+    public static let version = 14
     public static let isolatedScripts = ["omniplay-bootstrap", "omniplay-console", "omniplay-heartbeat"]
     /// Order matters: storage runs first so localStorage is seeded before any game script reads it.
     public static let pageScripts = [

@@ -29,7 +29,14 @@
   }
   if (shims.has("greenworks")) modules.greenworks = { init: () => false, initAPI: () => false };
   if (shims.has("processVersions")) {
-    try { Object.defineProperty(window, "process", { value: { versions: { node: "0.0.0", nw: "0.0.0" }, platform: "ios", env: {} }, configurable: true }); } catch (_) {}
+    // No `versions.node`: emscripten builds (MZ's vorbisdecoder.js) read that as Node and stop decoding audio. The
+    // fields stock MV/MZ code reads once `process` is an object (main.js's mainModule check) are present.
+    const process = {
+      versions: { nw: "0.0.0" }, platform: "ios", env: {}, argv: [],
+      mainModule: { filename: decodeURIComponent(location.pathname) },
+      cwd: () => "/", on: () => process,
+    };
+    try { Object.defineProperty(window, "process", { value: process, configurable: true }); } catch (_) {}
   }
   // NW.js's own API. Known properties answer plainly; any other method is a no-op, so start-up code that sizes,
   // moves, titles or decorates the desktop window (MV's SceneManager.initNwjs and plugins that extend it) runs
