@@ -1,0 +1,16 @@
+diff --git a/platform/ios/app_delegate.mm b/platform/ios/app_delegate.mm
+index 37d2696..b23e7bf 100644
+--- a/platform/ios/app_delegate.mm
++++ b/platform/ios/app_delegate.mm
+@@ -66,6 +66,11 @@ + (ViewController *)viewController {
+ 	return mainViewController;
+ }
+ 
++// OmniPlay hosts Godot inside its own app: its shim creates the view controller and hands it over here.
+++ (void)setViewController:(ViewController *)viewController {
++	mainViewController = viewController;
++}
++
+ - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
+ 	// TODO: might be required to make an early return, so app wouldn't crash because of timeout.
+ 	// TODO: logo screen is not displayed while shaders are compiling

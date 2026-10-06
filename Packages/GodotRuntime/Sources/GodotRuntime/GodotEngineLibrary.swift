@@ -1,9 +1,10 @@
 import Darwin
 import Diagnostics
 import Foundation
+import GameCore
 
-/// An embedded Godot engine, opened on its first launch: Godot 4 (`Frameworks/Godot.framework`, `op_godot.h`) or
-/// Godot 3 (`Frameworks/Godot3.framework`, `op_godot3.h`).
+/// An embedded Godot engine, opened on its first launch: Godot 4.7 (`Frameworks/Godot.framework`, `op_godot.h`),
+/// Godot 4.4 (`Frameworks/Godot44.framework`, `op_godot44.h`) or Godot 3 (`Frameworks/Godot3.framework`, `op_godot3.h`).
 ///
 /// Godot's iOS platform expects to be the app; each framework's shim does what Godot's own export template does at
 /// launch, and OmniPlay hosts Godot's view. `Main` sets up once per process, so a Godot session spends its slot.
@@ -11,12 +12,27 @@ import Foundation
 public final class GodotEngineLibrary {
     /// Which engine: the framework and its shim's symbol prefix.
     public enum Engine: String, Sendable, CaseIterable {
-        case godot4, godot3
+        case godot4, godot44, godot3
 
-        var framework: String { self == .godot4 ? "Godot" : "Godot3" }
-        var prefix: String { self == .godot4 ? "op_godot" : "op_godot3" }
-        /// Godot 4's shim hands over its view controller, Godot 3's a window whose root it is.
-        var surfaceSymbol: String { self == .godot4 ? "_view_controller" : "_window" }
+        var framework: String {
+            switch self {
+            case .godot4: "Godot"
+            case .godot44: "Godot44"
+            case .godot3: "Godot3"
+            }
+        }
+
+        var prefix: String { "op_\(framework.lowercased())" }
+        /// Godot 4's shims hand over their view controller, Godot 3's a window whose root it is.
+        var surfaceSymbol: String { self == .godot3 ? "_window" : "_view_controller" }
+        /// The engine for a version bucket.
+        public init(bucket: GodotBucket) {
+            self = switch bucket {
+            case .v36: .godot3
+            case .v44: .godot44
+            case .v47: .godot4
+            }
+        }
     }
 
     public enum Command: Int32 { case run = 0, pause = 1, stop = 2 }

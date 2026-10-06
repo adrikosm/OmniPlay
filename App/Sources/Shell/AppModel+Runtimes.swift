@@ -117,10 +117,16 @@ extension AppModel {
         OPLog.log(.runtime, .info, "ScummVM bundled")
     }
 
-    /// Godot 4 (4.7 bucket) and Godot 3 (3.6 bucket), each registered when its framework is in the bundle.
+    /// Godot 4.7, Godot 4.4 (games exported with 4.3 and 4.4) and Godot 3.6, each registered when its framework is in
+    /// the bundle.
     func registerGodot(with coordinator: RuntimeCoordinator) async {
         struct Lane { let bucket: GodotBucket, engine: GodotEngineLibrary.Engine, version: String }
-        for lane in [Lane(bucket: .v47, engine: .godot4, version: "4.7.2"), Lane(bucket: .v36, engine: .godot3, version: "3.6.3")] {
+        let lanes = [
+            Lane(bucket: .v47, engine: .godot4, version: "4.7.2"),
+            Lane(bucket: .v44, engine: .godot44, version: "4.4.1"),
+            Lane(bucket: .v36, engine: .godot3, version: "3.6.3"),
+        ]
+        for lane in lanes {
             let (bucket, engine, version) = (lane.bucket, lane.engine, lane.version)
             guard GodotEngineLibrary.bundled(engine) != nil,
                   let planned = RuntimeRegistry.planned.first(where: { $0.id == .godot(bucket: bucket) }) else { continue }

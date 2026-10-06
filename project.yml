@@ -134,6 +134,9 @@ targets:
       - framework: Native/prebuilt/godot/Godot.xcframework
         embed: true
         link: false
+      - framework: Native/prebuilt/godot44/Godot44.xcframework
+        embed: true
+        link: false
       - framework: Native/prebuilt/godot3/Godot3.xcframework
         embed: true
         link: false

@@ -47,7 +47,7 @@
         }
 
         public func prepare(configuration: RuntimeConfiguration) async throws {
-            guard let library = GodotEngineLibrary.bundled(bucket == .v36 ? .godot3 : .godot4) else { throw Failure.engineMissing }
+            guard let library = GodotEngineLibrary.bundled(.init(bucket: bucket)) else { throw Failure.engineMissing }
             guard library.isAvailable else { throw GodotEngineLibrary.Failure.alreadySpent }
             self.configuration = configuration
             self.library = library
@@ -90,7 +90,7 @@
             guard let raw = library.surface() else { throw Failure.notPrepared }
             // Godot in its own window, like the other native engines' windows.
             let window: UIWindow
-            if library.engine == .godot4 {
+            if library.engine != .godot3 {
                 guard let scene = host.containerView.window?.windowScene else { throw Failure.notPrepared }
                 window = UIWindow(windowScene: scene)
                 window.rootViewController = Unmanaged<UIViewController>.fromOpaque(raw).takeUnretainedValue()
@@ -101,7 +101,7 @@
             window.makeKeyAndVisible()
             self.window = window
             host.adoptEngineWindow(window)
-            pumpUnderCrashGuard(name: library.engine == .godot4 ? "Godot 4" : "Godot 3")
+            pumpUnderCrashGuard(name: library.engine.framework)
 
             // Start-up (setup2, the main scene) happens over Godot's first display-link frames.
             let deadline = ContinuousClock.now + .seconds(30)

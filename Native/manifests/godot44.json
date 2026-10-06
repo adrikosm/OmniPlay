@@ -1,0 +1,28 @@
+{
+  "arch": "arm64",
+  "artefact": "Native/prebuilt/godot44",
+  "built_at": "2026-10-06T07:11:49+00:00",
+  "component": "godot44",
+  "flags": {
+    "iphoneos_min": "27.0",
+    "macosx_min": "15.0"
+  },
+  "outputs": {
+    "Godot44.xcframework/Info.plist": "12e3fd19ba4051304f3dc8f8c8c1add7adb017ef89e0d8ce90cede90ec73e255",
+    "Godot44.xcframework/ios-arm64-simulator/Godot44.framework/Godot44": "a5641edd8f09b4511f9399ad79b00435c29a3264282927acbdb5e5460d3a0a15",
+    "Godot44.xcframework/ios-arm64-simulator/Godot44.framework/Info.plist": "add93f7debea6c21602718d3bccd475141ff810a62eb18cf82e9471aafa09ded",
+    "Godot44.xcframework/ios-arm64-simulator/Godot44.framework/_CodeSignature/CodeResources": "1b6fd8ee707afbad81f92f57e493aec3d62fed837e4c0e573d0b14defc42c184",
+    "Godot44.xcframework/ios-arm64/Godot44.framework/Godot44": "49b9a385b54fdf4a3238f757a9400732e83ef41c375706b2dbd8b584c4e5f032",
+    "Godot44.xcframework/ios-arm64/Godot44.framework/Info.plist": "e5ede891d83c1aa7ec57ed79339d22a33d59959a486fc1c44fde8b9653a68b1b",
+    "Godot44.xcframework/ios-arm64/Godot44.framework/_CodeSignature/CodeResources": "1cd8051474db0b0b326e8e0555580f4c897f7cd3e81577d1f3b69a7db0a9fd77"
+  },
+  "sdks": {
+    "iphoneos": "27.0",
+    "iphonesimulator": "27.0",
+    "macosx": "27.0"
+  },
+  "sources": {
+    "Native/godot44/src": "49a5bc7b616bd04689a2c89e89bda41f50241464"
+  },
+  "toolchain": "Xcode 27.0 Build version 27A266a"
+}

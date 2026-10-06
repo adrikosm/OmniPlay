@@ -34,3 +34,6 @@
 [submodule "Native/libmspack"]
 	path = Native/libmspack
 	url = https://github.com/kyz/libmspack.git
+[submodule "Native/godot44/src"]
+	path = Native/godot44/src
+	url = https://github.com/godotengine/godot.git
