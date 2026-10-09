@@ -115,6 +115,13 @@
             let mask = window.rootViewController?.supportedInterfaceOrientations ?? .all
             let orientation: OrientationPreference =
                 mask.isSubset(of: .landscape) ? .landscape : mask.isSubset(of: [.portrait, .portraitUpsideDown]) ? .portrait : .any
+            // Godot's "landscape" (its default) answers one side only, and Godot's window is key, so the scene would
+            // not follow the phone to the other side. A landscape game answers both, like "sensor_landscape".
+            if orientation == .landscape, let controller = window.rootViewController {
+                let both: @convention(block) (AnyObject) -> UInt = { _ in UIInterfaceOrientationMask.landscape.rawValue }
+                let selector = #selector(getter: UIViewController.supportedInterfaceOrientations)
+                class_replaceMethod(type(of: controller), selector, imp_implementationWithBlock(both), "Q@:")
+            }
             host.lockOrientation(orientation)
             observeLifecycle()
             host.runtimeDidEmit(.gradeReached(.intro))
