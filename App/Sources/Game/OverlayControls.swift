@@ -197,11 +197,16 @@ struct OverlayControls: View {
         }
     }
 
-    /// The landscape column: the eye nearest the pause button, then the game's buttons.
+    /// The landscape column: the eye nearest the pause button, then the game's buttons. Engines that read the screen
+    /// themselves get only fast forward, which Ren'Py means as Skip.
     @ViewBuilder private var buttons: some View {
         eyeButton
-        if !overlay.chromeHidden, overlay.hasPad {
-            gameButtons
+        if !overlay.chromeHidden {
+            if overlay.hasPad {
+                gameButtons
+            } else {
+                fastForwardButton
+            }
         }
     }
 
@@ -252,8 +257,18 @@ struct OverlayControls: View {
 
     /// Fast forward, the pad, the key strip and the controls editor, for engines that take the host's keys.
     @ViewBuilder private var gameButtons: some View {
+        fastForwardButton
+        padButton
+        keysButton
+        Button { unlessSwiped(onEditControls) } label: { Image(systemName: "gamecontroller") }
+            .buttonStyle(.round)
+            .gameControlHitRegion()
+            .accessibilityLabel("Edit touch controls")
+    }
+
+    /// Held: the fastest speed; let go: the speed chosen in Pause. Ren'Py's fastest is Skip, all text.
+    @ViewBuilder private var fastForwardButton: some View {
         if let fastest = overlay.speed?.options.last?.value, fastest > 1 {
-            // Held: the fastest speed; let go: the speed chosen in Pause.
             Image(systemName: "forward.fill")
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(Theme.textPrimary)
@@ -267,15 +282,9 @@ struct OverlayControls: View {
                     onFastForward(pressing ? fastest : overlay.fastForward)
                 })
                 .gameControlHitRegion()
-                .accessibilityLabel("Fast forward while held")
+                .accessibilityLabel(overlay.speed?.title == "Skip" ? "Skip text while held" : "Fast forward while held")
                 .accessibilityAddTraits(.isButton)
         }
-        padButton
-        keysButton
-        Button { unlessSwiped(onEditControls) } label: { Image(systemName: "gamecontroller") }
-            .buttonStyle(.round)
-            .gameControlHitRegion()
-            .accessibilityLabel("Edit touch controls")
     }
 }
 
