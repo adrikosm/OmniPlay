@@ -31,15 +31,9 @@ public struct ControlsLayout: Codable, Sendable, Hashable {
             self.hold = hold
         }
 
-        /// The label displayed on the button: reflects the assigned keybinding or custom name.
+        /// What the button shows: the key it sends. Layouts saved before that still carry a bare A/B/X/Y.
         public var effectiveLabel: String {
-            if let key = keys.first {
-                let keyLabel = KeyCatalog.label(for: key)
-                if ["A", "B", "X", "Y"].contains(label.uppercased()) && keyLabel.uppercased() != label.uppercased() {
-                    return keyLabel
-                }
-            }
-            return label.isEmpty ? (keys.first.map { KeyCatalog.label(for: $0) } ?? "") : label
+            ["A", "B", "X", "Y"].contains(label) ? keys.first.map(KeyCatalog.label) ?? label : label
         }
     }
 
@@ -71,13 +65,13 @@ public struct ControlsLayout: Codable, Sendable, Hashable {
     /// A at the bottom under the resting thumb. Controls are anchored lower and closer to the edges for thumb ergonomics.
     static func diamond(landscape: Bool, a: [GameKey], b: [GameKey], x: [GameKey], y: [GameKey]) -> ControlsLayout {
         // Unit offsets of one 54 pt button in the safe area (about 832×419 pt landscape, 408×800 pt portrait).
-        let (cx, cy, dx, dy) = landscape ? (0.90, 0.78, 54.0 / 832, 54.0 / 419) : (0.79, 0.85, 54.0 / 408, 54.0 / 800)
+        let (cx, cy, dx, dy) = landscape ? (0.90, 0.80, 54.0 / 832, 54.0 / 419) : (0.79, 0.85, 54.0 / 408, 54.0 / 800)
         func face(_ idSuffix: String, _ keys: [GameKey], _ x: Double, _ y: Double) -> Control {
             let label = keys.first.map { KeyCatalog.label(for: $0) } ?? idSuffix.uppercased()
             return Control(id: "face.\(idSuffix.lowercased())", label: label, keys: keys, anchor: Anchor(x: x, y: y, size: 54))
         }
         return ControlsLayout(
-            dpad: landscape ? Anchor(x: 0.10, y: 0.78, size: 128) : Anchor(x: 0.18, y: 0.85, size: 128),
+            dpad: landscape ? Anchor(x: 0.10, y: 0.80, size: 128) : Anchor(x: 0.18, y: 0.85, size: 128),
             buttons: [face("y", y, cx, cy - dy), face("x", x, cx - dx, cy), face("b", b, cx + dx, cy), face("a", a, cx, cy + dy)]
         )
     }

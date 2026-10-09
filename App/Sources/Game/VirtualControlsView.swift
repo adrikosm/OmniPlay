@@ -67,19 +67,15 @@ extension View {
 }
 
 /// One key: hold to keep it down. Two-finger play works because each button tracks its own touch.
-/// A press shrinks the button and lights it; letting go springs it back. Displays the assigned keybinding dynamically.
+/// A press shrinks the button and lights it; letting go springs it back. The face shows the key it sends.
 private struct KeyButton: View {
     let control: ControlsLayout.Control
     let send: (GameInputEvent) -> Void
     @State private var down = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var labelText: String {
-        control.effectiveLabel
-    }
-
     var body: some View {
-        Text(labelText)
+        Text(control.effectiveLabel)
             .font(.system(size: min(18, control.anchor.size * 0.34), weight: .semibold))
             .lineLimit(1)
             .minimumScaleFactor(0.5)
@@ -104,7 +100,7 @@ private struct KeyButton: View {
                 // A hold button flips on each tap; the others follow the finger.
                 press(control.hold == true ? !down : false)
             })
-            .accessibilityLabel(labelText)
+            .accessibilityLabel(control.effectiveLabel)
             .accessibilityAddTraits(control.hold == true && down ? [.isButton, .isSelected] : .isButton)
             .accessibilityValue(control.hold == true ? (down ? "Held" : "Released") : "")
             .accessibilityAction {
@@ -131,9 +127,8 @@ private struct KeyButton: View {
     }
 }
 
-/// An ultra-responsive virtual joystick and directional control: supports continuous press-and-drag
-/// with smooth tracking from the touch origin, tight deadzone handling, clamped maximum radius,
-/// analog velocity updates (controllerAxis), and instant 8-way directional key dispatch, plus discrete taps.
+/// Press a chevron for that direction, or press and drag: a touch near the centre becomes a floating stick measured
+/// from where the thumb landed. Eight directions with a small dead zone; diagonals hold two arrows.
 private struct DPad: View {
     let size: Double
     let send: (GameInputEvent) -> Void
@@ -190,12 +185,8 @@ private struct DPad: View {
                 }
                 .shadow(color: .black.opacity(0.4), radius: isTouching ? 10 : 5, y: isTouching ? 6 : 3)
                 .offset(x: knobOffset.width, y: knobOffset.height)
-                .animation(
-                    isTouching
-                        ? .interactiveSpring(response: 0.06, dampingFraction: 0.82)
-                        : .spring(response: 0.22, dampingFraction: 0.7),
-                    value: knobOffset
-                )
+                // Glued to the thumb while touching; springs home on release.
+                .animation(isTouching ? nil : .spring(response: 0.22, dampingFraction: 0.7), value: knobOffset)
         }
         .frame(width: size, height: size)
         .rotation3DEffect(
@@ -207,7 +198,7 @@ private struct DPad: View {
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { value in
-                    updateTouch(start: value.startLocation, current: value.location, translation: value.translation)
+                    updateTouch(start: value.startLocation, current: value.location)
                 }
                 .onEnded { _ in
                     endTouch()
@@ -223,7 +214,9 @@ private struct DPad: View {
     }
 
     private var tilt: (dx: Double, dy: Double) {
-        if knobOffset == .zero { return (0, 0) }
+        if knobOffset == .zero {
+            return (0, 0)
+        }
         let len = max(hypot(knobOffset.width, knobOffset.height), 1)
         return (knobOffset.width / len, knobOffset.height / len)
     }
@@ -236,7 +229,7 @@ private struct DPad: View {
         Arm(key: .arrowRight, symbol: "chevron.right", dx: 1, dy: 0),
     ]
 
-    private func updateTouch(start: CGPoint, current: CGPoint, translation: CGSize) {
+    private func updateTouch(start: CGPoint, current: CGPoint) {
         let center = CGPoint(x: size / 2, y: size / 2)
         if !isTouching {
             isTouching = true
@@ -251,23 +244,11 @@ private struct DPad: View {
         let rawDy = current.y - origin.y
         let rawDist = hypot(rawDx, rawDy)
 
-        var vectorX: Double = 0
-        var vectorY: Double = 0
         var wanted: Set<GameKey> = []
 
         if rawDist > Self.deadzone {
             let clampedDist = min(rawDist, maxRadius)
-            let unitX = rawDx / rawDist
-            let unitY = rawDy / rawDist
-
-            // Increased movement sensitivity: reach full velocity promptly
-            let normalizedMagnitude = (clampedDist - Self.deadzone) / (maxRadius - Self.deadzone)
-            let sensitivity = min(1.0, normalizedMagnitude * 1.35)
-
-            vectorX = unitX * sensitivity
-            vectorY = unitY * sensitivity
-
-            knobOffset = CGSize(width: unitX * clampedDist, height: unitY * clampedDist)
+            knobOffset = CGSize(width: rawDx / rawDist * clampedDist, height: rawDy / rawDist * clampedDist)
 
             // 8 sectors centered on cardinal & diagonal angles
             let deg = atan2(rawDy, rawDx) * 180.0 / .pi
@@ -287,14 +268,9 @@ private struct DPad: View {
             knobOffset = .zero
         }
 
-        // Apply directional vector instantly to velocity / analog axes
-        // GameController convention: Y is positive up, negative down
-        send(.controllerAxis(.leftX, value: Float(vectorX)))
-        send(.controllerAxis(.leftY, value: Float(-vectorY)))
-
-        // Dispatch key events if directions changed
+        // Every engine moves on arrow keys; only a change of direction sends anything.
         if wanted != held {
-            if !wanted.isEmpty && held.isEmpty {
+            if !wanted.isEmpty, held.isEmpty {
                 Haptics.tap()
             }
             for key in held.subtracting(wanted) {
@@ -311,10 +287,6 @@ private struct DPad: View {
         isTouching = false
         touchOrigin = nil
         knobOffset = .zero
-
-        send(.controllerAxis(.leftX, value: 0))
-        send(.controllerAxis(.leftY, value: 0))
-
         for key in held {
             send(.keyUp(key))
         }

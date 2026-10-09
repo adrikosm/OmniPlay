@@ -61,7 +61,8 @@ final class AppModel {
     /// Something the running game went through that the player should hear about (a web page reloaded after its
     /// process died); the player screen shows it briefly and clears it.
     var runtimeNotice: String?
-    @ObservationIgnored private var pendingKeyUps: [GameKey: Task<Void, Never>] = [:]
+    /// One input queue per key (nil for pointer, text and pad events).
+    @ObservationIgnored private var inputTails: [GameKey?: Task<Void, Never>] = [:]
     @ObservationIgnored private var keyDownAt: [GameKey: ContinuousClock.Instant] = [:]
     /// Games that already had their one automatic runtime fallback this launch (RUNTIME-007).
     @ObservationIgnored var fallbackTried: Set<GameID> = []
@@ -299,8 +300,8 @@ final class AppModel {
         cancelMediaPreparation()
         playTask?.cancel()
         inputGeneration = UUID()
-        pendingKeyUps.values.forEach { $0.cancel() }
-        pendingKeyUps.removeAll()
+        inputTails.values.forEach { $0.cancel() }
+        inputTails.removeAll()
         keyDownAt.removeAll()
         tools?.stop()
         tools = nil
@@ -346,51 +347,39 @@ final class AppModel {
         }
     }
 
-    /// Input reaches the engine with minimal latency. Fast taps hold their key for `minimumPress` so frame polls
-    /// never miss the press, while next keys and directional vector updates dispatch immediately without delay.
+    /// Each key's events reach the engine in the order they happened, and no press is shorter than `minimumPress`:
+    /// engines read keys once per frame, so a quick thumb tap whose down and up land between two reads was lost. Every
+    /// key has its own queue, so only that key's release waits; other keys and the D-pad's next direction go at once.
     func send(_ event: GameInputEvent) {
         guard let coordinator, playing != nil, stopTask == nil else { return }
         let generation = inputGeneration
+        var wait: Duration = .zero
+        var key: GameKey?
         switch event {
-        case let .keyDown(key):
-            keyDownAt[key] = .now
-            pendingKeyUps.removeValue(forKey: key)?.cancel()
-            Task { [weak self] in
-                guard self?.inputGeneration == generation else { return }
-                await coordinator.send(event)
+        case let .keyDown(down):
+            key = down
+            keyDownAt[down] = .now
+        case let .keyUp(up):
+            key = up
+            if let at = keyDownAt.removeValue(forKey: up) {
+                wait = Self.minimumPress - (ContinuousClock.now - at)
             }
-        case let .keyUp(key):
-            var wait: Duration = .zero
-            if let at = keyDownAt.removeValue(forKey: key) {
-                let elapsed = ContinuousClock.now - at
-                if elapsed < Self.minimumPress {
-                    wait = Self.minimumPress - elapsed
-                }
-            }
+        default: break
+        }
+        let previous = inputTails[key]
+        inputTails[key] = Task {
+            await previous?.value
+            guard !Task.isCancelled, generation == inputGeneration else { return }
             if wait > .zero {
-                pendingKeyUps[key]?.cancel()
-                pendingKeyUps[key] = Task { [weak self] in
-                    try? await Task.sleep(for: wait)
-                    guard let self, !Task.isCancelled, self.inputGeneration == generation else { return }
-                    self.pendingKeyUps.removeValue(forKey: key)
-                    await coordinator.send(event)
-                }
-            } else {
-                pendingKeyUps.removeValue(forKey: key)?.cancel()
-                Task { [weak self] in
-                    guard self?.inputGeneration == generation else { return }
-                    await coordinator.send(event)
-                }
+                do { try await Task.sleep(for: wait) } catch { return }
             }
-        default:
-            Task { [weak self] in
-                guard self?.inputGeneration == generation else { return }
-                await coordinator.send(event)
-            }
+            guard generation == inputGeneration else { return }
+            await coordinator.send(event)
         }
     }
 
-    static let minimumPress: Duration = .milliseconds(25)
+    /// Two frames at 40 fps (RGSS), three at 60.
+    static let minimumPress: Duration = .milliseconds(50)
 
     /// Deletes only the library database; game files under `Games/` are untouched. Then relaunches.
     func resetLibraryDatabase() async {
