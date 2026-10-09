@@ -109,10 +109,21 @@ struct OverlayControls: View {
                 if overlay.hasPad, let speed = overlay.touchpadSpeed {
                     TouchpadLayer(speed: speed, send: send).ignoresSafeArea().gameControlHitRegion()
                 }
-                if shows {
+                // The keys button swaps the pad for the full keyboard, in the same place.
+                if shows, !overlay.keyStrip {
                     VirtualControlsView(opacity: overlay.layouts?.opacity ?? opacity, layouts: overlay.layouts) { send($0) }
                         .ignoresSafeArea(.keyboard)
                         .transition(.opacity)
+                }
+                if overlay.keyStrip, overlay.hasPad, !overlay.chromeHidden {
+                    KeyboardView(opacity: overlay.layouts?.opacity ?? opacity, send: send)
+                        .gameControlHitRegion()
+                        // In landscape the button column runs down the trailing edge; the keyboard stops before it.
+                        .padding(.leading, Theme.s3)
+                        .padding(.trailing, overlay.landscape ? 66 : Theme.s3)
+                        .padding(.bottom, Theme.s2)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                        .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                 }
                 VStack(spacing: Theme.s2) {
                     if !overlay.landscape, topInset >= 44 {
@@ -142,13 +153,6 @@ struct OverlayControls: View {
                         .padding(.trailing, 54)
                         .simultaneousGesture(swipeToHidePad)
                     }
-                    if overlay.keyStrip, !overlay.chromeHidden {
-                        KeyStripView(send: send)
-                            .gameControlHitRegion()
-                            // In landscape the button column runs down the trailing edge; the strip stops before it.
-                            .padding(.trailing, overlay.landscape ? 54 : 0)
-                            .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
-                    }
                     Spacer()
                 }
                 .padding(.horizontal, Theme.s3)
@@ -164,7 +168,6 @@ struct OverlayControls: View {
                             .simultaneousGesture(swipeToHidePad)
                     }
                 }
-                .animation(reduceMotion ? nil : Theme.quick, value: overlay.keyStrip)
                 .animation(reduceMotion ? nil : Theme.quick, value: overlay.chromeHidden)
                 .overlay(alignment: .top) {
                     if tip, !overlay.chromeHidden {
@@ -186,6 +189,7 @@ struct OverlayControls: View {
         .onGeometryChange(for: Double.self) { max(20, $0.size.height * 0.1 - 22) } action: { rowTop = $0 }
         .onGeometryChange(for: Double.self) { $0.safeAreaInsets.top } action: { topInset = $0 }
         .animation(reduceMotion ? nil : Theme.quick, value: overlay.padVisible)
+        .animation(reduceMotion ? nil : Theme.quick, value: overlay.keyStrip)
         .task {
             // Once per install, a moment after the game appears, then it fades.
             guard !tipShown, overlay.hasPad else { return }
@@ -251,7 +255,7 @@ struct OverlayControls: View {
         }
         .buttonStyle(.round)
         .gameControlHitRegion()
-        .accessibilityLabel(overlay.keyStrip ? "Hide keys" : "Show keys")
+        .accessibilityLabel(overlay.keyStrip ? "Hide keyboard" : "Show keyboard")
         .accessibilityValue(overlay.keyStrip ? "Shown" : "Hidden")
     }
 
