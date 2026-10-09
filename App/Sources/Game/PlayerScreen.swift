@@ -37,6 +37,13 @@ struct PlayerScreen: View {
     @State var pausedFrame: UIImage?
     /// The engine is still starting; shown only if that takes longer than a second.
     @State var starting = false
+    /// A web game's files loaded so far and the last error its page reported, until the launch settles: the first
+    /// picture, then two seconds with no file asked for. A 4 GB game shows it is still loading, not a black screen.
+    @State var loaded: (files: Int, bytes: Int64)?
+    @State var pageError: String?
+    @State var introReached = false
+    @State var launchSettled = false
+    @State var settleTask: Task<Void, Never>?
     @AppStorage("omniplay.controls.opacity") var controlsOpacity = 0.8
 
     init(game: GameRecord, snapshot: DetectionSnapshot) {
@@ -87,13 +94,24 @@ struct PlayerScreen: View {
                     .glass(radius: Theme.listRadius, heavy: true)
                     .accessibilityElement(children: .combine)
                     .transition(.opacity)
-                } else if starting {
-                    HStack(spacing: Theme.s3) {
-                        ProgressView().tint(Theme.textPrimary)
-                        Text("Starting \(game.title)…").font(.footnote).foregroundStyle(Theme.textPrimary).lineLimit(1)
+                } else if starting || (!launchSettled && loaded != nil) {
+                    VStack(alignment: .leading, spacing: Theme.s1) {
+                        HStack(spacing: Theme.s3) {
+                            ProgressView().tint(Theme.textPrimary)
+                            Text(loaded == nil ? "Starting \(game.title)…" : "Loading game files…")
+                                .font(.footnote).foregroundStyle(Theme.textPrimary).lineLimit(1)
+                        }
+                        if let loaded {
+                            Text("\(loaded.files) files · \(loaded.bytes.formatted(.byteCount(style: .file)))")
+                                .font(.caption.monospacedDigit()).foregroundStyle(Theme.textSecondary)
+                        }
+                        if let pageError {
+                            Text(pageError).font(.caption).foregroundStyle(Theme.textSecondary).lineLimit(2)
+                        }
                     }
                     .padding(.horizontal, Theme.s4).padding(.vertical, 12)
-                    .glass(Capsule(), heavy: true)
+                    .frame(maxWidth: 360, alignment: .leading)
+                    .glass(radius: Theme.listRadius, heavy: true)
                     .accessibilityElement(children: .combine)
                     .transition(.opacity)
                 }

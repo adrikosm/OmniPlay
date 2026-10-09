@@ -47,6 +47,8 @@ public struct GameFileRouter: Sendable {
     /// Lower-cased logical paths served from another path: a file the host converted because WebKit cannot play it
     /// (`intro.ogv` → `intro.mp4` in the Generated layer).
     public var aliases: [String: String] = [:]
+    /// Told the size of every file served (whole or a range), so the host can show a big game loading.
+    public var onServe: (@Sendable (Int64) -> Void)?
 
     public init(resolver: OverlayResolver, policy: HeaderPolicy = HeaderPolicy(), defaultDocument: String? = "index.html") {
         self.resolver = resolver
@@ -110,6 +112,9 @@ public struct GameFileRouter: Sendable {
             response.headers.append(("Content-Range", "bytes */\(size)"))
         case .ignore:
             response.body = .file(file, range: nil, totalSize: size)
+        }
+        if case let .file(_, range, total) = response.body {
+            onServe?(range.map { $0.upperBound - $0.lowerBound + 1 } ?? total)
         }
         return finish(response)
     }

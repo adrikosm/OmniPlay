@@ -25,6 +25,8 @@ public enum RuntimeEvent: Sendable {
     case log(LogCategory, String)
     case gradeReached(PlayabilityGrade)
     case watchdogStalled(seconds: Double)
+    /// Files the loopback server has handed a web game's page so far, at most twice a second: a big game's start.
+    case loading(files: Int, bytes: Int64)
     /// A value the shell should persist into the game's compatibility overrides for the next launch (e.g. the loopback port).
     case profileHint(key: String, value: String)
     /// The engine ended the session by itself (the game's own Quit, or an error it could not show); the shell leaves.

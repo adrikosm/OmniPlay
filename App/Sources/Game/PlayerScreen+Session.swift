@@ -107,8 +107,25 @@ extension PlayerScreen {
         case let .gradeReached(grade):
             // UX-PERF-001: Play to the engine's first picture (the web runtime: RPG Maker's scene loop running).
             OPLog.log(.ui, .info, "launch timing: \(grade) after \(Self.ms(since: startedAt)) ms")
+            introReached = true
+            settleSoon()
+        case let .loading(files, bytes) where !launchSettled:
+            loaded = (files, bytes)
+            settleSoon()
+        case let .log(.javascript, line) where !launchSettled && line.hasPrefix("[error] "):
+            pageError = "The game reported: " + line.dropFirst(8)
         default:
             break
+        }
+    }
+
+    /// The loading note goes once the game has drawn and then asked for no file for two seconds.
+    func settleSoon() {
+        settleTask?.cancel()
+        settleTask = Task {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled, introReached else { return }
+            withAnimation(reduceMotion ? nil : Theme.quick) { launchSettled = true }
         }
     }
 

@@ -4,6 +4,7 @@
     import GameCore
     import InputKit
     import LocalGameServer
+    import os
     import OverlayVFS
     import SaveKit
     import UIKit
@@ -117,6 +118,11 @@
             // The active MTool dictionary, from its pack's layer, for omniplay-translate.js.
             if let dictionary = configuration.profile.overrides["translationDictionary"] {
                 router.aliases["omniplay-translation.json"] = dictionary
+            }
+            let served = ServedFiles()
+            router.onServe = { [weak self] bytes in
+                guard let total = served.add(bytes) else { return }
+                Task { @MainActor in self?.host?.runtimeDidEmit(.loading(files: total.files, bytes: total.bytes)) }
             }
             let server = HTTPServer(router: router)
             let remembered = configuration.profile.overrides["loopbackPort"].flatMap(UInt16.init)
@@ -355,6 +361,24 @@
             server = nil
             OPLog.log(.web, .info, "web runtime stopped (\(reason))", session: configuration?.sessionID)
             return .clean
+        }
+    }
+
+    /// Files served so far; `add` answers at most twice a second, so the screen hears about loading without a flood.
+    final class ServedFiles: Sendable {
+        private let state = OSAllocatedUnfairLock(initialState: (files: 0, bytes: Int64(0), told: ContinuousClock.Instant?.none))
+
+        func add(_ bytes: Int64) -> (files: Int, bytes: Int64)? {
+            state.withLock { s in
+                s.files += 1
+                s.bytes += bytes
+                let now = ContinuousClock.now
+                if let told = s.told, now - told < .milliseconds(500) {
+                    return nil
+                }
+                s.told = now
+                return (s.files, s.bytes)
+            }
         }
     }
 #endif
