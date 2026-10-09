@@ -88,7 +88,7 @@ struct ControlsEditorView: View {
             Color.clear.contentShape(.rect).onTapGesture { selected = nil }
             handle(Self.dpadID, label: nil, anchor: layout.dpad, index: 0, landscape: landscape, canvas: canvas)
             ForEach(Array(layout.buttons.enumerated()), id: \.element.id) { index, control in
-                handle(control.id, label: control.label, anchor: control.anchor, index: index + 1, landscape: landscape, canvas: canvas)
+                handle(control.id, label: control.effectiveLabel, anchor: control.anchor, index: index + 1, landscape: landscape, canvas: canvas)
             }
         }
         .opacity(padVisible ? 1 : 0.3)
@@ -119,7 +119,7 @@ struct ControlsEditorView: View {
             if let label {
                 Text(label)
                     .font(.system(size: min(18, anchor.size * 0.34), weight: .semibold))
-                    .lineLimit(1).minimumScaleFactor(0.6).padding(.horizontal, 4)
+                    .lineLimit(1).minimumScaleFactor(0.5).padding(.horizontal, 4)
                     .foregroundStyle(Theme.textPrimary)
             } else {
                 ZStack {

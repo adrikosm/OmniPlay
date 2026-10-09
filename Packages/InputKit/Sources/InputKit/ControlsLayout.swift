@@ -30,6 +30,17 @@ public struct ControlsLayout: Codable, Sendable, Hashable {
             self.anchor = anchor
             self.hold = hold
         }
+
+        /// The label displayed on the button: reflects the assigned keybinding or custom name.
+        public var effectiveLabel: String {
+            if let key = keys.first {
+                let keyLabel = KeyCatalog.label(for: key)
+                if ["A", "B", "X", "Y"].contains(label.uppercased()) && keyLabel.uppercased() != label.uppercased() {
+                    return keyLabel
+                }
+            }
+            return label.isEmpty ? (keys.first.map { KeyCatalog.label(for: $0) } ?? "") : label
+        }
     }
 
     public var version: Int
@@ -57,16 +68,17 @@ public struct ControlsLayout: Codable, Sendable, Hashable {
     public func encoded() throws -> Data { try JSONEncoder().encode(self) }
 
     /// D-pad bottom-left; bottom-right, four face buttons in a diamond like a controller's: Y on top, X left, B right,
-    /// A at the bottom under the resting thumb. Buttons touch edge to edge, so the diamond is three buttons wide.
+    /// A at the bottom under the resting thumb. Controls are anchored lower and closer to the edges for thumb ergonomics.
     static func diamond(landscape: Bool, a: [GameKey], b: [GameKey], x: [GameKey], y: [GameKey]) -> ControlsLayout {
         // Unit offsets of one 54 pt button in the safe area (about 832×419 pt landscape, 408×800 pt portrait).
-        let (cx, cy, dx, dy) = landscape ? (0.86, 0.68, 54.0 / 832, 54.0 / 419) : (0.76, 0.82, 54.0 / 408, 54.0 / 800)
-        func face(_ letter: String, _ keys: [GameKey], _ x: Double, _ y: Double) -> Control {
-            Control(id: "face.\(letter.lowercased())", label: letter, keys: keys, anchor: Anchor(x: x, y: y, size: 54))
+        let (cx, cy, dx, dy) = landscape ? (0.90, 0.78, 54.0 / 832, 54.0 / 419) : (0.79, 0.85, 54.0 / 408, 54.0 / 800)
+        func face(_ idSuffix: String, _ keys: [GameKey], _ x: Double, _ y: Double) -> Control {
+            let label = keys.first.map { KeyCatalog.label(for: $0) } ?? idSuffix.uppercased()
+            return Control(id: "face.\(idSuffix.lowercased())", label: label, keys: keys, anchor: Anchor(x: x, y: y, size: 54))
         }
         return ControlsLayout(
-            dpad: landscape ? Anchor(x: 0.14, y: 0.70, size: 128) : Anchor(x: 0.24, y: 0.82, size: 128),
-            buttons: [face("Y", y, cx, cy - dy), face("X", x, cx - dx, cy), face("B", b, cx + dx, cy), face("A", a, cx, cy + dy)]
+            dpad: landscape ? Anchor(x: 0.10, y: 0.78, size: 128) : Anchor(x: 0.18, y: 0.85, size: 128),
+            buttons: [face("y", y, cx, cy - dy), face("x", x, cx - dx, cy), face("b", b, cx + dx, cy), face("a", a, cx, cy + dy)]
         )
     }
 

@@ -62,7 +62,7 @@ extension ControlsEditorView {
         guard let selected, let anchor = current(landscape).anchor(target(selected)) else {
             return "Drag a button to move it. Pinch to resize. Touch and hold for more."
         }
-        let name = selected == Self.dpadID ? "D-pad" : current(landscape).buttons.first { $0.id == selected }?.label ?? "Button"
+        let name = selected == Self.dpadID ? "D-pad" : current(landscape).buttons.first { $0.id == selected }?.effectiveLabel ?? "Button"
         return "\(name): \(Int(anchor.size)) pt. Pinch to resize."
     }
 
@@ -75,8 +75,8 @@ extension ControlsEditorView {
             set.portrait.setKey(key, for: control.id)
         } label: {
             HStack(spacing: 10) {
-                Text(control.label).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.textPrimary)
-                    .lineLimit(1).minimumScaleFactor(0.6)
+                Text(control.effectiveLabel).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.textPrimary)
+                    .lineLimit(1).minimumScaleFactor(0.5)
                     .frame(width: 30, height: 30).background(Theme.fillStrong, in: .circle)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(control.keys.first.map { KeyCatalog.label(for: $0) + " key" } ?? "No key").font(.caption)
@@ -92,7 +92,7 @@ extension ControlsEditorView {
             .background(Theme.fill, in: .rect(cornerRadius: 16, style: .continuous))
             .contentShape(.rect)
         }
-        .accessibilityLabel("Button \(control.label), \(control.keys.first.map(KeyCatalog.action) ?? "None")")
+        .accessibilityLabel("Button \(control.effectiveLabel), \(control.keys.first.map(KeyCatalog.action) ?? "None")")
         .accessibilityHint("Choose another key")
     }
 
@@ -176,10 +176,10 @@ extension ControlsEditorView {
         let layout = current(landscape)
         // A, B, X, Y reading order for the remap grid.
         return layout.faceIDs.reversed().compactMap { id in layout.buttons.first { $0.id == id } }
-            .sorted { order($0.label) < order($1.label) }
+            .sorted { order($0.id) < order($1.id) }
     }
 
-    func order(_ label: String) -> Int { ["A", "B", "X", "Y"].firstIndex(of: label) ?? 4 }
+    func order(_ id: String) -> Int { ["face.a", "face.b", "face.x", "face.y"].firstIndex(of: id) ?? 4 }
 
     // MARK: Editing
 

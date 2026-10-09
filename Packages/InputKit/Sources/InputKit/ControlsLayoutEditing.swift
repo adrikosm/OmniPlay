@@ -63,13 +63,11 @@ public extension ControlsLayout {
         update(id) { $0.size = clamped }
     }
 
-    /// Remaps a button. Face buttons keep their letter; any other button takes the key's name.
+    /// Remaps a button and updates its label to reflect the assigned keybinding.
     mutating func setKey(_ key: GameKey, for id: String) {
         guard let index = buttons.firstIndex(where: { $0.id == id }) else { return }
         buttons[index].keys = [key]
-        if !faceIDs.contains(id) {
-            buttons[index].label = KeyCatalog.label(for: key)
-        }
+        buttons[index].label = KeyCatalog.label(for: key)
     }
 
     enum FaceArrangement: Sendable { case diamond, row }

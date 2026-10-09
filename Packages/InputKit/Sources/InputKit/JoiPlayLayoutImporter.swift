@@ -87,8 +87,8 @@ public enum JoiPlayLayoutImporter {
             notes.append("JoiPlay's diagonal movement setting has no equivalent; the D-pad moves in four directions.")
         }
         let set = ControlsLayoutSet(
-            landscape: ControlsLayout(dpad: .init(x: 0.14, y: 0.70, size: 168 * scale), buttons: landscape),
-            portrait: ControlsLayout(dpad: .init(x: 0.22, y: 0.82, size: 160 * scale), buttons: portrait),
+            landscape: ControlsLayout(dpad: .init(x: 0.10, y: 0.78, size: 168 * scale), buttons: landscape),
+            portrait: ControlsLayout(dpad: .init(x: 0.18, y: 0.85, size: 160 * scale), buttons: portrait),
             opacity: opacity,
             source: "joiplay"
         )

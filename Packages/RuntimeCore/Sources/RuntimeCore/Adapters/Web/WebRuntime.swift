@@ -261,13 +261,12 @@
             webView?.callAsyncJavaScript(script, arguments: ["name": name, "detail": detail ?? NSNull()], in: nil, in: .page) { _ in }
         }
 
-        /// Batched per frame: one script call carries every event queued since the last flush.
+        /// Batched per frame: one script call carries every event queued since the last flush. Dispatches immediately on next run loop tick without artificial delay.
         public func send(_ input: GameInputEvent) {
             pendingInput.append(input)
             guard !inputFlushScheduled else { return }
             inputFlushScheduled = true
             Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .milliseconds(16))
                 self?.flushInput()
             }
         }
