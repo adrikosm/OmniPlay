@@ -39,7 +39,7 @@ struct LibraryView: View {
 
 /// Landscape: the featured game on the left (its title rolls when the shelf moves), the shelf of covers on the right.
 /// The cover at the shelf's leading edge is the featured one, marked by a thin accent line; Continue plays it.
-/// Portrait stacks the same parts. Favourites and Hidden are this screen, filtered.
+/// Portrait stacks the featured game over the covers in a three-column grid. Favourites and Hidden are this screen, filtered.
 struct LibraryContent: View {
     @Environment(AppModel.self) var model
     @Environment(\.accessibilityReduceMotion) var reduceMotion
@@ -85,7 +85,7 @@ struct LibraryContent: View {
                         header
                         if let featured {
                             featuredColumn(featured)
-                            shelf
+                            grid
                         } else {
                             emptyState
                         }

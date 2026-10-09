@@ -148,18 +148,7 @@ extension LibraryContent {
         ScrollView(.horizontal) {
             LazyHStack(alignment: .top, spacing: 18) {
                 ForEach(Array(viewModel.games.enumerated()), id: \.element.id) { index, game in
-                    NavigationLink(value: game) {
-                        ShelfCover(
-                            game: game,
-                            featured: game.id == featured?.id,
-                            restartNeeded: restartNeeded(game),
-                            zoom: zoom,
-                            marker: marker
-                        )
-                    }
-                    .buttonStyle(PressButtonStyle(scale: 0.96))
-                    .contextMenu { menu(for: game).tint(Theme.textPrimary) }
-                    .rise(3 + index, when: index < 6)
+                    tile(game, index: index)
                 }
                 // Room after the last cover, so every game can reach the leading edge and be featured.
                 Color.clear.frame(width: max(0, shelfWidth - 148), height: 1)
@@ -172,6 +161,36 @@ extension LibraryContent {
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { shelfWidth = $0 }
         .frame(height: 226)
         .overlay(alignment: .bottomLeading) { errorLine }
+    }
+
+    /// Portrait: the same covers, three to a row, scrolling down with the page.
+    var grid: some View {
+        let width = max(0, (shelfWidth - 2 * Theme.s3) / 3)
+        return VStack(alignment: .leading, spacing: 0) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Theme.s3, alignment: .top), count: 3), spacing: Theme.s6) {
+                ForEach(Array(viewModel.games.enumerated()), id: \.element.id) { index, game in
+                    tile(game, index: index, width: width)
+                }
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { shelfWidth = $0 }
+            errorLine
+        }
+    }
+
+    func tile(_ game: GameRecord, index: Int, width: CGFloat = 130) -> some View {
+        NavigationLink(value: game) {
+            ShelfCover(
+                game: game,
+                featured: game.id == featured?.id,
+                restartNeeded: restartNeeded(game),
+                zoom: zoom,
+                marker: marker,
+                width: width
+            )
+        }
+        .buttonStyle(PressButtonStyle(scale: 0.96))
+        .contextMenu { menu(for: game).tint(Theme.textPrimary) }
+        .rise(3 + index, when: index < 6)
     }
 
     var featuredBinding: Binding<GameID?> {
