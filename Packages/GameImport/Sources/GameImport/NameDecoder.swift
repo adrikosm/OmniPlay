@@ -12,11 +12,16 @@ public enum NameDecoder {
     }
 
     /// The charset and the header pass made with it, so the caller does not list a compressed tar once more.
-    public static func preflight(_ url: URL, extractor: LibArchiveExtractor) throws -> (charset: String?, preflight: ArchivePreflight) {
-        let plain = try extractor.preflight(url)
+    /// `passphrase` opens a 7z whose file names are encrypted too.
+    public static func preflight(
+        _ url: URL,
+        extractor: LibArchiveExtractor,
+        passphrase: String? = nil
+    ) throws -> (charset: String?, preflight: ArchivePreflight) {
+        let plain = try extractor.preflight(url, passphrase: passphrase)
         guard plain.undecodableNames else { return (nil, plain) }
         for charset in candidates {
-            if let pre = try? extractor.preflight(url, hdrcharset: charset), !pre.undecodableNames {
+            if let pre = try? extractor.preflight(url, hdrcharset: charset, passphrase: passphrase), !pre.undecodableNames {
                 return (charset, pre)
             }
         }

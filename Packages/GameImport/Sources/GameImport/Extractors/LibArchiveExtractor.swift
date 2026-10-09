@@ -31,8 +31,8 @@ public struct LibArchiveExtractor: Sendable {
 
     /// Headers only: sums declared sizes for the disk precheck and reports encryption and name problems.
     /// `offset` reads the archive appended to a Windows executable in place.
-    public func preflight(_ url: URL, hdrcharset: String? = nil, offset: Int64 = 0) throws -> ArchivePreflight {
-        let a = try open(url, hdrcharset: hdrcharset, passphrase: nil, offset: offset)
+    public func preflight(_ url: URL, hdrcharset: String? = nil, offset: Int64 = 0, passphrase: String? = nil) throws -> ArchivePreflight {
+        let a = try open(url, hdrcharset: hdrcharset, passphrase: passphrase, offset: offset)
         defer { archive_read_free(a) }
         var result = ArchivePreflight()
         var entry: OpaquePointer?

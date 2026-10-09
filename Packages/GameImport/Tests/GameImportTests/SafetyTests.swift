@@ -43,8 +43,10 @@ struct SafetyTests {
         }
         #expect(StorageBudget.needed(for: .forArchive(uncompressedSizeHint: 1 << 62)) == .max)
 
-        /// ASAR headers are parsed whole by Foundation: one over 16 MiB is refused unread, and a tree past the entry cap
-        /// stops at the cap instead of being copied out first.
+        try sealedSevenZip()
+
+        // ASAR headers are parsed whole by Foundation: one over 16 MiB is refused unread, and a tree past the entry cap
+        // stops at the cap instead of being copied out first.
         func asar(_ json: String, declared: Int? = nil) -> Data {
             let n = json.utf8.count, header = declared ?? n
             return [4, header + 8, header + 4, header].reduce(into: Data()) { out, word in
@@ -135,6 +137,23 @@ struct SafetyTests {
     private static let zip64Huge = "UEsDBC0AAAAAAAAAAACGphA2//////////8FABQAYS5iaW4BABAAAAAAAAAAAEAFAAAAAAAAAGhlbGxv"
         + "UEsBAi0ALQAAAAAAAAAAAIamEDb//////////wUAFAAAAAAAAAAAAAAAAAAAAGEuYmluAQAQAAAAAAAAAABABQAAAAAAAABQSwUGAAAAAAEAAQBH"
         + "AAAAPAAAAAAA"
+
+    /// 7-Zip AES with encrypted names (OmniPlay's libarchive patch): the header itself needs the password, a wrong
+    /// one says so rather than reading as damage, and the right one gives the file back byte for byte.
+    private func sealedSevenZip() throws {
+        let sealed = Fixtures.url("encrypted-names.7z")
+        for (passphrase, message) in [(nil, "Passphrase required"), ("wrong", "Incorrect passphrase")] {
+            #expect { try extractor.preflight(sealed, passphrase: passphrase) } throws: {
+                guard case let .entry(_, m)? = $0 as? ExtractionError else { return false }
+                return m.contains(message)
+            }
+        }
+        let opened = try TemporaryGameRoot(name: "aes")
+        defer { opened.remove() }
+        #expect(try extractor.preflight(sealed, passphrase: "omni123").encrypted)
+        _ = try extractor.extract(sealed, to: opened.url, passphrase: "omni123")
+        #expect(try String(contentsOf: opened.url.appending(path: "hello.txt"), encoding: .utf8) == "OmniPlay 7z AES\n")
+    }
 
     /// An Enigma Virtual Box table (format 3, as EVB 9.70 to 11.00 write it) with one file in the default folder.
     private func evb(name: String, body: Data, original: Int? = nil, format: Int = 3) -> Data {

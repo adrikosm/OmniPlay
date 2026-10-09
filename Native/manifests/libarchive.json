@@ -1,26 +1,26 @@
 {
   "arch": "arm64",
   "artefact": "Packages/GameImport/Native/libarchive.xcframework",
-  "built_at": "2026-09-19T05:03:43+00:00",
+  "built_at": "2026-10-09T11:41:12+00:00",
   "component": "libarchive",
   "flags": {
     "iphoneos_min": "27.0",
     "macosx_min": "15.0"
   },
   "outputs": {
-    "Info.plist": "22d21a110427f08c29bbbc49469a018c0a6f1996e55a236399bddd46167ba19e",
+    "Info.plist": "61990edad9d0c51e291755705dabfe2c6c3f5e9b128140459c7b11cab5ee4ead",
     "ios-arm64-simulator/Headers/archive.h": "5dc85c3288bd0f293b9d99101627f1bfbc775a0d400640881bcbf056acca59f2",
     "ios-arm64-simulator/Headers/archive_entry.h": "ce6d82c6ed0132022136566195b6b2494a93c0e2db46d968d52624bd296bfcbf",
     "ios-arm64-simulator/Headers/module.modulemap": "7f3bb84a309becef1e53679789615385f142a5a0d1ce3582d2701cbe134fd8b2",
-    "ios-arm64-simulator/libarchive_all.a": "c63c164ac3b3aab6a1f88ac767e9e8210b3b118630075ce61b85097959777ad8",
+    "ios-arm64-simulator/libarchive_all.a": "5a1025c3088e66df0c5084d256c171b1d1f125506cbb9494cd494af41dac9a86",
     "ios-arm64/Headers/archive.h": "5dc85c3288bd0f293b9d99101627f1bfbc775a0d400640881bcbf056acca59f2",
     "ios-arm64/Headers/archive_entry.h": "ce6d82c6ed0132022136566195b6b2494a93c0e2db46d968d52624bd296bfcbf",
     "ios-arm64/Headers/module.modulemap": "7f3bb84a309becef1e53679789615385f142a5a0d1ce3582d2701cbe134fd8b2",
-    "ios-arm64/libarchive_all.a": "8c8d8067d467d260279e0a12174c0ddb46880e577f848aac43f745d6ff3351eb",
+    "ios-arm64/libarchive_all.a": "130639874b64a63c556b6af556b0137753c3db52cf9f4d16bf73333e7aaba4f1",
     "macos-arm64/Headers/archive.h": "5dc85c3288bd0f293b9d99101627f1bfbc775a0d400640881bcbf056acca59f2",
     "macos-arm64/Headers/archive_entry.h": "ce6d82c6ed0132022136566195b6b2494a93c0e2db46d968d52624bd296bfcbf",
     "macos-arm64/Headers/module.modulemap": "7f3bb84a309becef1e53679789615385f142a5a0d1ce3582d2701cbe134fd8b2",
-    "macos-arm64/libarchive_all.a": "6c321790f3ef609d717b704d366961301e6cb3c78b3ebc040911b8c2a0ad6002"
+    "macos-arm64/libarchive_all.a": "b8f293d8bead7f396cb5fd2209f7865c130c746f8924ccfbf567b3cf35f8ef32"
   },
   "sdks": {
     "iphoneos": "27.0",

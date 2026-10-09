@@ -7,6 +7,8 @@ cd "$NATIVE_ROOT"
 ROOT="$PWD"; BUILD="$ROOT/Native/build"; OUT="$ROOT/Packages/GameImport/Native"
 require_tools cmake ninja
 for sub in libarchive xz zstd/build/cmake; do [[ -f "$ROOT/Native/$sub/CMakeLists.txt" ]] || { echo "Native/$sub is empty: git submodule update --init" >&2; exit 1; }; done
+# OmniPlay's changes to libarchive (7-Zip AES decryption) live in Native/patches/libarchive.
+apply_patches Native/libarchive "$ROOT/Native/patches/libarchive"
 
 # platform  cmake-system  sdk-name          deployment-flag
 targets=(

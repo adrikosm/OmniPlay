@@ -31,13 +31,16 @@ extension ImportPipeline {
         let hdrcharset: String?, pre: ArchivePreflight
         do {
             if offset == 0 {
-                (hdrcharset, pre) = try NameDecoder.preflight(url, extractor: extractor)
+                (hdrcharset, pre) = try NameDecoder.preflight(url, extractor: extractor, passphrase: passphrase)
             } else {
                 hdrcharset = nil
-                pre = try extractor.preflight(url, offset: offset)
+                pre = try extractor.preflight(url, offset: offset, passphrase: passphrase)
             }
         } catch let v as SafetyViolation {
             throw ImportFailure.safetyViolation(v)
+        } catch let ExtractionError.entry(_, m) where m.localizedCaseInsensitiveContains("passphrase") {
+            // A 7z with encrypted file names cannot even be listed without the password.
+            throw passphrase == nil ? ImportFailure.passwordRequired : ImportFailure.passwordIncorrect
         }
         if pre.encrypted, passphrase == nil {
             throw ImportFailure.passwordRequired
