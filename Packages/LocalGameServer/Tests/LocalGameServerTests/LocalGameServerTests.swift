@@ -49,6 +49,10 @@ struct LoopbackServerTests {
         #expect(head.statusCode == 200 && headBody.isEmpty && head.value(forHTTPHeaderField: "Content-Length") != "0")
         #expect(try await get(port, "/nope.txt").0.statusCode == 404)
         #expect(try await get(port, "/www").0.statusCode == 403)
+        // Names only, and only on request: the NW.js fs shim's readdirSync. Traversal is refused before listing.
+        let (list, names) = try await get(port, "/www?omniplay=list")
+        #expect(list.statusCode == 200 && (try? JSONDecoder().decode([String].self, from: names))?.contains("index.html") == true)
+        #expect(try await get(port, "/www/..%2F..?omniplay=list").0.statusCode == 400)
         #expect(try await get(port, "/www/..%2F..%2Fetc/passwd").0.statusCode == 400)
         #expect(try await get(port, "/").0.statusCode == 404) // no index.html at the mv-basic root; www/index.html is the entry
         // Bodies reach only routes a runtime registers; this router has none.

@@ -28,7 +28,7 @@ public struct HeaderPolicy: Sendable, Hashable {
 /// or nil to serve the original.
 public typealias FileTransform = @Sendable (URL) async -> (url: URL, mime: String)?
 
-/// Serves a game tree through the overlay resolver: case-insensitive, no directory listings, single-range 206,
+/// Serves a game tree through the overlay resolver: case-insensitive, directory names only on `?omniplay=list`, single-range 206,
 /// HEAD mirrors GET, pre-compressed `.br`/`.gz` siblings served with their encoding. The host adds POST routes and
 /// file transforms for what WebKit cannot decode itself.
 public struct GameFileRouter: Sendable {
@@ -77,7 +77,14 @@ public struct GameFileRouter: Sendable {
         guard let (found, hit) = resolve(logical) else { return finish(.text(404, "not found")) }
         logical = found
         if hit.isDirectory {
-            return finish(.text(403, "directory listing disabled"))
+            guard request.query["omniplay"] == "list" else { return finish(.text(403, "directory listing disabled")) }
+            // Names only, for the NW.js `fs.readdirSync` shim: NW games list their own folders on the desktop.
+            var names: [String] = []
+            for await child in resolver.list(directory: found) {
+                names.append((child.realRelativePath as NSString).lastPathComponent)
+            }
+            let json = (try? JSONEncoder().encode(names)) ?? Data("[]".utf8)
+            return finish(HTTPResponse(status: 200, headers: [("Content-Type", "application/json")], body: .data(json)))
         }
         var file = hit.url
         var size = hit.size > 0 ? hit.size : Int64((try? hit.url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
