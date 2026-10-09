@@ -232,12 +232,24 @@
             }
             window.makeKeyAndVisible()
             engineWindow = window
+            _ = Self.answerStatusBarOrientation
             // Attaching a window does not rotate the scene by itself; ask for the orientations SDL now reports.
             window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
             let orientations: UIInterfaceOrientationMask = host.orientationPreference == .portrait ? .portrait : .landscape
             window.windowScene?.requestGeometryUpdate(.iOS(interfaceOrientations: orientations))
             host.adoptEngineWindow(window)
         }
+
+        /// SDL sizes its view from `UIApplication.statusBarOrientation`, which a scene-based app gets as `.unknown`.
+        /// Read as portrait, the landscape window's bounds were swapped to 440x956 whenever the keyboard came up
+        /// for `renpy.input`, and the game drew squeezed into the bottom-left corner. The scene knows the answer.
+        static let answerStatusBarOrientation: Void = {
+            let answer: @convention(block) (UIApplication) -> Int = { app in
+                app.connectedScenes.lazy.compactMap { $0 as? UIWindowScene }.first?.effectiveGeometry.interfaceOrientation.rawValue ?? 0
+            }
+            let selector = NSSelectorFromString("statusBarOrientation")
+            class_replaceMethod(UIApplication.self, selector, imp_implementationWithBlock(answer), "q@:")
+        }()
 
         public func pause() async {
             guard let library, library.phase == .running, library.status == .running else { return }
