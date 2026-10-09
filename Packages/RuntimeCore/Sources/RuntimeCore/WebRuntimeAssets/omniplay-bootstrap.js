@@ -34,7 +34,11 @@
   document.addEventListener("omniplay:storage-load-failed", () => {
     post("omniplay.save", { op: "seedFailed", kind: "ls", key: "" })?.catch(() => {});
   });
-  document.addEventListener("omniplay:booted", () => api.booted());
+  // RPG Maker says so when its scene loop starts; any other page has drawn once it has loaded. Once per page.
+  let booted = false;
+  const bootedOnce = () => { if (!booted) { booted = true; api.booted(); } };
+  document.addEventListener("omniplay:booted", bootedOnce);
+  window.addEventListener("load", bootedOnce, { once: true });
   // A viewport tag without a width (RPG Maker MV's own template says only "user-scalable=no") makes WebKit lay the
   // page out 980 px wide and zoom it, so the engine fits its canvas to the wrong window and the picture is cropped.
   const fixViewport = (node) => {

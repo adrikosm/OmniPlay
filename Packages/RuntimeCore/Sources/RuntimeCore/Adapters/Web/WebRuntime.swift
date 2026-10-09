@@ -27,6 +27,7 @@
         var pendingInput: [GameInputEvent] = []
         var lifecycleObservers: [any NSObjectProtocol] = []
         var lifecycleTask: Task<Void, Never>?
+        var loadingTask: Task<Void, Never>?
         var userPaused = false
         var backgrounded = false
         var stopping = false
@@ -119,10 +120,19 @@
             if let dictionary = configuration.profile.overrides["translationDictionary"] {
                 router.aliases["omniplay-translation.json"] = dictionary
             }
+            // Files served so far, told twice a second while the count moves (a big game's start).
             let served = ServedFiles()
-            router.onServe = { [weak self] bytes in
-                guard let total = served.add(bytes) else { return }
-                Task { @MainActor in self?.host?.runtimeDidEmit(.loading(files: total.files, bytes: total.bytes)) }
+            router.onServe = { served.add($0) }
+            loadingTask = Task { [weak self] in
+                var told = (files: 0, bytes: Int64(0))
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .milliseconds(500))
+                    let now = served.total
+                    if now != told {
+                        told = now
+                        self?.host?.runtimeDidEmit(.loading(files: now.files, bytes: now.bytes))
+                    }
+                }
             }
             let server = HTTPServer(router: router)
             let remembered = configuration.profile.overrides["loopbackPort"].flatMap(UInt16.init)
@@ -316,6 +326,8 @@
             stopping = true
             lifecycleTask?.cancel()
             lifecycleTask = nil
+            loadingTask?.cancel()
+            loadingTask = nil
             watchdogTask?.cancel()
             watchdogTask = nil
             lifecycleObservers.forEach(NotificationCenter.default.removeObserver)
@@ -364,21 +376,14 @@
         }
     }
 
-    /// Files served so far; `add` answers at most twice a second, so the screen hears about loading without a flood.
+    /// Files the loopback server has served, counted from its own threads.
     final class ServedFiles: Sendable {
-        private let state = OSAllocatedUnfairLock(initialState: (files: 0, bytes: Int64(0), told: ContinuousClock.Instant?.none))
+        private let state = OSAllocatedUnfairLock(initialState: (files: 0, bytes: Int64(0)))
 
-        func add(_ bytes: Int64) -> (files: Int, bytes: Int64)? {
-            state.withLock { s in
-                s.files += 1
-                s.bytes += bytes
-                let now = ContinuousClock.now
-                if let told = s.told, now - told < .milliseconds(500) {
-                    return nil
-                }
-                s.told = now
-                return (s.files, s.bytes)
-            }
+        func add(_ bytes: Int64) {
+            state.withLock { $0.files += 1; $0.bytes += bytes }
         }
+
+        var total: (files: Int, bytes: Int64) { state.withLock { $0 } }
     }
 #endif

@@ -94,7 +94,11 @@ struct PlayerScreen: View {
                     .glass(radius: Theme.listRadius, heavy: true)
                     .accessibilityElement(children: .combine)
                     .transition(.opacity)
-                } else if starting || (!launchSettled && loaded != nil) {
+                }
+            }
+            // The start, at the bottom: the game's own picture keeps the middle of the screen.
+            .overlay(alignment: .bottom) {
+                if starting || (!launchSettled && loaded != nil) {
                     VStack(alignment: .leading, spacing: Theme.s1) {
                         HStack(spacing: Theme.s3) {
                             ProgressView().tint(Theme.textPrimary)
@@ -114,6 +118,7 @@ struct PlayerScreen: View {
                     .glass(radius: Theme.listRadius, heavy: true)
                     .accessibilityElement(children: .combine)
                     .transition(.opacity)
+                    .padding(.bottom, Theme.s8)
                 }
             }
             .overlay(alignment: .bottom) {

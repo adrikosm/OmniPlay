@@ -109,6 +109,11 @@ extension PlayerScreen {
             OPLog.log(.ui, .info, "launch timing: \(grade) after \(Self.ms(since: startedAt)) ms")
             introReached = true
             settleSoon()
+            // A game that streams its files as it plays never goes quiet; the note is for the start only.
+            Task {
+                try? await Task.sleep(for: .seconds(8))
+                withAnimation(reduceMotion ? nil : Theme.quick) { launchSettled = true }
+            }
         case let .loading(files, bytes) where !launchSettled:
             loaded = (files, bytes)
             settleSoon()
