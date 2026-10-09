@@ -89,6 +89,10 @@ struct OverlayControls: View {
     /// A swipe on the buttons also ends as a tap on one of them; that tap is dropped.
     @State private var swipedAt: ContinuousClock.Instant?
     @State private var holdingSpeed = false
+    /// With the buttons hidden, the eye itself fades out after a few seconds; a tap where it was brings it back.
+    @State private var eyeAsleep = false
+    @State private var eyeSleep: Task<Void, Never>?
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     /// The top safe-area inset: 44 or more is a Dynamic Island (or notch) band above the game in portrait.
     @State private var topInset = 0.0
 
@@ -99,7 +103,7 @@ struct OverlayControls: View {
     }
 
     private var shows: Bool {
-        overlay.padVisible && overlay.hasPad && !overlay.chromeHidden && (overlay.controllers == 0 || !hideWithController)
+        overlay.padVisible && overlay.hasPad && (overlay.controllers == 0 || !hideWithController)
     }
 
     var body: some View {
@@ -115,7 +119,7 @@ struct OverlayControls: View {
                         .ignoresSafeArea(.keyboard)
                         .transition(.opacity)
                 }
-                if overlay.keyStrip, overlay.hasPad, !overlay.chromeHidden {
+                if overlay.keyStrip, overlay.hasPad {
                     KeyboardView(opacity: overlay.layouts?.opacity ?? opacity, send: send)
                         .gameControlHitRegion()
                         // In landscape the button column runs down the trailing edge; the keyboard stops before it.
@@ -223,21 +227,51 @@ struct OverlayControls: View {
         }
     }
 
-    /// Put every button away, or bring them back. Glass like its neighbours; while everything is hidden it is the only
-    /// thing left on the game, dimmed so it does not sit on the picture.
+    /// Put the app's buttons away, or bring them back; the pad or keyboard stays as it is. While the buttons are away
+    /// the eye is dimmed, then gone after a few seconds: a tap anywhere near its place wakes it without toggling.
     private var eyeButton: some View {
         Button { unlessSwiped { overlay.chromeHidden.toggle() } } label: {
             Image(systemName: overlay.chromeHidden ? "eye" : "eye.slash")
                 .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.round)
-        .opacity(overlay.chromeHidden ? 0.35 : 1)
+        .opacity(overlay.chromeHidden ? (eyeAsleep ? 0 : 0.35) : 1)
+        .allowsHitTesting(!eyeAsleep)
+        .overlay {
+            if eyeAsleep {
+                Color.clear
+                    .frame(width: 88, height: 88)
+                    .contentShape(.rect)
+                    .onTapGesture { wakeEye() }
+                    .gameControlHitRegion()
+                    .accessibilityHidden(true)
+            }
+        }
         .gameControlHitRegion()
         .sensoryFeedback(.selection, trigger: overlay.chromeHidden)
-        .accessibilityLabel(overlay.chromeHidden ? "Show buttons" : "Hide all buttons")
+        .accessibilityLabel(overlay.chromeHidden ? "Show buttons" : "Hide buttons")
         .accessibilityHint(
-            overlay.chromeHidden ? "Brings back the pause button and touch controls" : "Leaves only this button over the game"
+            overlay.chromeHidden ? "Brings back the pause button and the game buttons" : "Leaves the touch pad or keyboard and this button"
         )
+        .onChange(of: overlay.chromeHidden) { _, hidden in
+            hidden ? wakeEye() : resetEye()
+        }
+    }
+
+    private func wakeEye() {
+        withAnimation(reduceMotion ? nil : Theme.quick) { eyeAsleep = false }
+        eyeSleep?.cancel()
+        guard overlay.chromeHidden, !voiceOver else { return }
+        eyeSleep = Task {
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled, overlay.chromeHidden else { return }
+            withAnimation(Theme.motion(.easeOut(duration: 0.6), reduce: reduceMotion)) { eyeAsleep = true }
+        }
+    }
+
+    private func resetEye() {
+        eyeSleep?.cancel()
+        eyeAsleep = false
     }
 
     private var padButton: some View {
