@@ -1,3 +1,4 @@
+import Diagnostics
 import Foundation
 import InputKit
 import RuntimeCore
@@ -94,7 +95,10 @@ struct PauseMenu: View {
         }
         .presentationBackground(.clear)
         .preferredColorScheme(.dark)
-        .onAppear { withAnimation(Theme.motion(Theme.sheet, reduce: reduceMotion)) { shown = true } }
+        .onAppear {
+            OPLog.log(.ui, .debug, "pause menu on screen")
+            withAnimation(Theme.motion(Theme.sheet, reduce: reduceMotion)) { shown = true }
+        }
     }
 
     /// The held frame under a heavy blur and a dark veil, fading in behind the menu.

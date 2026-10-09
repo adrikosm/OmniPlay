@@ -83,7 +83,8 @@ public struct SpeedChoices: Sendable, Equatable {
 /// a frozen frame when they pause, and the pause menu's screenshot takes that.
 @MainActor
 public protocol ScreenCapturing: AnyObject, Sendable {
-    func captureScreen() async -> CGImage?
+    /// `width` in points caps the picture for callers that only need a small one (the pause backdrop).
+    func captureScreen(width: CGFloat?) async -> CGImage?
 }
 
 /// Adapters that hand over the text their dictionaries missed and show translations as they arrive (TRANS-006).

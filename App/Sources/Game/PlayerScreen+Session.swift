@@ -307,14 +307,21 @@ extension PlayerScreen {
         guard !overlay.paused, !leaving else { return }
         // Removing the input views releases any held key, modifier or mouse button before resuming later.
         overlay.paused = true
+        let start = ContinuousClock.now
         await model.pause()
         // Left while the engine was pausing: no menu or frozen frame over a screen that is going away.
         guard !leaving else { return }
+        let engine = Self.ms(since: start)
         // The menu brings its own entrance; the system slide would fight it.
         withTransaction(\.disablesAnimations, true) { menuShown = true }
         // The menu opens at once; the game's frame, blurred once off the main thread, fades in behind it.
-        let frame = host.frozenFrameView.isHidden ? await model.coordinator?.captureScreen() : host.frozenFrameView.image?.cgImage
+        // The backdrop is blurred down to 480 pixels anyway, so the snapshot is taken that small.
+        let frame = host.frozenFrameView.isHidden
+            ? await model.coordinator?.captureScreen(width: 480 / (host.view.window?.screen.scale ?? 3))
+            : host.frozenFrameView.image?.cgImage
+        let captured = Self.ms(since: start)
         pausedFrame = await Task.detached { PauseBackdrop.make(frame) }.value
+        OPLog.log(.ui, .debug, "pause timing: engine \(engine) ms, frame \(captured) ms, backdrop \(Self.ms(since: start)) ms")
     }
 
     static func ms(since start: ContinuousClock.Instant) -> Int {

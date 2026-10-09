@@ -341,8 +341,8 @@ public actor RuntimeCoordinator {
     }
 
     /// The adapter's own picture of the game, for adapters that can draw one on request.
-    public func captureScreen() async -> CGImage? {
-        await (activeRuntime as? ScreenCapturing)?.captureScreen()
+    public func captureScreen(width: CGFloat? = nil) async -> CGImage? {
+        await (activeRuntime as? ScreenCapturing)?.captureScreen(width: width)
     }
 
     public func openEngineMenu() async {

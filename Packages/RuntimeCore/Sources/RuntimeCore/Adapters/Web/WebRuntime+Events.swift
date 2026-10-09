@@ -126,10 +126,17 @@
 
     extension WebRuntime: ScreenCapturing {
         /// WebKit draws the page fresh, paused or not.
-        public func captureScreen() async -> CGImage? {
+        public func captureScreen(width: CGFloat?) async -> CGImage? {
             guard let webView else { return nil }
+            // A small picture is the frame on screen now, not the next one: the paused page may not draw again soon.
+            let config = width.map { width in
+                let config = WKSnapshotConfiguration()
+                config.snapshotWidth = NSNumber(value: Double(width))
+                config.afterScreenUpdates = false
+                return config
+            }
             return await withCheckedContinuation { continuation in
-                webView.takeSnapshot(with: nil) { image, _ in continuation.resume(returning: image?.cgImage) }
+                webView.takeSnapshot(with: config) { image, _ in continuation.resume(returning: image?.cgImage) }
             }
         }
     }

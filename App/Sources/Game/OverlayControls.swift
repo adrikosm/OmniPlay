@@ -311,6 +311,8 @@ enum PauseBackdrop {
         let scale = 480 / max(source.extent.width, 1)
         let small = source.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         let blurred = small.clampedToExtent().applyingGaussianBlur(sigma: 12).cropped(to: small.extent)
-        return CIContext().createCGImage(blurred, from: small.extent).map { UIImage(cgImage: $0) }
+        return context.createCGImage(blurred, from: small.extent).map { UIImage(cgImage: $0) }
     }
+
+    private nonisolated static let context = CIContext()
 }
