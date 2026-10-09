@@ -24,10 +24,11 @@ public struct StructureFacts: Sendable, Hashable {
             f.indexHTMLCandidates.append(candidate)
         }
         if f.indexHTMLCandidates.isEmpty {
-            for e in ctx.glob("*.html", limit: 8) + ctx.glob("*/*.html", limit: 8)
-                where f.indexHTMLCandidates.count < 8 {
-                f.indexHTMLCandidates.append(e.realRel)
-            }
+            // GLOB's `*` crosses folders. An index page at any depth (an Electron app keeps its own in a folder such as
+            // production/) comes before other pages, shallow before deep; library pages under node_modules never count.
+            let pages = ctx.glob("*.html", limit: 512).map(\.realRel).filter { !$0.lowercased().contains("node_modules/") }
+            let rank = { (page: String) in (page.lowercased().hasSuffix("index.html") ? 0 : 1, page.count(where: { $0 == "/" })) }
+            f.indexHTMLCandidates = Array(pages.sorted { rank($0) < rank($1) }.prefix(8))
         }
         let checks: [(Marker, [String])] = [
             (.gameIni, ["game.ini"]), (.renpyDir, ["renpy"]), (.gameDir, ["game"]), (.packageJSON, ["package.json", "www/package.json"]),
