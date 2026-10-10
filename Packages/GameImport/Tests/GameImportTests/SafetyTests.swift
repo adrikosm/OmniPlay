@@ -142,6 +142,8 @@ struct SafetyTests {
     /// one says so rather than reading as damage, and the right one gives the file back byte for byte.
     private func sealedSevenZip() throws {
         let sealed = Fixtures.url("encrypted-names.7z")
+        // What the synthetic fixture was sealed with: a throwaway test value, never a credential.
+        let sealedWith = "omni123"
         for (passphrase, message) in [(nil, "Passphrase required"), ("wrong", "Incorrect passphrase")] {
             #expect { try extractor.preflight(sealed, passphrase: passphrase) } throws: {
                 guard case let .entry(_, m)? = $0 as? ExtractionError else { return false }
@@ -150,8 +152,8 @@ struct SafetyTests {
         }
         let opened = try TemporaryGameRoot(name: "aes")
         defer { opened.remove() }
-        #expect(try extractor.preflight(sealed, passphrase: "omni123").encrypted)
-        _ = try extractor.extract(sealed, to: opened.url, passphrase: "omni123")
+        #expect(try extractor.preflight(sealed, passphrase: sealedWith).encrypted)
+        _ = try extractor.extract(sealed, to: opened.url, passphrase: sealedWith)
         #expect(try String(contentsOf: opened.url.appending(path: "hello.txt"), encoding: .utf8) == "OmniPlay 7z AES\n")
     }
 
