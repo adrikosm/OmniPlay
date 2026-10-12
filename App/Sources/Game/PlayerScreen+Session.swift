@@ -74,6 +74,7 @@ extension PlayerScreen {
             installControls()
         }
         host.onPauseRequested = { Task { await pause() } }
+        host.onPauseFrame = { overlay.pauseFrame = $0 }
         host.onEvent = { event in handle(event) }
         // A crash on one of the engine's own threads stops that thread, not the app; the game has to end with it.
         CrashGuard.onThreadCrash = { status in handle(.ended(status: status)) }

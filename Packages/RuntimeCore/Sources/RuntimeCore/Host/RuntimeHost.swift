@@ -44,6 +44,12 @@ public protocol RuntimeHost: AnyObject, Sendable {
         public private(set) weak var engineWindow: UIWindow?
         public var onEvent: (@MainActor (RuntimeEvent) -> Void)?
         public var onPauseRequested: (@MainActor () -> Void)?
+        /// The pause button's frame in its window, whenever it moves, so the controls beside it can keep clear of it.
+        public var onPauseFrame: (@MainActor (CGRect) -> Void)? {
+            didSet { lastPauseFrame = nil; positionPauseButton() }
+        }
+
+        private var lastPauseFrame: CGRect?
         /// Where the pause button sits, in unit coordinates of the safe area; persisted across sessions.
         static let positionKey = "omniplay.overlay.pausePosition"
         private var pausePosition = CGPoint(x: 0.96, y: 0.1)
@@ -153,6 +159,12 @@ public protocol RuntimeHost: AnyObject, Sendable {
             let top = overlayView.safeAreaInsets.top
             if safe.height > safe.width, top >= 44, UserDefaults.standard.array(forKey: Self.positionKey) == nil {
                 pauseCenterY?.constant = -top / 2
+            }
+            let center = CGPoint(x: safe.minX + (pauseCenterX?.constant ?? 0), y: safe.minY + (pauseCenterY?.constant ?? 0))
+            let frame = overlayView.convert(CGRect(x: center.x - 22, y: center.y - 22, width: 44, height: 44), to: nil)
+            if frame != lastPauseFrame {
+                lastPauseFrame = frame
+                onPauseFrame?(frame)
             }
         }
 

@@ -30,6 +30,8 @@ final class SessionOverlay {
     var touchpadSpeed: Double?
     /// The key strip is up (INPUT-009).
     var keyStrip = false
+    /// The host's pause button, in window coordinates; the landscape column keeps clear of it.
+    var pauseFrame = CGRect.zero
     /// Every button over the game is put away, the host's pause button too, leaving only a faint eye to bring them
     /// back. For this session only: a new session never starts with no way to pause.
     var chromeHidden = false
@@ -95,6 +97,9 @@ struct OverlayControls: View {
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     /// The top safe-area inset: 44 or more is a Dynamic Island (or notch) band above the game in portrait.
     @State private var topInset = 0.0
+    /// The area the landscape column is placed in, in window coordinates, and the column's height.
+    @State private var area = CGRect.zero
+    @State private var columnHeight = 0.0
 
     private func unlessSwiped(_ action: () -> Void) {
         if swipedAt.map({ $0.duration(to: .now) > .milliseconds(300) }) ?? true {
@@ -162,14 +167,18 @@ struct OverlayControls: View {
                 .padding(.horizontal, Theme.s3)
                 .padding(.top, rowTop)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { area = $0 }
                 // Landscape games are pillarboxed: a column down the trailing edge, under the pause button, stays off
                 // the picture, where a row across the top covered titles and message windows.
                 .overlay(alignment: .topTrailing) {
                     if overlay.landscape {
+                        let place = columnPlacement
                         VStack(spacing: 10) { buttons }
-                            .padding(.trailing, Theme.s3)
-                            .padding(.top, rowTop + 54)
+                            .onGeometryChange(for: Double.self) { $0.size.height } action: { columnHeight = $0 }
+                            .padding(.trailing, place.trailing)
+                            .padding(.top, place.top)
                             .simultaneousGesture(swipeToHidePad)
+                            .animation(reduceMotion ? nil : Theme.quick, value: place.top)
                     }
                 }
                 .animation(reduceMotion ? nil : Theme.quick, value: overlay.chromeHidden)
@@ -203,6 +212,23 @@ struct OverlayControls: View {
             try? await Task.sleep(for: .seconds(4))
             withAnimation(Theme.motion(.easeOut(duration: 0.6), reduce: reduceMotion)) { tip = false }
         }
+    }
+
+    /// Where the landscape column starts and its distance from the trailing edge. Under the pause button when the button
+    /// is on that edge, centred on it (above it when there is no room below); at the top when it was dragged away.
+    /// It never overlaps the button, wherever the player put it.
+    private var columnPlacement: (top: CGFloat, trailing: CGFloat) {
+        let pause = overlay.pauseFrame.offsetBy(dx: -area.minX, dy: -area.minY)
+        let fallback = (top: CGFloat(rowTop + 54), trailing: Theme.s3)
+        guard !overlay.pauseFrame.isEmpty, area.width > 0 else { return fallback }
+        guard pause.midX > area.width - 110 else { return (CGFloat(rowTop), Theme.s3) }
+        let trailing = max(Theme.s2, area.width - pause.midX - 22)
+        let below = pause.maxY + 12
+        if below + columnHeight <= area.height - Theme.s2 {
+            return (below, trailing)
+        }
+        let above = pause.minY - 12 - columnHeight
+        return above >= Theme.s2 ? (above, trailing) : fallback
     }
 
     /// The landscape column: the eye nearest the pause button, then the game's buttons. Engines that read the screen
