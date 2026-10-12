@@ -4,20 +4,36 @@
 // original bytes before decoding, so loops survive. Media elements pointed at .ogg ask for the same file's decoded
 // form (?omniplay=pcm); the host returns the file unchanged when it is not Vorbis.
 (() => {
-  // Scripted test runs: Web Audio goes through a silent gain and every media element plays muted.
-  if (__OMNIPLAY_PROFILE__.muted) {
-    const Ctx = window.BaseAudioContext || window.AudioContext || window.webkitAudioContext;
-    const real = Ctx && Object.getOwnPropertyDescriptor(Ctx.prototype, "destination");
-    if (real && real.get) {
-      Object.defineProperty(Ctx.prototype, "destination", { configurable: true, get() {
-        if (!this.__omniplaySilent) {
-          this.__omniplaySilent = this.createGain();
-          this.__omniplaySilent.gain.value = 0;
-          this.__omniplaySilent.connect(real.get.call(this));
+  // Everything a page plays reaches the speaker through one node in front of the real destination. Normally a
+  // limiter: games stack music and several sound effects past full scale (more so at fast forward), and WebKit clips
+  // the sum hard, which is heard as crackle. Scripted test runs get a silent gain instead.
+  const muted = __OMNIPLAY_PROFILE__.muted;
+  const Ctx = window.BaseAudioContext || window.AudioContext || window.webkitAudioContext;
+  const real = Ctx && Object.getOwnPropertyDescriptor(Ctx.prototype, "destination");
+  if (real && real.get) {
+    Object.defineProperty(Ctx.prototype, "destination", { configurable: true, get() {
+      const out = real.get.call(this);
+      if (window.OfflineAudioContext && this instanceof OfflineAudioContext) return out;
+      if (!this.__omniplayOut) {
+        let node;
+        if (muted) {
+          node = this.createGain();
+          node.gain.value = 0;
+        } else {
+          node = this.createDynamicsCompressor();
+          node.threshold.value = -3;
+          node.knee.value = 0;
+          node.ratio.value = 20;
+          node.attack.value = 0.003;
+          node.release.value = 0.25;
         }
-        return this.__omniplaySilent;
-      } });
-    }
+        node.connect(out);
+        this.__omniplayOut = node;
+      }
+      return this.__omniplayOut;
+    } });
+  }
+  if (muted) {
     const play = HTMLMediaElement.prototype.play;
     HTMLMediaElement.prototype.play = function (...args) { this.muted = true; return play.apply(this, args); };
     // After load: at document start the isolated world's console capture may not be listening yet.
