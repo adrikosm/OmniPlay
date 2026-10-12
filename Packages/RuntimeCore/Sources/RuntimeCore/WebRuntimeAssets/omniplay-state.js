@@ -248,6 +248,59 @@
     return result;
   }
 
+  // Crash resume. The host keeps the newest snapshot of the running game and hands it to a page it had to reload
+  // after the web process died, so play goes on from there instead of the title. A snapshot is the engine's own save
+  // contents, taken only while the player stands on the map with nothing running, so it loads like a normal save.
+  // The fields onBeforeSave would set are set by hand: plugins hook onBeforeSave for real saves (notices, counters).
+  window.__omniplaySnapshot = function () {
+    try {
+      if (!ready() || typeof JsonEx === 'undefined' || typeof Scene_Map === 'undefined') return null;
+      if (!(SceneManager._scene instanceof Scene_Map) || SceneManager.isSceneChanging() || $gameMap.isEventRunning() ||
+          $gameMessage.isBusy() || $gamePlayer.isMoving() || $gamePlayer.isTransferring()) return null;
+      $gameSystem._versionId = $dataSystem.versionId;
+      $gameSystem._framesOnSave = Graphics.frameCount;
+      if (typeof SceneManager.frameCount === 'function') $gameSystem._sceneFramesOnSave = SceneManager.frameCount();
+      $gameSystem._bgmOnSave = AudioManager.saveBgm();
+      $gameSystem._bgsOnSave = AudioManager.saveBgs();
+      return JsonEx.stringify(DataManager.makeSaveContents());
+    } catch (e) {
+      return null;
+    }
+  };
+
+  // Loads a snapshot the way Scene_Load does, once the reloaded game has finished booting (a title or splash scene).
+  window.__omniplayResume = function (json) {
+    return new Promise(function (resolve) {
+      var waited = 0;
+      var timer = setInterval(function () {
+        var S = window.SceneManager, scene = S && S._scene;
+        // Started, not only created: leaving a scene that is still loading (a map without its windows) throws.
+        var booted = scene && typeof Scene_Boot !== 'undefined' && !(scene instanceof Scene_Boot) && !S.isSceneChanging() &&
+          typeof scene.isActive === 'function' && scene.isActive() &&
+          typeof DataManager !== 'undefined' && DataManager.isDatabaseLoaded();
+        if (!booted) {
+          if ((waited += 100) > 60000) { clearInterval(timer); resolve('the game did not finish starting'); }
+          return;
+        }
+        clearInterval(timer);
+        try {
+          DataManager.createGameObjects();
+          DataManager.extractSaveContents(JsonEx.parse(json));
+          if (typeof DataManager.correctDataErrors === 'function') DataManager.correctDataErrors();
+          if ($gameSystem.versionId() !== $dataSystem.versionId) {
+            $gamePlayer.reserveTransfer($gameMap.mapId(), $gamePlayer.x, $gamePlayer.y, $gamePlayer.direction(), 0);
+            $gamePlayer.requestMapReload();
+          }
+          S.goto(Scene_Map);
+          $gameSystem.onAfterLoad();
+          resolve('resumed');
+        } catch (e) {
+          resolve('error: ' + (e && e.message || e));
+        }
+      }, 100);
+    });
+  };
+
   window.__omniplayState = function (request) {
     try {
       if (!ready()) return { error: 'notInGame' };

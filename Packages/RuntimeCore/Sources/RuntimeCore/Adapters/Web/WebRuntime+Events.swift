@@ -4,6 +4,7 @@
     import GameCore
     import InputKit
     import LocalGameServer
+    import os
     import OverlayVFS
     import SaveKit
     import UIKit
@@ -75,6 +76,13 @@
             case .booted:
                 _ = watchdog.handle(.pageBooted, now: .now)
                 host?.runtimeDidEmit(.gradeReached(.intro))
+                if fastForward > 1 {
+                    dispatch("omniplay:speed", detail: fastForward)
+                }
+                if resumeOnBoot {
+                    resumeOnBoot = false
+                    resume(from: resumeSnapshot)
+                }
             case let .console(level, message):
                 host?.runtimeDidEmit(.log(.javascript, "[\(level)] \(message)"))
                 if let consoleSink {
@@ -114,12 +122,88 @@
         func act(_ action: WebProcessWatchdog.Action) {
             switch action {
             case .none: break
+            case .probe:
+                // A busy page answers when it is free; a dead process answers at once with this error. Only a reply
+                // to this probe counts: a heartbeat or a reload in the meantime clears `probed`.
+                OPLog.log(.web, .default, "page silent; probing the web process", session: configuration?.sessionID)
+                webView?.evaluateJavaScript("0", in: nil, in: .page) { [weak self] result in
+                    guard let self, watchdog.probed, case let .failure(error) = result,
+                          (error as? WKError)?.code == .webContentProcessTerminated else { return }
+                    handle(.processTerminated)
+                }
             case let .reloadAndAutoload(reason):
-                OPLog.log(.web, .error, "web process lost: \(reason); reloading", session: configuration?.sessionID)
-                onNotice?("The game stopped and was reloaded. Continue from your last save.")
+                resumeOnBoot = hasTypedState && resumeSnapshot != nil
+                OPLog.log(
+                    .web,
+                    .error,
+                    "web process lost: \(reason); reloading\(resumeOnBoot ? " and resuming" : "")",
+                    session: configuration?.sessionID
+                )
+                onNotice?(
+                    resumeOnBoot ? "The game's page stopped. Bringing you back to where you were…"
+                        : "The game stopped and was reloaded. Continue from your last save."
+                )
                 webView?.reload()
             case let .giveUp(reason):
                 onFailure?(reason)
+            }
+        }
+
+        /// Seconds between crash-resume snapshots, in watchdog ticks of two seconds.
+        static let snapshotTicks = 6
+
+        /// Keeps the newest snapshot the page offers; it offers none while anything is going on, and the last one
+        /// stays. Not while paused or in the background, where the page is stopped.
+        func takeSnapshot() async {
+            guard hasTypedState, !userPaused, !backgrounded, !stopping, !resumeOnBoot, let webView else { return }
+            let reply = try? await webView.callAsyncJavaScript(
+                "return (window.__omniplaySnapshot && window.__omniplaySnapshot()) || ''", contentWorld: .page
+            )
+            guard let json = reply as? String, !json.isEmpty, json.utf8.count <= Self.maxSnapshotBytes,
+                  json != resumeSnapshot else { return }
+            resumeSnapshot = json
+            // On disk too, so a launch after OmniPlay itself was closed mid-game resumes as well (see `prepare`).
+            if let file = snapshotFile {
+                Task.detached(priority: .utility) {
+                    try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try? Data(json.utf8).write(to: file, options: .atomic)
+                }
+            }
+        }
+
+        /// The snapshot kept between launches. A clean exit deletes it, so finding it at launch means the last
+        /// session ended without one: the app was closed or killed while the game ran.
+        var snapshotFile: URL? { configuration?.cacheDirectory.appending(path: "resume-snapshot.json") }
+
+        /// At launch: a snapshot left by a session that never exited cleanly is resumed once the page boots.
+        func loadSavedSnapshot() {
+            guard hasTypedState, let file = snapshotFile, let data = try? Data(contentsOf: file),
+                  let json = String(bytes: data, encoding: .utf8), !json.isEmpty else { return }
+            resumeSnapshot = json
+            resumeOnBoot = true
+            OPLog.log(.web, .default, "last session ended without a clean exit; resuming its snapshot", session: configuration?.sessionID)
+        }
+
+        static let maxSnapshotBytes = 16 << 20
+
+        /// Hands the reloaded page the snapshot; it loads it once its boot scene has finished.
+        func resume(from snapshot: String?) {
+            guard let snapshot, let webView else { return }
+            let session = configuration?.sessionID
+            webView.callAsyncJavaScript(
+                "return window.__omniplayResume ? await window.__omniplayResume(json) : 'no resume bridge'",
+                arguments: ["json": snapshot],
+                in: nil,
+                in: .page
+            ) { [weak self] result in
+                let outcome = switch result {
+                case let .success(value): value as? String ?? "unknown"
+                case let .failure(error): "error: \(error.localizedDescription)"
+                }
+                OPLog.log(.web, outcome == "resumed" ? .info : .error, "crash resume: \(outcome)", session: session)
+                self?.onNotice?(
+                    outcome == "resumed" ? "You're back where you were." : "The game was reloaded. Continue from your last save."
+                )
             }
         }
     }
@@ -180,5 +264,16 @@
                 return .rejected(mutation, String(describing: error))
             }
         }
+    }
+
+    /// Files the loopback server has served, counted from its own threads.
+    final class ServedFiles: Sendable {
+        private let state = OSAllocatedUnfairLock(initialState: (files: 0, bytes: Int64(0)))
+
+        func add(_ bytes: Int64) {
+            state.withLock { $0.files += 1; $0.bytes += bytes }
+        }
+
+        var total: (files: Int, bytes: Int64) { state.withLock { $0 } }
     }
 #endif

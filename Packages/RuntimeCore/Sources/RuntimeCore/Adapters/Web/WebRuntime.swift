@@ -36,6 +36,10 @@
         var inputFlushScheduled = false
         var watchdog = WebProcessWatchdog(now: .now)
         var watchdogTask: Task<Void, Never>?
+        /// The newest crash-resume snapshot of an RPG Maker game (`__omniplaySnapshot`), and whether the page now
+        /// loading should be handed it once it boots.
+        var resumeSnapshot: String?
+        var resumeOnBoot = false
         weak var host: (any RuntimeHost)?
         public var onFailure: (@MainActor (String) -> Void)?
         public var onNotice: (@MainActor (String) -> Void)?
@@ -146,6 +150,7 @@
                 )
             }
             self.server = server
+            loadSavedSnapshot()
         }
 
         public func start(in host: any RuntimeHost) async throws {
@@ -210,10 +215,15 @@
             observeLifecycle()
             watchdog = WebProcessWatchdog(now: .now)
             watchdogTask = Task { [weak self] in
+                var tick = 0
                 while !Task.isCancelled {
                     do { try await Task.sleep(for: .seconds(2)) } catch { return }
                     guard let self else { return }
                     act(watchdog.tick(now: .now))
+                    tick += 1
+                    if tick % Self.snapshotTicks == 0 {
+                        await takeSnapshot()
+                    }
                 }
             }
         }
@@ -227,6 +237,9 @@
             guard !stopping else { return }
             let paused = userPaused || backgrounded
             _ = watchdog.handle(paused ? .paused : .resumed, now: .now)
+            // WebKit's own suspension as well as the page's: a page script that resumes its audio context cannot
+            // undo it, so no sound plays on under the pause menu or in the background.
+            webView?.setAllMediaPlaybackSuspended(paused)
             dispatch(paused ? "omniplay:pause" : "omniplay:resume")
         }
 
@@ -337,6 +350,9 @@
             consoleSink = nil
             if reason == .userExit || reason == .hostShutdown {
                 await autosave()
+                if let file = snapshotFile {
+                    try? FileManager.default.removeItem(at: file)
+                }
             }
             // The dictionary's hit and miss counts go in the session log, which Diagnostics shows (TRANS-003).
             // Optional diagnostics must never hold teardown hostage to an unresponsive page.
@@ -375,14 +391,4 @@
         }
     }
 
-    /// Files the loopback server has served, counted from its own threads.
-    final class ServedFiles: Sendable {
-        private let state = OSAllocatedUnfairLock(initialState: (files: 0, bytes: Int64(0)))
-
-        func add(_ bytes: Int64) {
-            state.withLock { $0.files += 1; $0.bytes += bytes }
-        }
-
-        var total: (files: Int, bytes: Int64) { state.withLock { $0 } }
-    }
 #endif
