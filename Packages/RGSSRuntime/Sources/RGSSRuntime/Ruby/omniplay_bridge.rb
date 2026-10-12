@@ -255,24 +255,22 @@ module OmniPlay
       @move_speed.to_i
     end
 
-    def hook_system
-      return if @system_hooked
-      @system_hooked = true
-      Game_System.class_eval do
-        alias_method :omniplay_save_disabled, :save_disabled
-        def save_disabled
-          OmniPlay::Bridge.save_anywhere? ? false : omniplay_save_disabled
+    # Each flag is hooked once, and only when the game's Game_System has it (scripts replace that class too).
+    def hook_system(flag)
+      @system_hooked ||= {}
+      return if @system_hooked[flag]
+      raise "This game has no #{flag} switch." unless Game_System.method_defined?(flag)
+      Game_System.class_eval <<-RUBY
+        alias_method :omniplay_#{flag}, :#{flag}
+        def #{flag}
+          OmniPlay::Bridge.#{flag == :save_disabled ? "save_anywhere?" : "menu_anywhere?"} ? false : omniplay_#{flag}
         end
-        alias_method :omniplay_menu_disabled, :menu_disabled
-        def menu_disabled
-          OmniPlay::Bridge.menu_anywhere? ? false : omniplay_menu_disabled
-        end
-      end
+      RUBY
+      @system_hooked[flag] = true
     end
 
     def hook_speed
       return if @speed_hooked
-      @speed_hooked = true
       if Game_Player.method_defined?(:real_move_speed)
         Game_Player.class_eval do
           alias_method :omniplay_real_move_speed, :real_move_speed
@@ -292,6 +290,7 @@ module OmniPlay
           end
         end
       end
+      @speed_hooked = true
     end
 
     # ---- Battle: the troop's enemies by place, while a battle runs ----
@@ -355,8 +354,8 @@ module OmniPlay
     def write_patch(name, value)
       on = value ? true : false
       case name
-      when "saveAnywhere" then hook_system; @save_anywhere = on
-      when "menuAnywhere" then hook_system; @menu_anywhere = on
+      when "saveAnywhere" then hook_system(:save_disabled); @save_anywhere = on
+      when "menuAnywhere" then hook_system(:menu_disabled); @menu_anywhere = on
       when "moveSpeed" then hook_speed; @move_speed = [[value.to_i, 0].max, 3].min
       when "noEncounters" then set_no_encounters(on)
       when "noclip" then $game_player.instance_variable_set(:@through, on)
