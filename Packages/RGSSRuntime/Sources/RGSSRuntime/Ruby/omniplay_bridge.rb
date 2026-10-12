@@ -323,6 +323,7 @@ module OmniPlay
     # collapse effect.
     def defeat(e)
       return if e.dead?
+      clear_result(e)
       e.hp = 0
       e.add_state(e.respond_to?(:death_state_id) ? e.death_state_id : 1) unless e.dead?
       if e.respond_to?(:perform_collapse_effect)
@@ -330,6 +331,12 @@ module OmniPlay
       elsif e.respond_to?(:collapse=)
         e.collapse = true
       end
+    end
+
+    # VX Ace and VX keep the current action's outcome, and refuse a death state it says was just removed.
+    def clear_result(e)
+      e.result.clear if e.respond_to?(:result) && e.result.respond_to?(:clear)
+      e.clear_action_results if e.respond_to?(:clear_action_results)
     end
 
     def map_infos
@@ -478,7 +485,7 @@ module OmniPlay
       when "enemy"
         e = enemy_at(id)
         case t["prop"]
-        when "alive" then v ? e.recover_all : defeat(e)
+        when "alive" then v ? (clear_result(e); e.recover_all) : defeat(e)
         when "hp"
           if v.to_i <= 0
             defeat(e)

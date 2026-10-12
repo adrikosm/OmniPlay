@@ -46,15 +46,18 @@
     if (!enemy) throw new Error('no enemy ' + index);
     return enemy;
   }
-  // The engine's own knockout (death state, the collapse effect and sound), so the battle ends as it would.
+  // The engine's own knockout (death state, the collapse effect and sound), so the battle ends as it would. The
+  // action result is cleared first: one that says the death state was just removed refuses to add it again.
   function defeat(enemy) {
     if (enemy.isDead()) return;
+    enemy.clearResult();
     enemy.setHp(0);
     if (!enemy.isDead()) enemy.addState(enemy.deathStateId());
     enemy.performCollapse();
   }
   // Back at full health; its sprite plays the appear effect because the collapse marked it gone.
   function revive(enemy) {
+    enemy.clearResult();
     enemy.removeState(enemy.deathStateId());
     enemy.setHp(enemy.mhp);
     enemy.setMp(enemy.mmp);
