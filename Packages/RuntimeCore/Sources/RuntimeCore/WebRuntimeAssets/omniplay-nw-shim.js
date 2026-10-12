@@ -8,6 +8,11 @@
   const shims = new Set(profile.shims || []);
   if (shims.size === 0) return;
   const modules = {};
+  // The desktop's user folders. A plugin that keeps its own files there (saves under LOCALAPPDATA, settings under
+  // APPDATA or HOME) finds them under this root, which the fs shim keeps in web storage: the storage mirror carries
+  // them to the game's save folder like any other save.
+  const USER = "/omniplay-user";
+  const env = { LOCALAPPDATA: USER + "/AppData/Local", APPDATA: USER + "/AppData/Roaming", HOME: USER, USERPROFILE: USER };
   if (shims.has("pathPosix")) {
     // POSIX semantics with the game root as the working directory ("/").
     const normalize = (p) => {
@@ -83,21 +88,105 @@
       const base = String(p).replace(/\/*$/, "") + "/";
       return names.map((name) => Object.assign(statSync(base + name), { name }));
     };
-    const existsSync = (p) => { try { statSync(p); return true; } catch (_) { return false; } };
     const readOnly = (p) => Object.assign(new Error("EROFS: read-only file system, '" + p + "'"), { code: "EROFS" });
+    // Files under USER: one web storage entry each, text as it is and bytes as base64 behind a marker. Folders exist
+    // when something is in them or they were made.
+    const KEY = "OmniPlay fs ", BYTES = "\u0000base64:";
+    const userPath = (p) => {
+      const out = [];
+      for (const s of String(p).replace(/\\/g, "/").split("/")) { if (s === "..") out.pop(); else if (s && s !== ".") out.push(s); }
+      const path = "/" + out.join("/");
+      return path === USER || path.startsWith(USER + "/") ? path : null;
+    };
+    const store = () => window.localStorage;
+    const keys = () => Object.keys(store()).filter((k) => k.startsWith(KEY)).map((k) => k.slice(KEY.length));
+    const isUserDir = (path) => path === USER || Object.values(env).some((d) => d === path || d.startsWith(path + "/")) ||
+      keys().some((k) => k.startsWith(path + "/") || k === path + "/");
+    const userRead = (path, encoding) => {
+      const value = store().getItem(KEY + path);
+      if (value === null) throw enoent(path);
+      let data;
+      if (value.startsWith(BYTES)) data = Uint8Array.from(atob(value.slice(BYTES.length)), (c) => c.charCodeAt(0));
+      else if (encoding) return value;
+      else data = new TextEncoder().encode(value);
+      if (encoding) return new TextDecoder(encoding === "latin1" || encoding === "binary" ? "latin1" : "utf-8").decode(data);
+      data.toString = (enc) => new TextDecoder(enc === "latin1" || enc === "binary" ? "latin1" : "utf-8").decode(data);
+      return data;
+    };
+    const userWrite = (p, data, append) => {
+      const path = userPath(p);
+      if (!path) throw readOnly(p);
+      let text;
+      if (typeof data === "string") text = data;
+      else {
+        const bytes = data instanceof Uint8Array ? data : new Uint8Array(data && data.buffer ? data.buffer : data || []);
+        let binary = "";
+        for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+        text = BYTES + btoa(binary);
+      }
+      if (append && !text.startsWith(BYTES)) { const old = store().getItem(KEY + path); if (old !== null && !old.startsWith(BYTES)) text = old + text; }
+      store().setItem(KEY + path, text);
+    };
+    const gameStat = statSync, gameRead = readFileSync, gameList = readdirSync;
+    const stat = (p) => {
+      const path = userPath(p);
+      if (!path) return gameStat(p);
+      const file = store().getItem(KEY + path) !== null;
+      if (!file && !isUserDir(path)) throw enoent(p);
+      const size = file ? store().getItem(KEY + path).length : 0;
+      return { isFile: () => file, isDirectory: () => !file, isSymbolicLink: () => false, size, mtime: new Date(), mtimeMs: Date.now() };
+    };
+    const read = (p, options) => {
+      const path = userPath(p);
+      return path ? userRead(path, typeof options === "string" ? options : options && options.encoding) : gameRead(p, options);
+    };
+    const list = (p, options) => {
+      const path = userPath(p);
+      if (!path) return gameList(p, options);
+      if (!isUserDir(path)) throw enoent(p);
+      const names = new Set();
+      for (const k of keys()) if (k.startsWith(path + "/")) { const name = k.slice(path.length + 1).split("/")[0]; if (name) names.add(name); }
+      for (const d of Object.values(env)) if (d.startsWith(path + "/")) names.add(d.slice(path.length + 1).split("/")[0]);
+      const all = [...names];
+      return options && options.withFileTypes ? all.map((name) => Object.assign(stat(path + "/" + name), { name })) : all;
+    };
+    const existsSync = (p) => { try { stat(p); return true; } catch (_) { return false; } };
+    const remove = (p) => {
+      const path = userPath(p);
+      if (!path) throw readOnly(p);
+      for (const k of keys()) if (k === path || k.startsWith(path + "/")) store().removeItem(KEY + k);
+    };
+    const rename = (from, to) => {
+      const a = userPath(from), b = userPath(to);
+      if (!a || !b) throw readOnly(a ? to : from);
+      const value = store().getItem(KEY + a);
+      if (value === null) throw enoent(from);
+      store().setItem(KEY + b, value);
+      store().removeItem(KEY + a);
+    };
+    const mkdir = (p) => { const path = userPath(p); if (path && !isUserDir(path)) store().setItem(KEY + path + "/", ""); };
     // Callback forms run the synchronous call on the next turn; `exists` keeps its old one-argument callback.
     const later = (f) => (...a) => {
       const done = typeof a[a.length - 1] === "function" ? a.pop() : () => {};
       setTimeout(() => { let r; try { r = f(...a); } catch (e) { done(e); return; } done(null, r); }, 0);
     };
     const promised = (f) => (...a) => Promise.resolve().then(() => f(...a));
+    const writeFileSync = (p, data) => userWrite(p, data, false), appendFileSync = (p, data) => userWrite(p, data, true);
+    const copyFileSync = (from, to) => userWrite(to, read(from), false);
+    // Writes outside the user folders fail the way a locked disk does; the game's own saves go through OmniPlay.
     modules.fs = {
-      existsSync, statSync, lstatSync: statSync, readFileSync, readdirSync,
+      existsSync, statSync: stat, lstatSync: stat, readFileSync: read, readdirSync: list,
+      writeFileSync, appendFileSync, copyFileSync, mkdirSync: mkdir, unlinkSync: remove, rmSync: remove, rmdirSync: remove,
+      renameSync: rename,
       exists: (p, done) => setTimeout(() => done && done(existsSync(p)), 0),
-      stat: later(statSync), lstat: later(statSync), readFile: later(readFileSync), readdir: later(readdirSync),
-      promises: { stat: promised(statSync), lstat: promised(statSync), readFile: promised(readFileSync), readdir: promised(readdirSync) },
-      // Saves go through OmniPlay's storage; a plugin's own file writes fail the way a locked disk does.
-      writeFileSync: (p) => { throw readOnly(p); }, mkdirSync: () => {}, unlinkSync: () => {},
+      stat: later(stat), lstat: later(stat), readFile: later(read), readdir: later(list), writeFile: later(writeFileSync),
+      appendFile: later(appendFileSync), copyFile: later(copyFileSync), mkdir: later(mkdir), unlink: later(remove),
+      rm: later(remove), rmdir: later(remove), rename: later(rename),
+      promises: {
+        stat: promised(stat), lstat: promised(stat), readFile: promised(read), readdir: promised(list),
+        writeFile: promised(writeFileSync), appendFile: promised(appendFileSync), copyFile: promised(copyFileSync),
+        mkdir: promised(mkdir), unlink: promised(remove), rm: promised(remove), rmdir: promised(remove), rename: promised(rename),
+      },
     };
   }
   if (shims.has("greenworks")) modules.greenworks = { init: () => false, initAPI: () => false };
@@ -105,7 +194,7 @@
   // fields stock MV/MZ code reads once `process` is an object (main.js's mainModule check) are present. Bundled
   // libraries ask for it as a module too (pino's `require('process').mainModule`).
   const process = {
-    versions: { nw: "0.0.0" }, platform: "ios", env: {}, argv: [],
+    versions: { nw: "0.0.0" }, platform: "ios", env, argv: [],
     mainModule: { filename: decodeURIComponent(location.pathname) },
     cwd: () => "/", on: () => process,
   };
@@ -160,7 +249,7 @@
       format: (...a) => a.map(String).join(" "), inspect: (v) => { try { return JSON.stringify(v); } catch (_) { return String(v); } },
       deprecate: (f) => f, types: {}, TextEncoder, TextDecoder,
     };
-    modules.os = { platform: () => "ios", type: () => "Darwin", homedir: () => "/", tmpdir: () => "/tmp", hostname: () => "iPhone", EOL: "\n" };
+    modules.os = { platform: () => "ios", type: () => "Darwin", homedir: () => USER, tmpdir: () => "/tmp", hostname: () => "iPhone", EOL: "\n" };
     window.require = (name) => { const m = modules[String(name).replace(/^node:/, "")]; if (!m) throw new Error("Cannot find module '" + name + "'"); return m; };
   }
 })();
