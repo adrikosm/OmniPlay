@@ -41,6 +41,25 @@ extension CheatsView {
         }
     }
 
+    func readSpeed() async {
+        guard tools.capabilities.contains(.patches),
+              case let .int(steps)? = try? await tools.read(StateWire.patch("moveSpeed")) else { return }
+        speed = steps
+    }
+
+    func setSpeed(_ steps: Int) async {
+        let old = speed
+        speed = steps
+        let result = await tools.apply(.setValue(.int(steps)), to: StateWire.patch("moveSpeed"))
+        if result.result == .rejected {
+            speed = old
+            undoProblem = result.validation.first?.message ?? "The game did not accept the new speed."
+        } else if case let .int(now) = result.effectiveValue {
+            speed = now
+            lastRun = nil
+        }
+    }
+
     var defaultStats: [ActorStat] {
         tools.capabilities.contains(.patches) ? [.godMode, .hp, .mp, .level, .exp] : [.hp, .mp, .level, .exp]
     }

@@ -3,9 +3,10 @@ import GameTools
 import RuntimeCore
 import SwiftUI
 
-/// Cheats as plain grouped lists. Each row says what it does and carries a switch, an Apply button, or Set up,
-/// which opens a small form beside the list (a character, a value, Apply). Every change reads back what the game
-/// accepted and can be undone, here or in Variables.
+/// Cheats as one readable column of grouped lists: switches that hold while on first, then movement, battle, party,
+/// money and items. Each row says what it does and carries a switch, an Apply button, Set up (a small form beside the
+/// list), or opens its own page (teleport, enemies, every variable). Every change reads back what the game accepted
+/// and can be undone, here or in Variables.
 struct CheatsView: View {
     let tools: MutationEngine
     let game: GameRecord
@@ -26,6 +27,8 @@ struct CheatsView: View {
     @State var undoProblem: String?
     @State var undoing = false
     @State var pendingWarning: (cheat: CheatDefinition, parameters: [String: Int])?
+    /// Steps faster than the game's own walking speed (0 to 3), as the game reports it.
+    @State var speed = 0
 
     @Wide var wide
 
@@ -36,11 +39,24 @@ struct CheatsView: View {
     }
 
     var headers: [CheatHeader] {
+        let capabilities = tools.capabilities
         var result = stats.map(CheatHeader.actor)
-        if tools.capabilities.contains(.gold) {
+        if capabilities.contains(.gold) {
             result.append(.gold)
         }
-        result += catalog.filter { !(tools.capabilities.contains(.gold) && $0.category == .currency) }.map(CheatHeader.catalog)
+        result += catalog.filter { !(capabilities.contains(.gold) && $0.category == .currency) }.map(CheatHeader.catalog)
+        if capabilities.contains(.patches) {
+            result.append(.speed)
+        }
+        if capabilities.contains(.position) {
+            result.append(.teleport)
+        }
+        if capabilities.contains(.battle) {
+            result.append(.enemies)
+        }
+        if capabilities.contains(.variables) || capabilities.contains(.switches) {
+            result.append(.variables)
+        }
         return result
     }
 
@@ -72,6 +88,7 @@ struct CheatsView: View {
         .navigationTitle("Cheats")
         .navigationBarTitleDisplayMode(.inline)
         .task { await readRoster() }
+        .task(id: revision) { await readSpeed() }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button("Refresh", systemImage: "arrow.clockwise") {
@@ -127,15 +144,9 @@ struct CheatsView: View {
                     description: Text("This game's engine does not expose values cheats can change.")
                 )
             }
-        } else if wide, setup == nil {
-            // Nothing being set up: the groups share both columns.
-            let half = (groups.count + 1) / 2
-            HStack(alignment: .top, spacing: Theme.s6) {
-                lists(Array(groups.prefix(half)))
-                lists(Array(groups.dropFirst(half)))
-            }
         } else {
-            lists(groups)
+            // One column, centred and kept to a readable width: titles and their lines read in full.
+            lists(groups).frame(maxWidth: 680).frame(maxWidth: .infinity)
         }
     }
 
@@ -154,16 +165,50 @@ struct CheatsView: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
-    /// Title, one line of what it does (or what just happened), and the control.
-    func row(_ header: CheatHeader) -> some View {
+    /// Icon, title, what it does (or what just happened), and the control. Rows with a page of their own open it.
+    @ViewBuilder func row(_ header: CheatHeader) -> some View {
+        switch header {
+        case .teleport:
+            NavigationLink { TeleportView(tools: tools, game: game) } label: { line(header) }.buttonStyle(.row)
+        case .enemies:
+            NavigationLink { EnemiesView(tools: tools) } label: { line(header) }.buttonStyle(.row)
+        case .variables:
+            NavigationLink {
+                VariablesView(tools: tools, categories: tools.capabilities.categories, cheatsFor: game.id)
+            } label: { line(header) }.buttonStyle(.row)
+        case .speed:
+            VStack(alignment: .leading, spacing: Theme.s2) {
+                line(header)
+                GlassSegmentBar(
+                    items: Self.speeds,
+                    selection: Binding(get: { speed }, set: { new in Task { await setSpeed(new) } }),
+                    fill: true
+                )
+                .padding(.horizontal, Theme.s4)
+                .padding(.bottom, Theme.s3)
+                .accessibilityLabel("Walking speed")
+            }
+        default:
+            line(header)
+        }
+    }
+
+    static let speeds = [(0, "Normal"), (1, "2×"), (2, "4×"), (3, "8×")]
+
+    func line(_ header: CheatHeader) -> some View {
         let message = header.catalogID.flatMap { messages[$0] }
         let isFailed = header.catalogID.map(failed.contains) ?? false
         return HStack(spacing: Theme.s3) {
+            Image(systemName: header.symbol)
+                .font(.body)
+                .foregroundStyle(Theme.textSecondary)
+                .frame(width: 26)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(header.title).font(.subheadline).foregroundStyle(Theme.textPrimary)
                 Text(message ?? summaryLine(header)).font(.footnote)
                     .foregroundStyle(isFailed ? Theme.danger : Theme.textSecondary)
-                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                     .contentTransition(.opacity)
             }
             Spacer(minLength: Theme.s2)
@@ -173,6 +218,7 @@ struct CheatsView: View {
         .padding(.vertical, Theme.s2)
         .frame(minHeight: 58)
         .background(setup == header ? Theme.fill : .clear)
+        .contentShape(.rect)
         .animation(Theme.quick, value: message)
     }
 
@@ -186,6 +232,20 @@ struct CheatsView: View {
 
     @ViewBuilder func trailing(_ header: CheatHeader) -> some View {
         switch header {
+        case .teleport, .enemies, .variables:
+            Chevron()
+        case .speed:
+            EmptyView()
+        case .actor(.godMode) where !roster.isEmpty:
+            // Everyone at once here; Each opens the per-character switches.
+            let allOn = roster.allSatisfy { known[.actorProperty(actorID: $0.id, .godMode)] == .bool(true) }
+            HStack(spacing: Theme.s2) {
+                smallButton("Each") {
+                    withAnimation(Theme.motion(Theme.sheet, reduce: reduceMotion)) { setup = setup == header ? nil : header }
+                }
+                Toggle("God mode for everyone", isOn: Binding(get: { allOn }, set: { _ in Task { await bulkGodMode(on: !allOn) } }))
+                    .labelsHidden().disabled(bulkWorking)
+            }
         case let .catalog(cheat) where cheat.parameters.isEmpty && cheat.isToggle:
             CatalogSwitch(cheat: cheat, tools: tools, revision: revision, working: catalogWorking) { await run(cheat, parameters: [:]) }
         case let .catalog(cheat) where cheat.parameters.isEmpty:
@@ -237,6 +297,8 @@ struct CheatsView: View {
                 if let message = messages[cheat.id] {
                     Text(message).font(.footnote).foregroundStyle(failed.contains(cheat.id) ? Theme.danger : Theme.textSecondary)
                 }
+            case .speed, .teleport, .enemies, .variables:
+                EmptyView() // rows with a page or control of their own; never set up in a form
             }
             Text("You can undo this in Variables.")
                 .font(.footnote).foregroundStyle(Theme.textTertiary)

@@ -35,20 +35,24 @@ enum ActorStat: CaseIterable, Hashable {
     }
 }
 
+/// A row of the Cheats screen. Groups run from what players reach for most (switches that hold while on) to the
+/// rarely needed (the game's debug menu).
 enum CheatHeader: Identifiable, Hashable {
     case actor(ActorStat)
     case gold
     case catalog(CheatDefinition)
+    case speed, teleport, enemies, variables
 
-    enum Group: CaseIterable { case party, money, items, progress, battle, other
+    enum Group: CaseIterable { case switches, movement, battle, party, money, items, more
         var title: String {
             switch self {
+            case .switches: "Switches"
+            case .movement: "Movement"
+            case .battle: "Battle"
             case .party: "Party"
             case .money: "Money"
             case .items: "Items"
-            case .progress: "Progress"
-            case .battle: "Battle"
-            case .other: "More"
+            case .more: "More"
             }
         }
     }
@@ -58,26 +62,40 @@ enum CheatHeader: Identifiable, Hashable {
         case let .actor(stat): "actor.\(stat)"
         case .gold: "gold"
         case let .catalog(cheat): cheat.id
+        case .speed: "speed"
+        case .teleport: "teleport"
+        case .enemies: "enemies"
+        case .variables: "variables"
         }
     }
 
     var group: Group {
         switch self {
+        case .actor(.godMode): .switches
         case .actor: .party
         case .gold: .money
+        case .speed, .teleport: .movement
+        case .enemies: .battle
+        case .variables: .more
+        case let .catalog(cheat) where cheat.isToggle: .switches
         case let .catalog(cheat):
             switch cheat.category {
             case .currency: .money
             case .items: .items
-            case .progress: .progress
-            case .battle, .party: .battle
-            case .movement, .system: .other
+            case .party: .party
+            case .battle: .battle
+            case .movement: .movement
+            case .progress, .system: .more
             }
         }
     }
 
     var title: String {
         switch self {
+        case .speed: "Walking speed"
+        case .teleport: "Teleport"
+        case .enemies: "Enemies"
+        case .variables: "Variables and switches"
         case .actor(.godMode): "God mode"
         case .actor(.hp): "HP"
         case .actor(.mp): "MP"
@@ -105,6 +123,7 @@ enum CheatHeader: Identifiable, Hashable {
         case .actor(.godMode), .catalog: title
         case .actor: "Set \(title)"
         case .gold: "Set gold"
+        case .speed, .teleport, .enemies, .variables: title
         }
     }
 
@@ -118,6 +137,10 @@ enum CheatHeader: Identifiable, Hashable {
         case .actor(.exp): "Crossing a threshold levels the character up."
         case .gold: "The party's money."
         case let .catalog(cheat): cheat.summary
+        case .speed: "How fast the player walks. Each step doubles it."
+        case .teleport: "Jump to another spot or map, and save spots to come back to."
+        case .enemies: "In a battle: change an enemy's health, defeat it at once, or bring it back."
+        case .variables: "Every value the game keeps, searchable by name or by value."
         }
     }
 
@@ -130,6 +153,14 @@ enum CheatHeader: Identifiable, Hashable {
         case .actor(.level): "arrow.up.circle.fill"
         case .actor(.exp): "star.fill"
         case .gold: "dollarsign.circle.fill"
+        case .speed: "hare.fill"
+        case .teleport: "location.fill"
+        case .enemies: "figure.fencing"
+        case .variables: "slider.horizontal.3"
+        case let .catalog(cheat) where cheat.id == "system.saveAnywhere": "square.and.arrow.down.fill"
+        case let .catalog(cheat) where cheat.id == "system.menuAnywhere": "list.bullet.rectangle.fill"
+        case let .catalog(cheat) where cheat.id == "battle.noEncounters": "leaf.fill"
+        case let .catalog(cheat) where cheat.id == "battle.godMode": "shield.fill"
         case let .catalog(cheat):
             switch cheat.category {
             case .currency: "dollarsign.circle"
