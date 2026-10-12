@@ -19,7 +19,8 @@ final class SessionOverlay {
     var fastForward = 1
     /// The engine reads the screen's touches directly (Ren'Py), so the virtual pad stays hidden.
     var touchNative = false
-    /// A touch-native engine whose games may still want keys (Godot): the pad is offered, off by default.
+    /// A touch-native engine whose games may still want keys (Godot): the pad is offered, and shown until the player
+    /// hides it for that game. Hidden by default, a keyboard-only game took no input from the screen and looked dead.
     var padOptional = false
     var hasPad: Bool { !touchNative || padOptional }
     /// The game's own control layouts, when it has them.
@@ -64,7 +65,7 @@ final class SessionOverlay {
         let defaults = UserDefaults.standard
         // Before 26 Sep the choice was one per game; it still seeds both orientations.
         let stored = storedKey.flatMap { defaults.object(forKey: $0) as? Bool } ?? padKey.flatMap { defaults.object(forKey: $0) as? Bool }
-        padVisible = stored ?? !padOptional
+        padVisible = stored ?? true
         loadingPad = false
     }
 

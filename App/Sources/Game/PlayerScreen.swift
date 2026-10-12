@@ -63,7 +63,7 @@ struct PlayerScreen: View {
         let overlay = SessionOverlay()
         // Ren'Py and Tyrano take taps and gestures themselves; a gamepad overlay would only sit on the text.
         overlay.touchNative = descriptor.engine == .renpy || descriptor.engine == .scummvm || descriptor.engine == .godot || web.touchNative
-        // Godot reads touches itself, but keyboard-only games (Pong) need keys: the pad is there, off until asked for.
+        // Godot reads touches itself, but keyboard-only games (Pong, platformers) need keys: the pad is there to hide.
         overlay.padOptional = descriptor.engine == .godot
         _overlay = State(initialValue: overlay)
     }
