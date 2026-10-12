@@ -37,19 +37,26 @@ public actor HTTPServer {
                 if attempts >= 10 || error is CancellationError {
                     throw error
                 }
+                // The remembered port is the page's origin (its web storage): a listener cancelled a moment ago may
+                // still hold it, so it gets a few short retries before another port is chosen.
+                if requested == candidate, attempts < 5 {
+                    try await Task.sleep(for: .milliseconds(100))
+                    continue
+                }
                 OPLog.log(.web, .default, "port \(candidate) unavailable (\(error)); choosing another")
                 candidate = UInt16.random(in: 20000 ... 60000)
             }
         }
     }
 
-    /// After the app returns to the foreground: rebinds the remembered port when the listener died, else no-op.
-    /// Returns the port now serving, which changes only if the old one is taken.
+    /// After the app returns to the foreground: always rebinds the remembered port. iOS can reclaim a suspended app's
+    /// sockets without the listener ever reporting it, and a listener that looked alive then failed every request
+    /// ("Failed to load: data/Map030.json"). Returns the port now serving, which changes only if the old one is taken.
     @discardableResult
-    public func restartIfNeeded() async throws -> UInt16 {
-        if isListening {
-            return port
-        }
+    public func rebind() async throws -> UInt16 {
+        listener?.stateUpdateHandler = nil
+        listener?.cancel()
+        listener = nil
         for c in connections.values {
             c.cancel()
         }
@@ -82,7 +89,7 @@ public actor HTTPServer {
         do {
             try await ready(listener)
         } catch {
-            // A listener that never became ready must not read as listening, or `restartIfNeeded` never rebinds.
+            // A listener that never became ready must not read as listening.
             listener.cancel()
             if self.listener === listener {
                 self.listener = nil

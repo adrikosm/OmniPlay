@@ -43,10 +43,11 @@
                 guard let self, !stopping else { return }
                 if let server {
                     do {
-                        let restarted = try await server.restartIfNeeded()
+                        let restarted = try await server.rebind()
                         guard !Task.isCancelled, !stopping, !backgrounded else { return }
                         if restarted != port {
                             port = restarted
+                            resumeOnBoot = hasTypedState && resumeSnapshot != nil
                             OPLog.log(
                                 .web,
                                 .default,
@@ -65,6 +66,32 @@
                     }
                 }
                 updatePauseState()
+            }
+        }
+
+        func updatePauseState() {
+            guard !stopping else { return }
+            let paused = userPaused || backgrounded
+            _ = watchdog.handle(paused ? .paused : .resumed, now: .now)
+            // WebKit's own suspension as well as the page's: a page script that resumes its audio context cannot
+            // undo it, so no sound plays on under the pause menu or in the background. On the way back WebKit's ends
+            // first: a page resuming its audio inside it was refused, and the game stayed silent.
+            if paused {
+                dispatch("omniplay:pause")
+                webView?.setAllMediaPlaybackSuspended(true)
+            } else {
+                // A second later regardless, in case WebKit never answers (a web process that just ended).
+                let resumed = OutcomeBox()
+                let resume = { [weak self] in
+                    guard let self, !resumed.done, !userPaused, !backgrounded else { return }
+                    resumed.done = true
+                    dispatch("omniplay:resume")
+                }
+                webView?.setAllMediaPlaybackSuspended(false) { resume() }
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(1))
+                    resume()
+                }
             }
         }
 
