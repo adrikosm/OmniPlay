@@ -233,16 +233,6 @@
             updatePauseState()
         }
 
-        func updatePauseState() {
-            guard !stopping else { return }
-            let paused = userPaused || backgrounded
-            _ = watchdog.handle(paused ? .paused : .resumed, now: .now)
-            // WebKit's own suspension as well as the page's: a page script that resumes its audio context cannot
-            // undo it, so no sound plays on under the pause menu or in the background.
-            webView?.setAllMediaPlaybackSuspended(paused)
-            dispatch(paused ? "omniplay:pause" : "omniplay:resume")
-        }
-
         public func resume() async {
             userPaused = false
             updatePauseState()

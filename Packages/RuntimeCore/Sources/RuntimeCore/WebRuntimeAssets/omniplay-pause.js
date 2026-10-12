@@ -33,10 +33,30 @@
       else if (!next && typeof S.resume === "function") S.resume();
       else if (!next && S._stopped && typeof S.requestUpdate === "function") { S._stopped = false; S.requestUpdate(); }
     });
-    call(() => { const ctx = typeof WebAudio !== "undefined" && WebAudio._context; if (ctx) next ? ctx.suspend() : ctx.resume(); });
-    for (const ctx of contexts) call(() => (next ? ctx.suspend() : ctx.resume()));
+    const rpg = typeof WebAudio !== "undefined" && WebAudio._context;
+    for (const ctx of rpg ? [rpg, ...contexts] : contexts) call(() => (next ? ctx.suspend() : wake(ctx)));
     call(() => document.dispatchEvent(new Event("visibilitychange")));
+    if (!next) restoreMasterVolume();
   };
+  // A resume can be refused while iOS is still bringing the app's audio back; it is asked again until it runs.
+  const wake = (ctx, tries = 0) => {
+    if (paused || ctx.state === "running" || ctx.state === "closed") return;
+    ctx.resume().catch(() => {});
+    if (tries < 15) setTimeout(() => wake(ctx, tries + 1), 300);
+  };
+  // RPG Maker MV/MZ fade the master volume out when the page hides and in when it shows, without clearing the earlier
+  // fade. With the audio clock stopped in between (pause, the background), the fade-out ended after the fade-in and
+  // the game stayed silent until it was reloaded. On the way back the fades are cleared and the game's volume is set.
+  const restoreMasterVolume = () => call(() => {
+    const WA = window.WebAudio, gain = WA && WA._masterGainNode && WA._masterGainNode.gain, ctx = WA && WA._context;
+    if (!gain || !ctx || paused) return;
+    gain.cancelScheduledValues(0);
+    gain.setValueAtTime(WA._masterVolume ?? 1, ctx.currentTime);
+  });
+  // The system's own hide and show (the app leaving and coming back) runs the same fades.
+  document.addEventListener("visibilitychange", () => {
+    if (!paused && !document.hidden) setTimeout(restoreMasterVolume, 0);
+  });
   // Speed (RPG Maker): MZ asks determineRepeatNumber how many updates a frame needs, so that is scaled. MV has no such
   // hook: its scene runs extra updates, each after a fresh input read so one press never triggers twice.
   let speed = 1;
