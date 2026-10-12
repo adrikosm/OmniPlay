@@ -75,6 +75,8 @@ extension StateCategory {
         case .persistent: "Persistent"
         case .labels: "Labels"
         case .storage: "Storage"
+        case .enemies: "Enemies"
+        case .maps: "Maps"
         }
     }
 }

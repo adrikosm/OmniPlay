@@ -6,7 +6,8 @@
 // Target:  {kind: "variable"|"switch"|"gold"|"item"|"weapon"|"armor"|"partyMember"|"actor"|"system"|"position"
 //           |"selfSwitch"|"patch", id, prop, param, map, event, key, flag, name}
 // Patches are named, typed changes to the game's behaviour for the cheat catalog (never code from the host):
-// noEncounters, noclip, godMode (on/off) and debugMenu (setting it opens the game's own debug scene).
+// noEncounters, noclip, godMode, saveAnywhere, menuAnywhere (on/off), moveSpeed (0 to 3 steps faster) and debugMenu
+// (setting it opens the game's own debug scene). Enemies are the troop of the battle in progress, by place.
 (function () {
   'use strict';
   if (window.__omniplayState) return;
@@ -22,7 +23,42 @@
 
   // Session-only flags live outside actors so saves never persist invulnerability. A character override can
   // disable protection even when party mode was enabled. Party mode explicitly resets all overrides.
-  var patches = { canEncounter: null, god: false, godHooked: false, godActors: Object.create(null) };
+  var patches = { canEncounter: null, god: false, godHooked: false, godActors: Object.create(null),
+    saveAnywhere: false, menuAnywhere: false, systemHooked: false, moveSpeed: 0, speedHooked: false };
+  // Held while on: the game's own switch stays as it is, so turning these off gives the game back its choice.
+  function hookSystem() {
+    if (patches.systemHooked) return;
+    patches.systemHooked = true;
+    var save = Game_System.prototype.isSaveEnabled, menu = Game_System.prototype.isMenuEnabled;
+    Game_System.prototype.isSaveEnabled = function () { return patches.saveAnywhere || save.call(this); };
+    Game_System.prototype.isMenuEnabled = function () { return patches.menuAnywhere || menu.call(this); };
+  }
+  // Each step doubles the walking speed. Followers walk at the player's speed in MV and MZ.
+  function hookSpeed() {
+    if (patches.speedHooked) return;
+    patches.speedHooked = true;
+    var speed = Game_Player.prototype.realMoveSpeed;
+    Game_Player.prototype.realMoveSpeed = function () { return speed.call(this) + patches.moveSpeed; };
+  }
+  function enemyAt(index) {
+    if (!$gameParty.inBattle()) throw new Error('There is no battle right now.');
+    var enemy = $gameTroop.members()[index];
+    if (!enemy) throw new Error('no enemy ' + index);
+    return enemy;
+  }
+  // The engine's own knockout (death state, the collapse effect and sound), so the battle ends as it would.
+  function defeat(enemy) {
+    if (enemy.isDead()) return;
+    enemy.setHp(0);
+    if (!enemy.isDead()) enemy.addState(enemy.deathStateId());
+    enemy.performCollapse();
+  }
+  // Back at full health; its sprite plays the appear effect because the collapse marked it gone.
+  function revive(enemy) {
+    enemy.removeState(enemy.deathStateId());
+    enemy.setHp(enemy.mhp);
+    enemy.setMp(enemy.mmp);
+  }
   function actorGodMode(id) {
     return Object.prototype.hasOwnProperty.call(patches.godActors, id) ? patches.godActors[id] : patches.god;
   }
@@ -55,14 +91,21 @@
       case 'noEncounters': return patches.canEncounter !== null;
       case 'noclip': return $gamePlayer.isThrough();
       case 'godMode': return partyGodMode();
+      case 'saveAnywhere': return patches.saveAnywhere;
+      case 'menuAnywhere': return patches.menuAnywhere;
+      case 'moveSpeed': return patches.moveSpeed;
       case 'debugMenu':
         return typeof Scene_Debug !== 'undefined' &&
           (SceneManager._nextScene instanceof Scene_Debug || SceneManager._scene instanceof Scene_Debug);
     }
     throw new Error('unknown patch ' + name);
   }
-  function writePatch(name, on) {
+  function writePatch(name, value) {
+    var on = !!value;
     switch (name) {
+      case 'saveAnywhere': hookSystem(); patches.saveAnywhere = on; return;
+      case 'menuAnywhere': hookSystem(); patches.menuAnywhere = on; return;
+      case 'moveSpeed': hookSpeed(); patches.moveSpeed = Math.max(0, Math.min(3, Math.round(Number(value) || 0))); return;
       case 'noEncounters':
         if (on && patches.canEncounter === null) {
           patches.canEncounter = Game_Player.prototype.canEncounter;
@@ -123,6 +166,18 @@
         throw new Error('unknown system flag ' + t.flag);
       }
       case 'position': return { map: $gameMap.mapId(), x: $gamePlayer.x, y: $gamePlayer.y };
+      case 'map':
+        if (!$dataMapInfos[t.id]) throw new Error('no map ' + t.id);
+        return t.id;
+      case 'enemy': {
+        var e = enemyAt(t.id);
+        switch (t.prop) {
+          case 'hp': return e.hp;
+          case 'mhp': return e.mhp;
+          case 'alive': return e.isAlive();
+        }
+        throw new Error('unknown enemy property ' + t.prop);
+      }
     }
     throw new Error('unknown target ' + t.kind);
   }
@@ -132,7 +187,7 @@
     if (operation === 'add') value = Number(old) + Number(value);
     if (operation === 'toggle') value = !old;
     switch (t.kind) {
-      case 'patch': writePatch(t.name, !!value); break;
+      case 'patch': writePatch(t.name, value); break;
       case 'variable': $gameVariables.setValue(t.id, value); break;
       case 'switch': $gameSwitches.setValue(t.id, !!value); break;
       case 'selfSwitch': $gameSelfSwitches.setValue([t.map, t.event, t.key], !!value); break;
@@ -166,7 +221,27 @@
         else if (t.flag === 'menuEnabled') { on ? $gameSystem.enableMenu() : $gameSystem.disableMenu(); }
         break;
       }
-      case 'position': $gamePlayer.locate(Math.round(value.x), Math.round(value.y)); break;
+      case 'position': {
+        var map = value.map == null ? $gameMap.mapId() : Math.round(value.map);
+        var x = Math.round(value.x), y = Math.round(value.y);
+        if (map === $gameMap.mapId()) { $gamePlayer.locate(x, y); break; }
+        // Another map: the engine's own transfer, done by the map scene on its next frame.
+        if ($gameParty.inBattle()) throw new Error('Finish the battle first.');
+        if (!$dataMapInfos[map]) throw new Error('no map ' + map);
+        $gamePlayer.reserveTransfer(map, x, y, $gamePlayer.direction(), 0);
+        return { old: old, effective: { map: map, x: x, y: y } };
+      }
+      case 'map': throw new Error('Maps cannot be changed.');
+      case 'enemy': {
+        var enemy = enemyAt(t.id);
+        if (t.prop === 'alive') { if (value) revive(enemy); else defeat(enemy); }
+        else if (t.prop === 'hp') {
+          var hp = Math.round(Number(value));
+          if (hp <= 0) defeat(enemy);
+          else { if (enemy.isDead()) revive(enemy); enemy.setHp(hp); }
+        } else throw new Error('This value is read-only.');
+        break;
+      }
       default: throw new Error('unknown target ' + t.kind);
     }
     return { old: old, effective: read(t) };
@@ -200,6 +275,18 @@
             add({ kind: 'actor', id: a.actorId(), prop: p }, a.name() + ' ' + p.toUpperCase());
           });
         });
+        break;
+      case 'enemies':
+        if (!$gameParty.inBattle()) break;
+        $gameTroop.members().forEach(function (e, index) {
+          if (!e.isAppeared() && e.isAlive()) return; // not on the field yet
+          add({ kind: 'enemy', id: index, prop: 'hp' }, e.name());
+          add({ kind: 'enemy', id: index, prop: 'mhp' }, e.name(), false);
+          add({ kind: 'enemy', id: index, prop: 'alive' }, e.name());
+        });
+        break;
+      case 'maps':
+        for (i = 1; i < $dataMapInfos.length; i++) if ($dataMapInfos[i]) add({ kind: 'map', id: i }, name($dataMapInfos[i].name, 'Map ' + i), false);
         break;
       case 'system':
         add({ kind: 'gold' }, 'Gold');

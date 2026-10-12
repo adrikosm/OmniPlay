@@ -143,7 +143,7 @@ extension StateCapabilities {
     /// The names the cheat catalog uses.
     static let named: [String: StateCapabilities] = [
         "variables": .variables, "switches": .switches, "gold": .gold, "inventory": .inventory, "party": .party,
-        "actors": .actors, "systemFlags": .systemFlags, "position": .position, "patches": .patches,
+        "actors": .actors, "systemFlags": .systemFlags, "position": .position, "patches": .patches, "battle": .battle,
     ]
 }
 

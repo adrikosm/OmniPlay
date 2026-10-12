@@ -59,21 +59,6 @@
       "steps": [{ "target": { "kind": "partyMember", "id": "$actor" }, "op": "set", "value": true }]
     },
     {
-      "id": "progress.variable", "name": "Set variable", "summary": "Sets one of the game's variables.",
-      "category": "progress", "requires": ["variables"], "persistence": "live",
-      "parameters": [
-        { "key": "variable", "label": "Variable", "kind": "variable" },
-        { "key": "value", "label": "Value", "kind": "amount", "min": -99999999, "max": 99999999, "default": 0 }
-      ],
-      "steps": [{ "target": { "kind": "variable", "id": "$variable" }, "op": "set", "value": "$value" }]
-    },
-    {
-      "id": "progress.switch", "name": "Flip switch", "summary": "Turns one of the game's switches on or off.",
-      "category": "progress", "requires": ["switches"], "persistence": "live",
-      "parameters": [{ "key": "switch", "label": "Switch", "kind": "switch" }],
-      "steps": [{ "target": { "kind": "switch", "id": "$switch" }, "op": "toggle" }]
-    },
-    {
       "id": "movement.noclip", "name": "Walk through walls", "summary": "The player passes through anything.",
       "category": "movement", "requires": ["patches"], "parameters": [], "persistence": "live",
       "warning": "You can walk into places the game never expects you to reach, and get stuck there. Save first.",
@@ -91,9 +76,14 @@
       "steps": [{ "target": { "kind": "patch", "name": "noEncounters" }, "op": "toggle" }]
     },
     {
-      "id": "system.saveAnywhere", "name": "Save anywhere", "summary": "Turns saving back on where the game disabled it.",
-      "category": "system", "requires": ["systemFlags"], "parameters": [], "persistence": "live",
-      "steps": [{ "target": { "kind": "system", "flag": "saveEnabled" }, "op": "set", "value": true }]
+      "id": "system.saveAnywhere", "name": "Save anywhere", "summary": "Saving stays on, even where the game turns it off.",
+      "category": "system", "requires": ["patches"], "parameters": [], "persistence": "live",
+      "steps": [{ "target": { "kind": "patch", "name": "saveAnywhere" }, "op": "toggle" }]
+    },
+    {
+      "id": "system.menuAnywhere", "name": "Menu anywhere", "summary": "The game's menu opens even where the game blocks it.",
+      "category": "system", "requires": ["patches"], "parameters": [], "persistence": "live",
+      "steps": [{ "target": { "kind": "patch", "name": "menuAnywhere" }, "op": "toggle" }]
     },
     {
       "id": "system.debugMenu", "name": "Open the debug menu", "summary": "RPG Maker's own switch and variable editor, as in a test play.",

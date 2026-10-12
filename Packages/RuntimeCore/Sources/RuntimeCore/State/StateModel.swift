@@ -14,6 +14,10 @@ public enum StateTarget: Codable, Sendable, Hashable {
     case actorProperty(actorID: Int, ActorProperty)
     case systemFlag(SystemFlag)
     case playerPosition
+    /// One of the troop's enemies in the current battle, by its place in the troop.
+    case enemy(index: Int, EnemyProperty)
+    /// A map of the game, read-only: listed so a teleport can name where it goes.
+    case map(id: Int)
     case renpyStore(name: String, path: [String])
     case renpyPersistent(path: [String])
     case webStorageKey(namespace: String, key: String)
@@ -28,6 +32,9 @@ public enum StateTarget: Codable, Sendable, Hashable {
     }
 
     public enum SystemFlag: String, Codable, Sendable, Hashable, CaseIterable { case saveEnabled, encounterEnabled, menuEnabled }
+
+    /// `mhp` is read-only; setting `alive` off defeats the enemy, on brings it back at full health.
+    public enum EnemyProperty: String, Codable, Sendable, Hashable { case hp, mhp, alive }
 }
 
 /// A value as the tools show and edit it. Engine objects that are not plain data are reported, never edited.
@@ -46,6 +53,7 @@ public indirect enum StateValue: Codable, Sendable, Hashable {
 /// Where a list comes from: the categories the tools page through.
 public enum StateCategory: String, Codable, Sendable, Hashable, CaseIterable {
     case variables, switches, selfSwitches, items, weapons, armors, party, actors, system, store, persistent, labels, storage
+    case enemies, maps
 }
 
 public enum StateInspectionRequest: Codable, Sendable, Hashable {
@@ -208,6 +216,8 @@ public struct StateCapabilities: OptionSet, Sendable, Hashable {
     /// The engine loads and writes its own save slots on request (SAVE-009): RGSS and Ren'Py, whose saves are not
     /// safe to rewrite from outside.
     public static let slots = StateCapabilities(rawValue: 1 << 14)
+    /// The enemies of a battle in progress can be read, hurt, defeated and brought back.
+    public static let battle = StateCapabilities(rawValue: 1 << 15)
     public static let rpgMaker: StateCapabilities = [
         .variables,
         .switches,
@@ -219,6 +229,7 @@ public struct StateCapabilities: OptionSet, Sendable, Hashable {
         .position,
         .patches,
         .live,
+        .battle,
     ]
     public static let renpy: StateCapabilities = [.store, .persistent, .labels, .console, .live]
 
@@ -233,7 +244,8 @@ public struct StateCapabilities: OptionSet, Sendable, Hashable {
         case .actorProperty(_, .godMode): [.actors, .patches]
         case .actorProperty: .actors
         case .systemFlag: .systemFlags
-        case .playerPosition: .position
+        case .playerPosition, .map: .position
+        case .enemy: .battle
         case .renpyStore: .store
         case .renpyPersistent: .persistent
         case let .custom(key): key.hasPrefix(StateWire.patchPrefix) ? .patches : .labels

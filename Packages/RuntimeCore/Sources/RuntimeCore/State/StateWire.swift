@@ -29,6 +29,8 @@ public enum StateWire {
             }
         case let .systemFlag(flag): ["kind": "system", "flag": flag.rawValue]
         case .playerPosition: ["kind": "position"]
+        case let .enemy(index, property): ["kind": "enemy", "id": index, "prop": property.rawValue]
+        case let .map(id): ["kind": "map", "id": id]
         case let .renpyStore(name, path): ["kind": "store", "store": name, "path": path]
         case let .renpyPersistent(path): ["kind": "persistent", "path": path]
         case let .custom(key) where key.hasPrefix(labelPrefix): ["kind": "label", "name": String(key.dropFirst(labelPrefix.count))]
@@ -78,6 +80,8 @@ public enum StateWire {
             return property.map { .actorProperty(actorID: id, $0) }
         case "system": return (json["flag"] as? String).flatMap(StateTarget.SystemFlag.init(rawValue:)).map { .systemFlag($0) }
         case "position": return .playerPosition
+        case "enemy": return (json["prop"] as? String).flatMap(StateTarget.EnemyProperty.init(rawValue:)).map { .enemy(index: id, $0) }
+        case "map": return .map(id: id)
         case "store": return (json["path"] as? [String]).map { .renpyStore(name: json["store"] as? String ?? "store", path: $0) }
         case "persistent": return (json["path"] as? [String]).map { .renpyPersistent(path: $0) }
         case "label": return (json["name"] as? String).map { .custom(engineKey: labelPrefix + $0) }
@@ -140,6 +144,8 @@ public enum StateWire {
         case .partyMember: .party
         case .actorProperty: .actors
         case .gold, .systemFlag, .playerPosition: .system
+        case .enemy: .enemies
+        case .map: .maps
         case .renpyStore: .store
         case .renpyPersistent: .persistent
         case let .custom(key) where key.hasPrefix(labelPrefix): .labels

@@ -241,11 +241,110 @@ module OmniPlay
       end
     end
 
+    # saveAnywhere / menuAnywhere: held while on, over the game's own flag, which stays as it was. moveSpeed: each step
+    # doubles the player's speed (VX Ace's followers take the player's speed; XP and VX have none).
+    def save_anywhere?
+      @save_anywhere ? true : false
+    end
+
+    def menu_anywhere?
+      @menu_anywhere ? true : false
+    end
+
+    def move_speed
+      @move_speed.to_i
+    end
+
+    def hook_system
+      return if @system_hooked
+      @system_hooked = true
+      Game_System.class_eval do
+        alias_method :omniplay_save_disabled, :save_disabled
+        def save_disabled
+          OmniPlay::Bridge.save_anywhere? ? false : omniplay_save_disabled
+        end
+        alias_method :omniplay_menu_disabled, :menu_disabled
+        def menu_disabled
+          OmniPlay::Bridge.menu_anywhere? ? false : omniplay_menu_disabled
+        end
+      end
+    end
+
+    def hook_speed
+      return if @speed_hooked
+      @speed_hooked = true
+      if Game_Player.method_defined?(:real_move_speed)
+        Game_Player.class_eval do
+          alias_method :omniplay_real_move_speed, :real_move_speed
+          def real_move_speed
+            omniplay_real_move_speed + OmniPlay::Bridge.move_speed
+          end
+        end
+      else
+        Game_Player.class_eval do
+          alias_method :omniplay_update_move, :update_move
+          def update_move
+            boost = OmniPlay::Bridge.move_speed
+            @move_speed += boost
+            omniplay_update_move
+          ensure
+            @move_speed -= boost
+          end
+        end
+      end
+    end
+
+    # ---- Battle: the troop's enemies by place, while a battle runs ----
+
+    def in_battle?
+      return $game_party.in_battle if $game_party.respond_to?(:in_battle)
+      $game_temp && $game_temp.in_battle ? true : false
+    end
+
+    def troop
+      $game_troop.respond_to?(:members) ? $game_troop.members : $game_troop.enemies
+    end
+
+    def enemy_at(index)
+      raise "There is no battle right now." unless in_battle?
+      enemy = troop[index]
+      raise "no enemy #{index}" unless enemy
+      enemy
+    end
+
+    def enemy_hidden?(e)
+      e.respond_to?(:hidden?) ? e.hidden? : e.hidden
+    end
+
+    def enemy_mhp(e)
+      e.respond_to?(:mhp) ? e.mhp : e.maxhp
+    end
+
+    # The engine's own knockout. XP's sprite collapses a dead enemy by itself; VX waits for `collapse`, Ace for its
+    # collapse effect.
+    def defeat(e)
+      return if e.dead?
+      e.hp = 0
+      e.add_state(e.respond_to?(:death_state_id) ? e.death_state_id : 1) unless e.dead?
+      if e.respond_to?(:perform_collapse_effect)
+        e.perform_collapse_effect
+      elsif e.respond_to?(:collapse=)
+        e.collapse = true
+      end
+    end
+
+    def map_infos
+      @map_infos ||= load_data("Data/MapInfos.#{vx? ? (defined?(RPG::UsableItem::Damage) ? "rvdata2" : "rvdata") : "rxdata"}")
+    end
+
     def read_patch(name)
       case name
       when "noEncounters" then no_encounters?
       when "noclip" then $game_player.instance_variable_get(:@through) ? true : false
       when "godMode" then god_mode?
+      when "saveAnywhere" then save_anywhere?
+      when "menuAnywhere" then menu_anywhere?
+      when "moveSpeed" then move_speed
       when "debugMenu"
         next_scene = defined?(SceneManager) ? SceneManager.scene : $scene
         defined?(Scene_Debug) && next_scene.is_a?(Scene_Debug) ? true : false
@@ -253,8 +352,12 @@ module OmniPlay
       end
     end
 
-    def write_patch(name, on)
+    def write_patch(name, value)
+      on = value ? true : false
       case name
+      when "saveAnywhere" then hook_system; @save_anywhere = on
+      when "menuAnywhere" then hook_system; @menu_anywhere = on
+      when "moveSpeed" then hook_speed; @move_speed = [[value.to_i, 0].max, 3].min
       when "noEncounters" then set_no_encounters(on)
       when "noclip" then $game_player.instance_variable_set(:@through, on)
       when "godMode" then set_god_mode(on)
@@ -305,6 +408,17 @@ module OmniPlay
         else raise "unknown flag #{t["flag"]}"
         end
       when "position" then { "map" => $game_map.map_id, "x" => $game_player.x, "y" => $game_player.y }
+      when "map"
+        raise "no map #{id}" unless map_infos[id]
+        id
+      when "enemy"
+        e = enemy_at(id)
+        case t["prop"]
+        when "hp" then e.hp
+        when "mhp" then enemy_mhp(e)
+        when "alive" then !e.dead?
+        else raise "unknown enemy property #{t["prop"]}"
+        end
       else raise "unknown target #{t["kind"]}"
       end
     end
@@ -315,7 +429,7 @@ module OmniPlay
       v = !old if op == "toggle"
       id = t["id"].to_i
       case t["kind"]
-      when "patch" then write_patch(t["name"], v ? true : false)
+      when "patch" then write_patch(t["name"], v)
       when "variable" then $game_variables[id] = v.is_a?(Numeric) ? v.to_i : v
       when "switch" then $game_switches[id] = v ? true : false
       when "selfSwitch" then $game_self_switches[[t["map"].to_i, t["event"].to_i, t["key"].to_s]] = v ? true : false
@@ -340,7 +454,41 @@ module OmniPlay
         when "encounterEnabled" then $game_system.encounter_disabled = !v
         when "menuEnabled" then $game_system.menu_disabled = !v
         end
-      when "position" then $game_player.moveto(v["x"].to_i, v["y"].to_i)
+      when "position"
+        map = (v["map"] || $game_map.map_id).to_i
+        x = v["x"].to_i
+        y = v["y"].to_i
+        if map == $game_map.map_id
+          $game_player.moveto(x, y)
+        else
+          # Another map: the engine's own transfer, which the map scene carries out on its next frame.
+          raise "Finish the battle first." if in_battle?
+          raise "no map #{map}" unless map_infos[map]
+          if $game_player.respond_to?(:reserve_transfer)
+            $game_player.reserve_transfer(map, x, y, $game_player.direction)
+          else
+            $game_temp.player_transferring = true
+            $game_temp.player_new_map_id = map
+            $game_temp.player_new_x = x
+            $game_temp.player_new_y = y
+            $game_temp.player_new_direction = $game_player.direction
+          end
+          return { "old" => old, "effective" => { "map" => map, "x" => x, "y" => y } }
+        end
+      when "map" then raise "Maps cannot be changed."
+      when "enemy"
+        e = enemy_at(id)
+        case t["prop"]
+        when "alive" then v ? e.recover_all : defeat(e)
+        when "hp"
+          if v.to_i <= 0
+            defeat(e)
+          else
+            e.recover_all if e.dead?
+            e.hp = v.to_i
+          end
+        else raise "This value is read-only."
+        end
       else raise "unknown target #{t["kind"]}"
       end
       $game_map.need_refresh = true if $game_map && $game_map.respond_to?(:need_refresh=)
@@ -402,9 +550,9 @@ module OmniPlay
     def entries(category, query)
       out = []
       q = query.to_s.downcase
-      add = lambda do |target, name|
+      add = lambda do |target, name, *editable|
         next if !q.empty? && !name.downcase.include?(q) && target["id"].to_s != q
-        out << { "target" => target, "name" => name, "value" => read(target), "editable" => true }
+        out << { "target" => target, "name" => name, "value" => read(target), "editable" => editable.empty? || editable[0] }
       end
       case category
       when "variables"
@@ -420,6 +568,17 @@ module OmniPlay
         members.each do |a|
           %w[hp mp level exp].each { |p| add.call({ "kind" => "actor", "id" => a.id, "prop" => p }, "#{a.name} #{p.upcase}") }
         end
+      when "enemies"
+        if in_battle?
+          troop.each_with_index do |e, i|
+            next if enemy_hidden?(e) && !e.dead?
+            add.call({ "kind" => "enemy", "id" => i, "prop" => "hp" }, e.name)
+            add.call({ "kind" => "enemy", "id" => i, "prop" => "mhp" }, e.name, false)
+            add.call({ "kind" => "enemy", "id" => i, "prop" => "alive" }, e.name)
+          end
+        end
+      when "maps"
+        map_infos.keys.sort.each { |i| add.call({ "kind" => "map", "id" => i }, label(map_infos[i].name, "Map #{i}"), false) }
       when "system"
         add.call({ "kind" => "gold" }, "Gold")
         add.call({ "kind" => "system", "flag" => "saveEnabled" }, "saveEnabled")
