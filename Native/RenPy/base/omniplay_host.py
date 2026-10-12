@@ -25,6 +25,7 @@ STATUS_BOOTING, STATUS_RUNNING, STATUS_PAUSED, STATUS_PARKED = 1, 2, 3, 5
 SCRIPT_SOURCES = (("_ren.py", ".rpyc"), (".rpym", ".rpymc"), (".rpy", ".rpyc"))
 
 PY2 = sys.version_info[0] == 2
+STRING_TYPES = (str, unicode) if PY2 else (str, bytes)  # noqa: F821
 
 _library = None
 _session = {}
@@ -102,6 +103,8 @@ def install():
     except ImportError:
         pass
 
+    patch_renpy_eval()
+
 
 def start_session():
     """Points the engine at the game the host named."""
@@ -174,6 +177,8 @@ def predefined_searchpath(commondir):
     _os_makedirs = os.makedirs
 
     import renpy
+
+    patch_renpy_eval()
 
     try:
         mirror_scripts(cache, overlays + [renpy.config.gamedir])
@@ -840,6 +845,114 @@ class NoAppStore(object):
 
     def requestReview(self):
         pass
+
+
+def patch_renpy_eval():
+    """
+    Safeguards Ren'Py expression evaluation and AST 'with' statements against non-string arguments.
+    In compiled scripts or cross-version AST unpickling, ast.With(loc, expr) can carry None or
+    pre-evaluated Transition objects. Tom Rothamel's ast.With.__init__ explicitly specifies:
+    '@param expr: An expression giving a transition or None', but ast.With.execute unconditionally
+    calls renpy.python.py_eval(self.expr). Calling eval() on None or an object in Python raises
+    TypeError: eval() arg 1 must be a string, bytes or code object.
+    """
+    try:
+        import renpy.python
+        import renpy.ast
+        import types
+
+        if getattr(renpy.python, "_omniplay_patched", False):
+            return
+        renpy.python._omniplay_patched = True
+
+        orig_py_eval = renpy.python.py_eval
+
+        def safe_py_eval(code, globals=None, locals=None):
+            if code is None:
+                return None
+            if isinstance(code, STRING_TYPES):
+                return orig_py_eval(code, globals, locals)
+            if isinstance(code, (bytes, types.CodeType)) or (isinstance(code, tuple) and len(code) == 2):
+                return orig_py_eval(code, globals, locals)
+            return code
+
+        renpy.python.py_eval = safe_py_eval
+
+        orig_with_execute = renpy.ast.With.execute
+
+        def safe_with_execute(self):
+            renpy.ast.next_node(self.next)
+            renpy.ast.statement_name("with")
+
+            if self.expr is None:
+                trans = None
+            elif isinstance(self.expr, STRING_TYPES):
+                trans = renpy.python.py_eval(self.expr)
+            else:
+                trans = self.expr
+
+            if self.paired is not None:
+                if isinstance(self.paired, STRING_TYPES):
+                    paired = renpy.python.py_eval(self.paired)
+                else:
+                    paired = self.paired
+            else:
+                paired = None
+
+            renpy.exports.with_statement(trans, paired=paired)
+
+        renpy.ast.With.execute = safe_with_execute
+
+        orig_with_predict = renpy.ast.With.predict
+
+        def safe_with_predict(self):
+            try:
+                if self.expr is None:
+                    trans = None
+                elif isinstance(self.expr, STRING_TYPES):
+                    trans = renpy.python.py_eval(self.expr)
+                else:
+                    trans = self.expr
+
+                if trans and callable(trans):
+                    renpy.display.predict.displayable(trans(old_widget=None, new_widget=None))
+            except Exception:
+                pass
+            return [self.next]
+
+        renpy.ast.With.predict = safe_with_predict
+    except Exception as e:
+        import sys
+
+        sys.stderr.write("OmniPlay: patch_renpy_eval: %s\n" % e)
+
+
+def tolerate_attribute_conflicts(layeredimage):
+    """
+    A show statement naming two attributes of one layered-image group ("show am closed closedhappy") stops the game
+    with "attributes ... conflict" in every Ren'Py; the player's only way on is Ignore, which drops the whole line.
+    The later attribute wins instead, as it would over two show statements, and the conflict goes to the log.
+    """
+    cls = getattr(layeredimage, "LayeredImage", None)
+    original = getattr(cls, "_choose_attributes", None)
+    if original is None or getattr(original, "_omniplay", False):
+        return
+
+    def choose(self, tag, required, optional):
+        try:
+            kept = []
+            for attribute in required:
+                banned = self.get_banned([attribute])
+                kept = [a for a in kept if a not in banned]
+                kept.append(attribute)
+        except Exception:
+            kept = list(required)
+        if len(kept) != len(required):
+            sys.stderr.write("OmniPlay: attributes for %s conflict (%s); showing %s\n" % (tag, " ".join(required), " ".join(kept)))
+        return original(self, tag, kept, optional)
+
+    choose._omniplay = True
+    cls._choose_attributes = choose
 
 
 def token_free_init():

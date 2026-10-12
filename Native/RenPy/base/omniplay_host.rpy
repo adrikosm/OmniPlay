@@ -8,6 +8,12 @@ init 999 python hide:
     # The scripts loaded and initialised: errors from here on get Ren'Py's own error screen (see start_session).
     os.environ.pop("RENPY_SIMPLE_EXCEPTIONS", None)
 
+    # Safeguards Ren'Py eval() and 'with' statements against non-string arguments (e.g. None or pre-evaluated objects)
+    omniplay_host.patch_renpy_eval()
+
+    # Two attributes of one layered-image group in a single show statement: the later one wins, no error screen.
+    omniplay_host.tolerate_attribute_conflicts(store.layeredimage)
+
     # Ren'Py Sync uploads saves to sync.renpy.org. OmniPlay has no network; fail closed instead of timing out.
     if hasattr(config, "has_sync"):
         config.has_sync = False
