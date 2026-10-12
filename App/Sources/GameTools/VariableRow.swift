@@ -54,7 +54,8 @@ struct ValueColumns<Row: View>: View {
 }
 
 /// One value: its name in mono, a small status after it (Watching, Frozen), and the control for its type. Touch and
-/// hold, or •••, for watch, freeze and reset. A changed value carries a small accent dot.
+/// hold, or •••, for watch, freeze and reset; a tap on the name shows the whole name and value. A changed value carries
+/// a small accent dot.
 struct VariableRow: View {
     let entry: StateEntry
     /// The watched or frozen value, when newer than the list's.
@@ -63,9 +64,13 @@ struct VariableRow: View {
     /// Changed values say what they were ("was 32"), for the save editor.
     var showsWas = false
     let error: String?
+    /// Long names wrap onto a second and third line instead of being cut in the middle (one-column lists).
+    var fullNames = true
     let apply: (ToolOperation) async -> Void
     /// Saves the current value as one of the game's own cheats; nil where that makes no sense (save files).
     var save: (() -> Void)?
+    /// Opens the value on its own, with its full name and text.
+    var open: (() -> Void)?
     @State private var draft = ""
     @State private var invalid: String?
     /// A change is on its way to the game; further edits wait for its answer.
@@ -85,9 +90,21 @@ struct VariableRow: View {
                 if initial != nil {
                     Circle().fill(Theme.accent).frame(width: 6, height: 6).accessibilityLabel("Changed")
                 }
-                Text(title).font(.system(.subheadline, design: .monospaced)).foregroundStyle(Theme.textPrimary).lineLimit(1)
-                    .truncationMode(.middle)
-                status
+                Button { open?() } label: {
+                    HStack(spacing: Theme.s2) {
+                        Text(title).font(.system(.subheadline, design: .monospaced)).foregroundStyle(Theme.textPrimary)
+                            .lineLimit(fullNames ? 3 : 1)
+                            .truncationMode(.middle)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: fullNames)
+                        status
+                    }
+                    .frame(minHeight: 44)
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .disabled(open == nil)
+                .accessibilityHint(open == nil ? "" : "Shows the full name and value")
                 Spacer(minLength: Theme.s2)
                 editor
                 if entry.editable {

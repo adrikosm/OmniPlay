@@ -3,8 +3,9 @@ import GameTools
 import RuntimeCore
 import SwiftUI
 
-/// The running game's live values, by category: search by name or number, edit by type, watch, freeze, reset and
-/// undo. Every change goes through `MutationEngine`; engine objects are shown and never edited.
+/// The running game's live values, by category: search by name, number or value, edit by type, watch, freeze, reset
+/// and undo. One column by default so long names read in full; two in landscape when the player asks. A tap on a
+/// name opens the whole value. Every change goes through `MutationEngine`; engine objects are shown and never edited.
 struct VariablesView: View {
     let tools: MutationEngine
     let categories: [StateCategory]
@@ -17,15 +18,42 @@ struct VariablesView: View {
     @State private var saved: [AppModel.CustomCheat] = []
     @State private var category: StateCategory?
     @State private var query = ""
+    @State private var scope = SearchScope.all
     @State private var entries: [StateEntry] = []
+    /// The whole category, read once a search starts, so a value search sees every entry and not one page.
+    @State private var everything: (category: StateCategory, entries: [StateEntry])?
     @State private var page = StatePage(size: 60)
     @State private var hasMore = false
     @State private var loading = false
     @State private var problem: String?
     @State private var rowErrors: [StateTarget: String] = [:]
+    @State private var opened: StateTarget?
+    @AppStorage("omniplay.variables.columns") private var columns = 1
     @Environment(\.scenePhase) private var scenePhase
 
     @Wide private var wide
+
+    enum SearchScope: String, CaseIterable {
+        case all, name, value
+
+        var title: String {
+            switch self {
+            case .all: "All"
+            case .name: "Name"
+            case .value: "Value"
+            }
+        }
+
+        var prompt: String {
+            switch self {
+            case .all: "Name, number or value"
+            case .name: "Name or number"
+            case .value: "Value, like Married or 100"
+            }
+        }
+    }
+
+    private var twoColumns: Bool { wide && columns == 2 }
 
     var body: some View {
         ScrollView {
@@ -38,18 +66,20 @@ struct VariablesView: View {
                     banner(problem)
                 }
                 if entries.isEmpty, !loading, problem == nil {
-                    Text(query.isEmpty ? "Nothing here in this game." : "No match for “\(query)”.")
+                    Text(query.isEmpty ? "Nothing here in this game." : "No \(scope == .value ? "value" : "match") for “\(query)”.")
                         .font(.subheadline).foregroundStyle(Theme.textSecondary).padding(.vertical, Theme.s4)
                 }
-                ValueColumns(entries: entries, wide: wide) { entry in
+                ValueColumns(entries: entries, wide: twoColumns) { entry in
                     VariableRow(
                         entry: entry,
                         live: tools.watched[entry.target] ?? tools.frozen[entry.target],
                         tools: tools,
                         showsWas: editingSave,
                         error: rowErrors[entry.target],
+                        fullNames: !twoColumns,
                         apply: { operation in await refresh(tools.apply(operation, to: entry.target)) },
-                        save: cheatsFor == nil ? nil : { save(entry) }
+                        save: cheatsFor == nil ? nil : { save(entry) },
+                        open: { opened = entry.target }
                     )
                 }
                 .rise(1)
@@ -59,13 +89,26 @@ struct VariablesView: View {
             }
             .padding(.horizontal, Theme.s4)
             .padding(.vertical, Theme.s3)
+            .frame(maxWidth: twoColumns ? .infinity : 760)
+            .frame(maxWidth: .infinity)
         }
         .scrollDismissesKeyboard(.interactively)
         .canvas()
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if wide {
+                    Button {
+                        withAnimation(Theme.snap) { columns = twoColumns ? 1 : 2 }
+                    } label: {
+                        Image(systemName: twoColumns ? "rectangle.split.2x1" : "rectangle")
+                            .contentTransition(.symbolEffect(.replace))
+                    }
+                    .tint(Theme.textPrimary)
+                    .accessibilityLabel(twoColumns ? "Show one column" : "Show two columns")
+                    .accessibilityHint("One column shows long names in full.")
+                }
                 Button {
                     Task {
                         if let result = await tools.undo() {
@@ -82,7 +125,7 @@ struct VariablesView: View {
             }
         }
         .sensoryFeedback(.success, trigger: tools.records.count) { old, new in new < old }
-        .task(id: TaskKey(category: category, query: query)) {
+        .task(id: TaskKey(category: category, query: query, scope: scope)) {
             // A short pause so typing does not send a request per keystroke; a newer query cancels this one.
             do { try await Task.sleep(for: .milliseconds(query.isEmpty ? 0 : 250)) } catch { return }
             await load(more: false)
@@ -109,11 +152,25 @@ struct VariablesView: View {
                 ProgressView()
             }
         }
+        .centeredSheet(isPresented: $opened.isPresent(), width: 520) { close in
+            if let target = opened, let entry = entries.first(where: { $0.target == target }) {
+                VariableDetail(
+                    entry: entry,
+                    live: tools.watched[target] ?? tools.frozen[target],
+                    tools: tools,
+                    error: rowErrors[target],
+                    apply: { operation in await refresh(tools.apply(operation, to: target)) },
+                    save: cheatsFor == nil ? nil : { save(entry) },
+                    close: close
+                )
+            }
+        }
     }
 
     private struct TaskKey: Equatable {
         let category: StateCategory?
         let query: String
+        let scope: SearchScope
     }
 
     private struct WatchKey: Equatable {
@@ -121,7 +178,7 @@ struct VariablesView: View {
         let active: Bool
     }
 
-    /// Search and the categories on one line in landscape, stacked in portrait.
+    /// Search with its scope, then the categories: on one line in landscape, stacked in portrait.
     @ViewBuilder private var controls: some View {
         let bar = ScrollView(.horizontal) {
             GlassSegmentBar(
@@ -132,21 +189,27 @@ struct VariablesView: View {
         .scrollIndicators(.hidden)
         .scrollClipDisabled()
         .fixedSize(horizontal: false, vertical: true)
+        let search = HStack(spacing: Theme.s2) {
+            SearchField(text: $query, prompt: scope.prompt)
+            GlassSegmentBar(items: SearchScope.allCases.map { ($0, $0.title) }, selection: $scope)
+                .fixedSize()
+                .accessibilityLabel("Search in")
+        }
         if wide {
-            HStack(spacing: Theme.s3) {
-                SearchField(text: $query, prompt: "Name or value").frame(minWidth: 220)
-                if editingSave {
-                    changeCount
-                }
-                bar.frame(maxWidth: 440).fixedSize(horizontal: categories.count <= 4, vertical: false)
-            }
-        } else {
             VStack(alignment: .leading, spacing: Theme.s3) {
                 HStack(spacing: Theme.s3) {
-                    SearchField(text: $query, prompt: "Name or value")
+                    search.frame(minWidth: 320)
                     if editingSave {
                         changeCount
                     }
+                }
+                bar
+            }
+        } else {
+            VStack(alignment: .leading, spacing: Theme.s3) {
+                search
+                if editingSave {
+                    changeCount
                 }
                 bar
             }
@@ -215,25 +278,40 @@ struct VariablesView: View {
         entries.first { $0.target == target }?.name ?? target.shortDescription
     }
 
+    /// No search: the category a page at a time. A search: the whole category once, filtered here, so names,
+    /// numbers and values are all matched the same way in every engine.
     private func load(more: Bool) async {
         guard let category else { return }
         // "Show more" runs outside the view's task, so cancellation alone does not catch a category or query change.
-        let asked = TaskKey(category: category, query: query)
-        var current: Bool { !Task.isCancelled && asked == TaskKey(category: self.category, query: query) }
+        let asked = TaskKey(category: category, query: query, scope: scope)
+        var current: Bool { !Task.isCancelled && asked == TaskKey(category: self.category, query: query, scope: scope) }
         loading = true
         defer {
             if current {
                 loading = false
             }
         }
-        let next = more ? page.next : StatePage(size: page.size)
         do {
-            let result = try await tools.list(category, query: query.isEmpty ? nil : query, page: next)
-            // The category or query changed while the game answered; the newer request owns the list.
-            guard current else { return }
-            entries = more ? entries + result.entries : result.entries
-            page = next
-            hasMore = result.hasMore
+            if query.isEmpty {
+                let next = more ? page.next : StatePage(size: page.size)
+                let result = try await tools.list(category, query: nil, page: next)
+                // The category or query changed while the game answered; the newer request owns the list.
+                guard current else { return }
+                entries = more ? entries + result.entries : result.entries
+                page = next
+                hasMore = result.hasMore
+                everything = nil // the next search reads the game afresh
+            } else {
+                let all: [StateEntry] = if let cached = everything, cached.category == category {
+                    cached.entries
+                } else {
+                    try await readAll(category)
+                }
+                guard current else { return }
+                everything = (category, all)
+                entries = all.filter { Self.matches($0, query: query, scope: scope) }
+                hasMore = false
+            }
             problem = nil
         } catch StateBridgeError.timedOut {
             guard current else { return }
@@ -248,6 +326,36 @@ struct VariablesView: View {
         }
     }
 
+    private func readAll(_ category: StateCategory) async throws -> [StateEntry] {
+        var all: [StateEntry] = []
+        var next = StatePage(size: 1000)
+        while true {
+            let result = try await tools.list(category, query: nil, page: next)
+            all += result.entries
+            guard result.hasMore, !Task.isCancelled else { return all }
+            next = next.next
+        }
+    }
+
+    /// A name or number contains the query; a text value contains it; a number or switch equals it.
+    static func matches(_ entry: StateEntry, query: String, scope: SearchScope) -> Bool {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return true }
+        let byName = entry.name.lowercased().contains(q) || entry.target.number.map { String($0) == q } == true
+        let byValue: Bool = switch entry.value {
+        case let .string(text): text.lowercased().contains(q)
+        case let .int(n): String(n) == q.replacingOccurrences(of: ",", with: "")
+        case let .double(d): Double(q) == d
+        case let .bool(on): (on ? ["on", "true"] : ["off", "false"]).contains(q)
+        default: entry.value.shortText.lowercased().contains(q)
+        }
+        switch scope {
+        case .all: return byName || byValue
+        case .name: return byName
+        case .value: return byValue
+        }
+    }
+
     private func refresh(_ result: StateMutationResult) {
         if result.result == .rejected {
             rowErrors[result.target] = result.validation.first?.message ?? "The game refused the change."
@@ -256,6 +364,9 @@ struct VariablesView: View {
         rowErrors[result.target] = result.validation.first?.message // a clamp says so
         if let i = entries.firstIndex(where: { $0.target == result.target }) {
             entries[i].value = result.effectiveValue
+        }
+        if let i = everything?.entries.firstIndex(where: { $0.target == result.target }) {
+            everything?.entries[i].value = result.effectiveValue
         }
     }
 }
