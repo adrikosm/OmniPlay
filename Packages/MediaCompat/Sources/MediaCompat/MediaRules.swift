@@ -15,6 +15,8 @@ public enum MediaEngine: String, Sendable, Codable, Hashable {
 public enum ConversionTarget: String, Sendable, Codable, Hashable {
     /// H.264 + AAC, for WebKit video.
     case mp4
+    /// HEVC with alpha in QuickTime, for WebKit video with transparency.
+    case mov
     /// AAC audio in MP4, for WebKit.
     case m4a
     /// Theora + Vorbis, for mkxp-z and Ren'Py video.
@@ -35,7 +37,8 @@ public enum MediaKind: Sendable, Hashable { case video, audio, image }
 /// - WebKit plays H.264, HEVC (`hvc1`), VP8, VP9 (WebM/MKV) and MJPEG video; Opus, MP3, AAC, ALAC, WAV, FLAC and AIFF
 ///   audio; every image format but TGA. Ogg Vorbis audio fails in WebKit, but the web runtime decodes it itself
 ///   (`OggVorbisDecoder`), so it counts as playing. VP9 WebM is still converted when no MP4 ships beside it: the
-///   simulator plays it, which does not prove the phone does.
+///   simulator plays it, which does not prove the phone does. WebKit draws VP8 and VP9 alpha opaque (black where the
+///   file is clear; iOS 27 simulator, 16 Oct 2026); HEVC with alpha keeps it.
 /// - mkxp-z plays Theora movies only; Vorbis, MP3, WAV (PCM and ADPCM), FLAC, AIFF and MIDI (FluidSynth) audio; PNG,
 ///   JPEG, BMP, GIF, TGA and SVG images.
 /// - Ren'Py's FFmpeg decodes VP8, VP9, AV1, Theora, MPEG-1/2/4 and H.263 video and Opus, Vorbis, MP3, FLAC and PCM
@@ -98,9 +101,13 @@ public enum MediaRules {
             case "webm", "mkv":
                 // WebKit plays Vorbis inside WebM video, but not in an audio-only file.
                 guard let video else { return audio == .vorbis ? .m4a : nil }
-                // H.264 has no alpha: a transparent VP9 overlay stays VP9, which WebKit composites as it is. VP8 plays,
-                // except with Vorbis audio, where WebKit never finishes a seek, so looping and skipping stall (MEDIA-009).
-                return (video == .vp8 && audio != .vorbis) || (video == .vp9 && probe?.hasAlpha == true) ? nil : .mp4
+                // WebKit draws VP8/VP9 alpha opaque and H.264 has none: a transparent overlay becomes HEVC with alpha.
+                // VP8 plays, except with Vorbis audio, where WebKit never finishes a seek, so looping and skipping
+                // stall (MEDIA-009).
+                if video == .vp8 || video == .vp9, probe?.hasAlpha == true {
+                    return .mov
+                }
+                return video == .vp8 && audio != .vorbis ? nil : .mp4
             default:
                 return .mp4
             }

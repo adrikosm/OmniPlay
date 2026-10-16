@@ -1,10 +1,12 @@
 import CTranscode
 import Foundation
 
-/// The four shapes OmniPlay converts media into, one per engine family's decoder.
+/// The shapes OmniPlay converts media into, one per engine family's decoder.
 public enum MediaTarget: String, Sendable, Codable, Hashable {
     /// WebKit: H.264 (VideoToolbox) and AAC in MP4.
     case mp4H264AAC
+    /// WebKit video with transparency: HEVC with alpha (VideoToolbox) in QuickTime.
+    case movHEVCAlpha
     /// mkxp-z and Ren'Py: Theora and Vorbis in Ogg, which both decode with their own libraries.
     case ogvTheoraVorbis
     /// Audio for mkxp-z and Ren'Py.
@@ -15,6 +17,7 @@ public enum MediaTarget: String, Sendable, Codable, Hashable {
     var c: op_target {
         switch self {
         case .mp4H264AAC: OP_TARGET_MP4_H264_AAC
+        case .movHEVCAlpha: OP_TARGET_MOV_HEVC_ALPHA
         case .ogvTheoraVorbis: OP_TARGET_OGV_THEORA_VORBIS
         case .oggVorbis: OP_TARGET_OGG_VORBIS
         case .wavPCM: OP_TARGET_WAV_PCM
@@ -62,6 +65,12 @@ public enum MediaTranscoder {
         init(_ progress: @escaping (Double) -> Bool) { self.progress = progress }
     }
 
+    /// Whether a WebM's alpha channel is ever transparent; true when unsure, so the file is converted rather than drawn
+    /// opaque.
+    public static func usesAlpha(_ input: URL) -> Bool {
+        op_alpha_used(input.path(percentEncoded: false)) != 0
+    }
+
     /// `progress` gets the fraction done (or -1 when the length is unknown) and returns false to cancel.
     public static func transcode(
         _ input: URL,
@@ -77,7 +86,7 @@ public enum MediaTranscoder {
             max_width: Int32(spec.maxWidth),
             max_height: Int32(spec.maxHeight),
             max_fps: Int32(spec.maxFPS),
-            // 0 keeps the C defaults: Theora 7, Vorbis 5, AAC 160k, H.264 from the frame size.
+            // 0 keeps the C defaults: Theora 7, Vorbis 5, AAC 160k, H.264 and HEVC from the frame size.
             video_quality: 0,
             audio_quality: 0
         )

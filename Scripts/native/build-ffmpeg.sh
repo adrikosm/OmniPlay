@@ -4,8 +4,9 @@
 #
 #   decoders, demuxers, parsers   all of FFmpeg's own (the point: read anything), plus dav1d for AV1: FFmpeg's own
 #                                 AV1 decoder only drives hardware
-#   encoders                      h264_videotoolbox + aac (MP4 for WebKit), libtheora + libvorbis (Ogg for mkxp-z and
-#                                 Ren'Py, whose own decoders read Theora and Vorbis), pcm_s16le, mjpeg
+#   encoders                      h264_videotoolbox + aac (MP4 for WebKit), hevc_videotoolbox (HEVC with alpha for
+#                                 WebKit, which drops VP9's), libtheora + libvorbis (Ogg for mkxp-z and Ren'Py, whose own
+#                                 decoders read Theora and Vorbis), pcm_s16le, mjpeg
 #   muxers                        mp4, mov, ogg, wav        protocols: file only; no network, devices or filters
 #
 # libtheora/libvorbis/libogg are the ones mkxp-z's dependency release already puts in the app (BSD); FFmpeg links
@@ -91,7 +92,7 @@ for sdk in iphoneos iphonesimulator; do
       --disable-network --disable-avdevice --disable-avfilter \
       --disable-protocols --enable-protocol=file \
       --disable-muxers --enable-muxer=mp4,mov,ogg,wav \
-      --disable-encoders --enable-encoder=h264_videotoolbox,aac,libtheora,libvorbis,pcm_s16le,mjpeg \
+      --disable-encoders --enable-encoder=h264_videotoolbox,hevc_videotoolbox,aac,libtheora,libvorbis,pcm_s16le,mjpeg \
       --enable-libtheora --enable-libvorbis --enable-libdav1d >configure.log 2>&1 || { tail -30 configure.log >&2; exit 1; }
     make -j"$(sysctl -n hw.ncpu)" >make.log 2>&1 || { tail -40 make.log >&2; exit 1; }
     make install >install.log 2>&1

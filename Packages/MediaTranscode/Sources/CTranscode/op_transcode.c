@@ -16,6 +16,8 @@ typedef struct {
     AVFormatContext *in, *out;
     int vin, ain;
     AVCodecContext *vdec, *adec, *venc, *aenc;
+    AVCodecContext *vdec_alpha;  // the WebM alpha stream, for OP_TARGET_MOV_HEVC_ALPHA
+    AVFrame *alpha;
     AVStream *vst, *ast;
     struct SwsContext *sws;
     AVFrame *scaled, *decoded, *chunk;
@@ -81,8 +83,10 @@ static const void *first_config(AVCodecContext *ctx, const AVCodec *codec, enum 
 
 static int open_video_encoder(job *j, const op_transcode_spec *spec, char *error, int size) {
     AVStream *in = j->in->streams[j->vin];
-    const AVCodec *codec = spec->target == OP_TARGET_MP4_H264_AAC ? avcodec_find_encoder_by_name("h264_videotoolbox")
-                                                                  : avcodec_find_encoder_by_name("libtheora");
+    const int alpha = spec->target == OP_TARGET_MOV_HEVC_ALPHA;
+    const AVCodec *codec = avcodec_find_encoder_by_name(spec->target == OP_TARGET_MP4_H264_AAC ? "h264_videotoolbox"
+                                                        : alpha                              ? "hevc_videotoolbox"
+                                                                                             : "libtheora");
     if (!codec) return fail(error, size, "no video encoder", AVERROR_ENCODER_NOT_FOUND);
     j->venc = avcodec_alloc_context3(codec);
     if (!j->venc) return AVERROR(ENOMEM);
@@ -103,7 +107,7 @@ static int open_video_encoder(job *j, const op_transcode_spec *spec, char *error
     j->fps = av_q2d(rate);
     j->venc->framerate = rate;
     j->venc->time_base = av_inv_q(rate);
-    j->venc->pix_fmt = AV_PIX_FMT_YUV420P;
+    j->venc->pix_fmt = alpha ? AV_PIX_FMT_BGRA : AV_PIX_FMT_YUV420P;  // VideoToolbox takes alpha as BGRA only
     j->venc->sample_aspect_ratio = j->vdec->sample_aspect_ratio;
     j->venc->gop_size = (int)fmax(1, lrint(j->fps * 2));
     if (spec->target == OP_TARGET_MP4_H264_AAC) {
@@ -111,6 +115,13 @@ static int open_video_encoder(job *j, const op_transcode_spec *spec, char *error
                                                     : (int64_t)fmax(1.5e6, fmin(12e6, j->venc->width * j->venc->height * j->fps * 0.12));
         j->venc->profile = AV_PROFILE_H264_HIGH;
         av_opt_set_int(j->venc->priv_data, "allow_sw", 1, 0);  // the simulator has no hardware encoder
+    } else if (alpha) {
+        // HEVC needs about half H.264's rate for the same picture.
+        j->venc->bit_rate = spec->video_quality > 0 ? spec->video_quality
+                                                    : (int64_t)fmax(1e6, fmin(8e6, j->venc->width * j->venc->height * j->fps * 0.06));
+        j->venc->color_range = AVCOL_RANGE_JPEG;  // VideoToolbox refuses BGRA without one
+        av_opt_set_double(j->venc->priv_data, "alpha_quality", 0.75, 0);
+        av_opt_set_int(j->venc->priv_data, "allow_sw", 1, 0);
     } else {
         int q = spec->video_quality > 0 ? spec->video_quality : 7;
         j->venc->flags |= AV_CODEC_FLAG_QSCALE;
@@ -126,6 +137,7 @@ static int open_video_encoder(job *j, const op_transcode_spec *spec, char *error
     j->vst->avg_frame_rate = rate;
     avcodec_parameters_from_context(j->vst->codecpar, j->venc);
     if (spec->target == OP_TARGET_MP4_H264_AAC) j->vst->codecpar->codec_tag = MKTAG('a', 'v', 'c', '1');
+    if (alpha) j->vst->codecpar->codec_tag = MKTAG('h', 'v', 'c', '1');  // Apple plays hvc1, not hev1
 
     j->scaled = av_frame_alloc();
     if (!j->scaled) return AVERROR(ENOMEM);
@@ -137,7 +149,8 @@ static int open_video_encoder(job *j, const op_transcode_spec *spec, char *error
 }
 
 static int open_audio_encoder(job *j, const op_transcode_spec *spec, char *error, int size) {
-    const char *name = spec->target == OP_TARGET_MP4_H264_AAC ? "aac" : spec->target == OP_TARGET_WAV_PCM ? "pcm_s16le" : "libvorbis";
+    const int apple = spec->target == OP_TARGET_MP4_H264_AAC || spec->target == OP_TARGET_MOV_HEVC_ALPHA;
+    const char *name = apple ? "aac" : spec->target == OP_TARGET_WAV_PCM ? "pcm_s16le" : "libvorbis";
     const AVCodec *codec = avcodec_find_encoder_by_name(name);
     if (!codec) return fail(error, size, "no audio encoder", AVERROR_ENCODER_NOT_FOUND);
     j->aenc = avcodec_alloc_context3(codec);
@@ -159,7 +172,7 @@ static int open_audio_encoder(job *j, const op_transcode_spec *spec, char *error
     }
     j->aenc->sample_rate = rate;
     j->aenc->time_base = (AVRational){1, rate};
-    if (spec->target == OP_TARGET_MP4_H264_AAC) {
+    if (apple) {
         j->aenc->bit_rate = spec->audio_quality > 0 ? spec->audio_quality : 160000;
     } else if (spec->target != OP_TARGET_WAV_PCM) {
         int q = spec->audio_quality > 0 ? spec->audio_quality : 5;
@@ -191,7 +204,7 @@ static int open_audio_encoder(job *j, const op_transcode_spec *spec, char *error
     return j->fifo && j->chunk ? 0 : AVERROR(ENOMEM);
 }
 
-static int open_decoder(job *j, int index, AVCodecContext **out) {
+static int open_decoder(job *j, int index, AVCodecContext **out, int slice_threads) {
     AVStream *st = j->in->streams[index];
     // FFmpeg's own AV1 decoder only drives hardware; dav1d decodes AV1 anywhere.
     const AVCodec *codec = st->codecpar->codec_id == AV_CODEC_ID_AV1 ? avcodec_find_decoder_by_name("libdav1d") : NULL;
@@ -202,6 +215,7 @@ static int open_decoder(job *j, int index, AVCodecContext **out) {
     avcodec_parameters_to_context(ctx, st->codecpar);
     ctx->pkt_timebase = st->time_base;
     ctx->thread_count = 0;
+    if (slice_threads) ctx->thread_type = FF_THREAD_SLICE;  // no frame delay: colour and alpha frames pair up
     int rc = avcodec_open2(ctx, codec, NULL);
     if (rc < 0) { avcodec_free_context(&ctx); return rc; }
     *out = ctx;
@@ -256,6 +270,47 @@ static int video_frame(job *j, AVFrame *frame) {
     return encode(j, j->venc, j->vst, j->scaled);
 }
 
+// WebM keeps a VP8/VP9 alpha channel as a second stream in each block's BlockAdditional (ID 1), which FFmpeg's own
+// decoders ignore. A second decoder reads it, as libvpxdec does, and its luma becomes the frame's alpha plane.
+static int video_packet_with_alpha(job *j, AVPacket *pkt) {
+    size_t size = 0;
+    const uint8_t *side = av_packet_get_side_data(pkt, AV_PKT_DATA_MATROSKA_BLOCKADDITIONAL, &size);
+    uint64_t id = 0;
+    for (size_t i = 0; side && size > 8 && i < 8; i++) id = id << 8 | side[i];
+    int rc = avcodec_send_packet(j->vdec, pkt);
+    if (rc < 0) return rc == AVERROR_INVALIDDATA ? 0 : rc;  // a damaged packet is skipped, as elsewhere
+    int has_alpha = 0;
+    if (id == 1) {
+        if (!j->vdec_alpha && (rc = open_decoder(j, j->vin, &j->vdec_alpha, 1)) < 0) return rc;
+        AVPacket *a = av_packet_alloc();
+        if (!a) return AVERROR(ENOMEM);
+        a->data = (uint8_t *)side + 8;  // not reference-counted, so the decoder copies it
+        a->size = (int)(size - 8);
+        a->pts = pkt->pts;
+        a->dts = pkt->dts;
+        has_alpha = avcodec_send_packet(j->vdec_alpha, a) >= 0;
+        av_packet_free(&a);
+    }
+    rc = avcodec_receive_frame(j->vdec, j->decoded);
+    if (rc < 0) {
+        // No colour frame for this packet: its alpha frame must not pair with the next one.
+        if (has_alpha && avcodec_receive_frame(j->vdec_alpha, j->alpha) >= 0) av_frame_unref(j->alpha);
+        return rc == AVERROR(EAGAIN) || rc == AVERROR_EOF ? 0 : rc;
+    }
+    AVFrame *f = j->decoded;
+    if (has_alpha && avcodec_receive_frame(j->vdec_alpha, j->alpha) >= 0) {
+        if (f->format == AV_PIX_FMT_YUV420P && j->alpha->width == f->width && j->alpha->height == f->height) {
+            f->format = AV_PIX_FMT_YUVA420P;
+            f->data[3] = j->alpha->data[0];
+            f->linesize[3] = j->alpha->linesize[0];
+        }
+    }
+    rc = video_frame(j, f);
+    av_frame_unref(j->alpha);
+    av_frame_unref(f);
+    return rc;
+}
+
 static int drain_decoder(job *j, AVCodecContext *dec, int is_video) {
     int rc;
     for (;;) {
@@ -268,6 +323,49 @@ static int drain_decoder(job *j, AVCodecContext *dec, int is_video) {
     }
 }
 
+int op_alpha_used(const char *input) {
+    job jb = {0};
+    job *j = &jb;
+    int used = 0;
+    int rc = avformat_open_input(&j->in, input, NULL, NULL);
+    if (rc >= 0) rc = avformat_find_stream_info(j->in, NULL);
+    if (rc >= 0) rc = j->vin = av_find_best_stream(j->in, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
+    if (rc >= 0) rc = open_decoder(j, j->vin, &j->vdec_alpha, 0);
+    AVPacket *pkt = av_packet_alloc(), *a = av_packet_alloc();
+    j->alpha = av_frame_alloc();
+    if (rc >= 0 && (!pkt || !a || !j->alpha)) rc = AVERROR(ENOMEM);
+    while (rc >= 0 && !used && av_read_frame(j->in, pkt) >= 0) {
+        size_t size = 0;
+        const uint8_t *side = pkt->stream_index == j->vin
+            ? av_packet_get_side_data(pkt, AV_PKT_DATA_MATROSKA_BLOCKADDITIONAL, &size) : NULL;
+        uint64_t id = 0;
+        for (size_t i = 0; side && size > 8 && i < 8; i++) id = id << 8 | side[i];
+        if (id == 1) {
+            a->data = (uint8_t *)side + 8;
+            a->size = (int)(size - 8);
+            a->pts = pkt->pts;
+            if (avcodec_send_packet(j->vdec_alpha, a) >= 0) {
+                while (!used && avcodec_receive_frame(j->vdec_alpha, j->alpha) >= 0) {
+                    for (int y = 0; y < j->alpha->height && !used; y++) {
+                        const uint8_t *row = j->alpha->data[0] + (ptrdiff_t)y * j->alpha->linesize[0];
+                        for (int x = 0; x < j->alpha->width; x++) {
+                            if (row[x] < 255) { used = 1; break; }
+                        }
+                    }
+                    av_frame_unref(j->alpha);
+                }
+            }
+        }
+        av_packet_unref(pkt);
+    }
+    av_packet_free(&pkt);
+    av_packet_free(&a);
+    av_frame_free(&j->alpha);
+    avcodec_free_context(&j->vdec_alpha);
+    avformat_close_input(&j->in);
+    return rc < 0 ? rc : used;
+}
+
 int op_transcode(const char *input, const char *output, const op_transcode_spec *spec, op_progress progress, void *context,
                  char *error, int error_size) {
     job jb = {0};
@@ -277,7 +375,8 @@ int op_transcode(const char *input, const char *output, const op_transcode_spec 
     j->progress = progress;
     j->context = context;
     int rc;
-    const int wants_video = spec->target == OP_TARGET_MP4_H264_AAC || spec->target == OP_TARGET_OGV_THEORA_VORBIS;
+    const int wants_video = spec->target == OP_TARGET_MP4_H264_AAC || spec->target == OP_TARGET_OGV_THEORA_VORBIS ||
+                            spec->target == OP_TARGET_MOV_HEVC_ALPHA;
 
     if ((rc = avformat_open_input(&j->in, input, NULL, NULL)) < 0) { rc = fail(error, error_size, "cannot open the file", rc); goto end; }
     if ((rc = avformat_find_stream_info(j->in, NULL)) < 0) { rc = fail(error, error_size, "cannot read the streams", rc); goto end; }
@@ -290,24 +389,28 @@ int op_transcode(const char *input, const char *output, const op_transcode_spec 
     int a = av_find_best_stream(j->in, AVMEDIA_TYPE_AUDIO, -1, j->vin, NULL, 0);
     if (a >= 0) j->ain = a;
     if (j->vin < 0 && j->ain < 0) { rc = fail(error, error_size, "no audio or video in the file", OP_TRANSCODE_NOTHING); goto end; }
-    if (j->vin >= 0 && (rc = open_decoder(j, j->vin, &j->vdec)) < 0) { rc = fail(error, error_size, "cannot decode the video", rc); goto end; }
-    if (j->ain >= 0 && (rc = open_decoder(j, j->ain, &j->adec)) < 0) { rc = fail(error, error_size, "cannot decode the audio", rc); goto end; }
+    if (j->vin >= 0 && (rc = open_decoder(j, j->vin, &j->vdec, spec->target == OP_TARGET_MOV_HEVC_ALPHA)) < 0) { rc = fail(error, error_size, "cannot decode the video", rc); goto end; }
+    if (j->ain >= 0 && (rc = open_decoder(j, j->ain, &j->adec, 0)) < 0) { rc = fail(error, error_size, "cannot decode the audio", rc); goto end; }
 
-    const char *container = spec->target == OP_TARGET_MP4_H264_AAC ? "mp4" : spec->target == OP_TARGET_WAV_PCM ? "wav" : "ogg";
+    const char *container = spec->target == OP_TARGET_MP4_H264_AAC     ? "mp4"
+                            : spec->target == OP_TARGET_MOV_HEVC_ALPHA ? "mov"
+                            : spec->target == OP_TARGET_WAV_PCM        ? "wav"
+                                                                       : "ogg";
     if ((rc = avformat_alloc_output_context2(&j->out, NULL, container, output)) < 0) { rc = fail(error, error_size, "cannot create the file", rc); goto end; }
     av_dict_copy(&j->out->metadata, j->in->metadata, 0);
     if (j->vin >= 0 && (rc = open_video_encoder(j, spec, error, error_size)) < 0) goto end;
     if (j->ain >= 0 && (rc = open_audio_encoder(j, spec, error, error_size)) < 0) goto end;
     if ((rc = avio_open(&j->out->pb, output, AVIO_FLAG_WRITE)) < 0) { rc = fail(error, error_size, "cannot write the file", rc); goto end; }
     AVDictionary *mux = NULL;
-    if (spec->target == OP_TARGET_MP4_H264_AAC) av_dict_set(&mux, "movflags", "+faststart", 0);
+    if (spec->target == OP_TARGET_MP4_H264_AAC || spec->target == OP_TARGET_MOV_HEVC_ALPHA) av_dict_set(&mux, "movflags", "+faststart", 0);
     rc = avformat_write_header(j->out, &mux);
     av_dict_free(&mux);
     if (rc < 0) { rc = fail(error, error_size, "cannot start the file", rc); goto end; }
 
     j->decoded = av_frame_alloc();
+    j->alpha = av_frame_alloc();
     AVPacket *pkt = av_packet_alloc();
-    if (!j->decoded || !pkt) { av_packet_free(&pkt); rc = AVERROR(ENOMEM); goto end; }
+    if (!j->decoded || !j->alpha || !pkt) { av_packet_free(&pkt); rc = AVERROR(ENOMEM); goto end; }
     while ((rc = av_read_frame(j->in, pkt)) >= 0) {
         AVCodecContext *dec = pkt->stream_index == j->vin ? j->vdec : pkt->stream_index == j->ain ? j->adec : NULL;
         if (dec) {
@@ -316,9 +419,13 @@ int op_transcode(const char *input, const char *output, const op_transcode_spec 
                 if (j->in->start_time != AV_NOPTS_VALUE) at -= j->in->start_time / (double)AV_TIME_BASE;
                 if ((rc = report(j, at)) < 0) break;
             }
-            rc = avcodec_send_packet(dec, pkt);
-            // A damaged packet is skipped the way players skip it; the file still converts.
-            if (rc >= 0 || rc == AVERROR_INVALIDDATA) rc = drain_decoder(j, dec, dec == j->vdec);
+            if (dec == j->vdec && spec->target == OP_TARGET_MOV_HEVC_ALPHA) {
+                rc = video_packet_with_alpha(j, pkt);
+            } else {
+                rc = avcodec_send_packet(dec, pkt);
+                // A damaged packet is skipped the way players skip it; the file still converts.
+                if (rc >= 0 || rc == AVERROR_INVALIDDATA) rc = drain_decoder(j, dec, dec == j->vdec);
+            }
         }
         av_packet_unref(pkt);
         if (rc < 0) break;
@@ -344,6 +451,7 @@ end:
     avformat_free_context(j->out);
     avformat_close_input(&j->in);
     avcodec_free_context(&j->vdec);
+    avcodec_free_context(&j->vdec_alpha);
     avcodec_free_context(&j->adec);
     avcodec_free_context(&j->venc);
     avcodec_free_context(&j->aenc);
@@ -352,6 +460,7 @@ end:
     if (j->fifo) av_audio_fifo_free(j->fifo);
     av_frame_free(&j->scaled);
     av_frame_free(&j->decoded);
+    av_frame_free(&j->alpha);
     av_frame_free(&j->chunk);
     return rc;
 }

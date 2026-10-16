@@ -1,7 +1,8 @@
 // File-to-file media conversion for OmniPlay's media preparation, over FFmpeg (Native/prebuilt/ffmpeg, LGPL).
 //
-// Reads anything FFmpeg decodes and writes one of four shapes an engine plays:
+// Reads anything FFmpeg decodes and writes one of five shapes an engine plays:
 //   MP4 H.264 + AAC      WebKit (VideoToolbox H.264, FFmpeg's AAC)
+//   MOV HEVC with alpha  WebKit, for VP8/VP9 WebM with an alpha channel, which WebKit draws opaque
 //   OGV Theora + Vorbis  mkxp-z and Ren'Py, whose own decoders read Theora and Vorbis
 //   OGG Vorbis           audio for mkxp-z and Ren'Py
 //   WAV PCM 16-bit       audio anything decodes
@@ -21,6 +22,7 @@ typedef enum {
     OP_TARGET_OGV_THEORA_VORBIS = 1,
     OP_TARGET_OGG_VORBIS = 2,
     OP_TARGET_WAV_PCM = 3,
+    OP_TARGET_MOV_HEVC_ALPHA = 4,
 } op_target;
 
 typedef struct {
@@ -28,7 +30,7 @@ typedef struct {
     int max_width;      // 0: keep. Frames larger than the box are scaled down, keeping the aspect ratio.
     int max_height;
     int max_fps;        // 0: keep. Faster sources drop frames.
-    int video_quality;  // Theora quality 0...10 (0: 7). H.264 target bit rate in bits per second (0: from size).
+    int video_quality;  // Theora quality 0...10 (0: 7). H.264/HEVC bit rate in bits per second (0: from size).
     int audio_quality;  // Vorbis quality 0...10 (0: 5). AAC bit rate in bits per second (0: 160000).
 } op_transcode_spec;
 
@@ -45,6 +47,10 @@ int op_transcode(const char *input, const char *output, const op_transcode_spec 
 // Nonzero when a failure code says the same file will always fail (damaged, or no codec for it); anything else, such
 // as a full disk or a lost hardware encoder, may pass on another try.
 int op_transcode_permanent(int code);
+
+// 1 when a WebM's alpha channel is ever below fully opaque, 0 when every frame is opaque or there is none, negative
+// when the file cannot be read. Decodes only the alpha stream, which is cheap where it is all opaque.
+int op_alpha_used(const char *input);
 
 #ifdef __cplusplus
 }

@@ -13,7 +13,7 @@ import UniformTypeIdentifiers
 /// again nor redoes a conversion that already exists.
 public enum MediaPreparation {
     /// Bumped whenever `MediaRules` changes what it converts.
-    public static let rulesVersion = 8
+    public static let rulesVersion = 9
 
     public struct Conversion: Codable, Sendable, Hashable {
         /// Relative to the game root, as the game names it.
@@ -173,6 +173,7 @@ public enum MediaPreparation {
     public static func spec(for target: ConversionTarget, engine: MediaEngine) -> TranscodeSpec {
         switch target {
         case .mp4: TranscodeSpec(target: .mp4H264AAC, maxWidth: 1920, maxHeight: 1080, maxFPS: 60)
+        case .mov: TranscodeSpec(target: .movHEVCAlpha, maxWidth: 1920, maxHeight: 1080, maxFPS: 60)
         case .m4a: TranscodeSpec(target: .mp4H264AAC)
         case .ogv where engine == .mkxp: TranscodeSpec(target: .ogvTheoraVorbis, maxWidth: 1280, maxHeight: 720, maxFPS: 30)
         case .ogv: TranscodeSpec(target: .ogvTheoraVorbis, maxWidth: 1920, maxHeight: 1080, maxFPS: 60)
@@ -214,6 +215,10 @@ public enum MediaPreparation {
                 }
                 let probe = MediaRules.needsProbe(rel, engine: engine) ? MediaProbe.probe(url, relativePath: rel) : nil
                 guard let target = MediaRules.conversion(for: rel, engine: engine, probe: probe) else { return }
+                // Many WebMs declare alpha and never use it; WebKit plays those as they are.
+                if target == .mov, !MediaTranscoder.usesAlpha(url) {
+                    return
+                }
                 // A game that ships a playable form beside the file (intro.webm and intro.mp4) needs nothing.
                 let directory = url.deletingLastPathComponent()
                 let names = siblingsByDirectory[directory] ?? {

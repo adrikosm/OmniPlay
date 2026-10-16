@@ -1,7 +1,7 @@
 {
   "arch": "arm64",
   "artefact": "Native/prebuilt/ffmpeg",
-  "built_at": "2026-09-22T13:56:28+00:00",
+  "built_at": "2026-10-16T11:10:01+00:00",
   "component": "ffmpeg",
   "flags": {
     "iphoneos_min": "27.0",
@@ -145,24 +145,24 @@
     "include/libswscale/swscale.h": "3c3c7c2aec2494f4881e8fed8baf01ef0db8c08e7c01a3300946ea3bb102a162",
     "include/libswscale/version.h": "5d68bb307b5d10e229b1c8eb1420a70896c65fb09bce9a8a85c531541c9991e4",
     "include/libswscale/version_major.h": "b5981c7a57dda91c1b58aa9df212dd0214091f9d87448f2d86dac07f0ea17549",
-    "iphoneos/lib/libavcodec.a": "1f7a2516957d70c0ab349f1fdca12a7cb6c18eb1302d5c08322c8c09d02a7743",
-    "iphoneos/lib/libavformat.a": "6cab0c33633234d65137d1e9ebdec15ebfc7b7bb8479cdd87febee6a77e97b8a",
-    "iphoneos/lib/libavutil.a": "9c0d97cdee739dd427ae05f56f14b8f028c9c3c88161f6d7e34b512baeb16194",
-    "iphoneos/lib/libdav1d.a": "9af98fda5fa43affae5e8dd6f863a8b5975e4e4b79a2952149b78bb58ec9970c",
-    "iphoneos/lib/libswresample.a": "c1f923677817e0ff4dfebef74344d60f5ba582a3bfe69aba260531e2818aeb13",
-    "iphoneos/lib/libswscale.a": "67153008359a7b6a23f6e9f24c447541f5a85b9a044122bb46d72296bfb48beb",
-    "iphonesimulator/lib/libavcodec.a": "8839efbe071c0d4b5b670aea87ca724550e4db9affc8a9783529d102b5d668bf",
-    "iphonesimulator/lib/libavformat.a": "a2acb4264e21995eb44fd16fd913094ccf9e92a4ad8bca4f09002674f7b01c69",
-    "iphonesimulator/lib/libavutil.a": "30fe7cc456194712af2d41deec4d508051fdb18622972ed983aa5f73863b0e30",
-    "iphonesimulator/lib/libdav1d.a": "eff4f4d632cbff034209331393270a27c9a0f9b81cc991225dc093cb9639edb8",
-    "iphonesimulator/lib/libswresample.a": "7f0df8b4059dfe3f24c961664ff0664e42d0434e6c5695806fcaa570b422291d",
-    "iphonesimulator/lib/libswscale.a": "3e819a11e9dd9cb1cd570268a39785aba9b26242607ec1bdd4c6cc43b9a79f42"
+    "iphoneos/lib/libavcodec.a": "f33c1fd11cdfe21942160a99f231227d07f5be16d0f85b9b6dc622a779b0a9b0",
+    "iphoneos/lib/libavformat.a": "712189e934fbf4c4d2ed66302cb7d781ae681599e744febdc88b24184e9dd1e6",
+    "iphoneos/lib/libavutil.a": "841b3d7687128d5b2290e1782e4f0674acd8d557d86828f0bbf0892fb49f864a",
+    "iphoneos/lib/libdav1d.a": "9938ee925ac7f913481aaaaed3df869a0df7a3a222449a545a3fb9e41b3aeaa9",
+    "iphoneos/lib/libswresample.a": "f5c14adac7c7b46b1c74cab5bd79b0423d48bd066cdb9e3843153ec5e0d6c824",
+    "iphoneos/lib/libswscale.a": "0c0a4acdbb67496c9949427fa8b54c67df83a4a979d4f7657d872a09bcc97627",
+    "iphonesimulator/lib/libavcodec.a": "54999ee197ec4a703aedbc6b98223fe7a418f191dd0b61b927eb8a977748d1fc",
+    "iphonesimulator/lib/libavformat.a": "43a34d92a34c4b0dc300354ce7c9adcd310bb0c3b3805e2cb40cb5dc355c953a",
+    "iphonesimulator/lib/libavutil.a": "e58f9a32870b86289ff65b483a3f8691a986d5977b1e4c68944395f283071822",
+    "iphonesimulator/lib/libdav1d.a": "f568d4be928aa0d158954aa1bf3b0acfdcb4ec852405ea6999fef801eb8ec56c",
+    "iphonesimulator/lib/libswresample.a": "881eab219937e31b9701798b4bb5d36e88e1c7e95cbc7683fa85daf135b109e0",
+    "iphonesimulator/lib/libswscale.a": "dc510ae258b2da35eb200a2c7b7611ad74fee9c5c3a2b2e74a296061b78dfe04"
   },
   "sdks": {
-    "iphoneos": "27.0",
-    "iphonesimulator": "27.0",
+    "iphoneos": "27.1",
+    "iphonesimulator": "27.1",
     "macosx": "27.0"
   },
   "sources": {},
-  "toolchain": "Xcode 27.0 Build version 27A266a"
+  "toolchain": "Xcode 27.1 Build version 27A9275"
 }
