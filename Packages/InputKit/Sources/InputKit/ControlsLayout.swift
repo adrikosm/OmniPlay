@@ -65,7 +65,8 @@ public struct ControlsLayout: Codable, Sendable, Hashable {
     /// A at the bottom under the resting thumb. Controls are anchored lower and closer to the edges for thumb ergonomics.
     static func diamond(landscape: Bool, a: [GameKey], b: [GameKey], x: [GameKey], y: [GameKey]) -> ControlsLayout {
         // Unit offsets of one 54 pt button in the safe area (about 832×419 pt landscape, 408×800 pt portrait).
-        let (cx, cy, dx, dy) = landscape ? (0.90, 0.80, 54.0 / 832, 54.0 / 419) : (0.79, 0.85, 54.0 / 408, 54.0 / 800)
+        // Landscape stays left of the overlay's button column on the trailing edge, down to an iPhone SE.
+        let (cx, cy, dx, dy) = landscape ? (0.80, 0.80, 54.0 / 832, 54.0 / 419) : (0.79, 0.85, 54.0 / 408, 54.0 / 800)
         func face(_ idSuffix: String, _ keys: [GameKey], _ x: Double, _ y: Double) -> Control {
             let label = keys.first.map { KeyCatalog.label(for: $0) } ?? idSuffix.uppercased()
             return Control(id: "face.\(idSuffix.lowercased())", label: label, keys: keys, anchor: Anchor(x: x, y: y, size: 54))

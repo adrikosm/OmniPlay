@@ -89,6 +89,18 @@
     if (typeof G._updateAllElements === "function" && G._canvas) G._updateAllElements();
   };
 
+  // On Mobile Safari MV reads input before each frame, and plugins that replace updateMain (YEP_FpsSynchOption) read
+  // it again, which drops every tap and key press. The desktop loop reads it once per update at a fixed 60 Hz.
+  const installDesktopLoop = () => {
+    const S = window.SceneManager;
+    if (typeof Utils === "undefined" || Utils.RPGMAKER_NAME !== "MV" || Utils.__omniplayLoop || !S ||
+      typeof S._getTimeInMsWithoutMobileSafari !== "function") return;
+    Utils.__omniplayLoop = true;
+    Utils.isMobileSafari = () => false;
+    // rpg_managers.js starts this clock at load only off Mobile Safari; without it the loop never runs.
+    if (typeof S._currentTime !== "number") { S._currentTime = S._getTimeInMsWithoutMobileSafari(); S._accumulator = 0; }
+  };
+
   const patch = () => {
     patchTyrano();
     if (typeof Utils !== "undefined") {
@@ -104,6 +116,7 @@
     if (profile.audioFileExtOgg && typeof AudioManager !== "undefined") AudioManager.audioFileExt = () => ".ogg";
     installImageCache();
     installFill();
+    installDesktopLoop();
     if (typeof SceneManager !== "undefined" && SceneManager.run && !SceneManager.__omniplayBooted) {
       SceneManager.__omniplayBooted = true;
       try { document.dispatchEvent(new Event("omniplay:booted")); } catch (_) {}
@@ -113,5 +126,13 @@
   const timer = setInterval(() => { patch(); if ((window.ImageManager && window.ImageManager.__omniplayLRU) || ++tries > 600) clearInterval(timer); }, 50);
   document.addEventListener("DOMContentLoaded", patch);
   window.addEventListener("load", patch);
+  // An MV game that asks for the canvas renderer (Community_Basic's renderingMode) draws every sprite on the CPU and
+  // crawls on a phone. Plugins set that choice while loading, so it is replaced once they all have, before MV boots.
+  window.addEventListener("load", () => {
+    const S = window.SceneManager;
+    if (typeof Utils === "undefined" || Utils.RPGMAKER_NAME !== "MV" || !S || typeof S.preferableRendererType !== "function") return;
+    const pick = S.preferableRendererType;
+    S.preferableRendererType = function () { const r = pick.call(this); return r === "canvas" ? "auto" : r; };
+  });
   patch();
 })();
