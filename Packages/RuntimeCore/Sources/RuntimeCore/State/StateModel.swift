@@ -20,6 +20,8 @@ public enum StateTarget: Codable, Sendable, Hashable {
     case map(id: Int)
     case renpyStore(name: String, path: [String])
     case renpyPersistent(path: [String])
+    /// A script variable reached from a named root object (a Godot node path, an HTML engine's variable store).
+    case scriptVariable(root: String, path: [String])
     case webStorageKey(namespace: String, key: String)
     case custom(engineKey: String)
 
@@ -246,7 +248,7 @@ public struct StateCapabilities: OptionSet, Sendable, Hashable {
         case .systemFlag: .systemFlags
         case .playerPosition, .map: .position
         case .enemy: .battle
-        case .renpyStore: .store
+        case .renpyStore, .scriptVariable: .store
         case .renpyPersistent: .persistent
         case let .custom(key): key.hasPrefix(StateWire.patchPrefix) ? .patches : .labels
         case .webStorageKey: []

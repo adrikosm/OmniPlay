@@ -100,6 +100,7 @@ extension StateTarget {
         case let .renpyStore(store, path): (store == "store" ? "" : store.replacingOccurrences(of: "store.", with: "") + ".") + path
             .joined(separator: ".")
         case let .renpyPersistent(path): "persistent." + path.joined(separator: ".")
+        case let .scriptVariable(root, path): ([root] + path).joined(separator: ".")
         default: "Value"
         }
     }
@@ -109,6 +110,7 @@ extension StateTarget {
         switch self {
         case let .renpyStore(name, path): .renpyStore(name: name, path: path + [key])
         case let .renpyPersistent(path): .renpyPersistent(path: path + [key])
+        case let .scriptVariable(root, path): .scriptVariable(root: root, path: path + [key])
         default: nil
         }
     }

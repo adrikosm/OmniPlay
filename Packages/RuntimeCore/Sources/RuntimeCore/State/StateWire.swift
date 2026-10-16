@@ -33,6 +33,7 @@ public enum StateWire {
         case let .map(id): ["kind": "map", "id": id]
         case let .renpyStore(name, path): ["kind": "store", "store": name, "path": path]
         case let .renpyPersistent(path): ["kind": "persistent", "path": path]
+        case let .scriptVariable(root, path): ["kind": "path", "root": root, "path": path]
         case let .custom(key) where key.hasPrefix(labelPrefix): ["kind": "label", "name": String(key.dropFirst(labelPrefix.count))]
         case let .custom(key) where key.hasPrefix(patchPrefix): ["kind": "patch", "name": String(key.dropFirst(patchPrefix.count))]
         case .webStorageKey, .custom: nil
@@ -84,6 +85,7 @@ public enum StateWire {
         case "map": return .map(id: id)
         case "store": return (json["path"] as? [String]).map { .renpyStore(name: json["store"] as? String ?? "store", path: $0) }
         case "persistent": return (json["path"] as? [String]).map { .renpyPersistent(path: $0) }
+        case "path": return (json["root"] as? String).flatMap { root in (json["path"] as? [String]).map { .scriptVariable(root: root, path: $0) } }
         case "label": return (json["name"] as? String).map { .custom(engineKey: labelPrefix + $0) }
         case "patch": return (json["name"] as? String).map(patch)
         default: return nil
@@ -146,7 +148,7 @@ public enum StateWire {
         case .gold, .systemFlag, .playerPosition: .system
         case .enemy: .enemies
         case .map: .maps
-        case .renpyStore: .store
+        case .renpyStore, .scriptVariable: .store
         case .renpyPersistent: .persistent
         case let .custom(key) where key.hasPrefix(labelPrefix): .labels
         case let .custom(key) where key.hasPrefix(patchPrefix): .system
