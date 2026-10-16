@@ -177,6 +177,22 @@ struct ImportPipeline: Sendable {
             }
             totals.entries += more.entries
         }
+        for program in Self.tauriCandidates(in: stagedRoot) {
+            // Tauri keeps the web frontend inside the program; it lands beside it, next to the assets the game reads.
+            let more: RunningTotals?
+            do {
+                more = try TauriExtractor(limits: limits).extract(program, to: program.deletingLastPathComponent())
+            } catch let v as SafetyViolation {
+                throw ImportFailure.safetyViolation(v)
+            }
+            guard let more else { continue }
+            totals.writtenBytes += more.writtenBytes
+            if totals.declaredBytes > 0 {
+                totals.declaredBytes += more.writtenBytes
+            }
+            totals.entries += more.entries
+            break
+        }
         return Materialized(root: stagedRoot, totals: totals, sourceBytes: sourceBytes)
     }
 
@@ -274,6 +290,29 @@ struct ImportPipeline: Sendable {
             return .continue
         }
         return found
+    }
+
+    /// Windows programs up to two levels below the staged root that could carry a Tauri frontend: only when the tree has
+    /// no web page of its own, and never one with a payload appended (a Godot pack can be gigabytes to search).
+    static func tauriCandidates(in root: URL) -> [URL] {
+        var programs: [URL] = []
+        var hasPage = false
+        try? LazyDirectoryWalker.walk(root: root) { entry in
+            if entry.relativePath.split(separator: "/").count > 3 {
+                return .skipDescendants
+            }
+            let name = entry.url.lastPathComponent.lowercased()
+            if !entry.isDirectory, name == "index.html" {
+                hasPage = true
+                return .stop
+            }
+            if !entry.isDirectory, name.hasSuffix(".exe"), entry.relativePath.split(separator: "/").count <= 2 {
+                programs.append(entry.url)
+            }
+            return .continue
+        }
+        guard !hasPage else { return [] }
+        return programs.filter { (try? PEOverlayScanner.scan($0))?.kind == PEPayload.Kind.none }
     }
 
     func extractAsar(_ url: URL, to stagedRoot: URL, txn: ImportTransaction) async throws -> RunningTotals {

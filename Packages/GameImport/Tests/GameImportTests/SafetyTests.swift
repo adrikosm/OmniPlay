@@ -45,24 +45,6 @@ struct SafetyTests {
 
         try sealedSevenZip()
 
-        // ASAR headers are parsed whole by Foundation: one over 16 MiB is refused unread, and a tree past the entry cap
-        // stops at the cap instead of being copied out first.
-        func asar(_ json: String, declared: Int? = nil) -> Data {
-            let n = json.utf8.count, header = declared ?? n
-            return [4, header + 8, header + 4, header].reduce(into: Data()) { out, word in
-                withUnsafeBytes(of: UInt32(word).littleEndian) { out.append(contentsOf: $0) }
-            } + Data(json.utf8)
-        }
-        let bigHeader = try zip64Root.file("big.asar", asar("{}", declared: 17 << 20))
-        #expect(throws: ImportFailure.self) { try AsarExtractor.header(of: bigHeader) }
-        let nodes = (0 ..< 5).map { "\"f\($0)\":{\"size\":0,\"offset\":\"0\"}" }.joined(separator: ",")
-        let crowded = try zip64Root.file("crowded.asar", asar("{\"files\":{\(nodes)}}"))
-        var fewEntries = SafetyLimits.default
-        fewEntries.maxEntries = 2
-        #expect { try AsarExtractor(limits: fewEntries).extract(crowded, to: zip64Root.url.appending(path: "asar")) } throws: {
-            ($0 as? SafetyViolation)?.rule == .entryCount
-        }
-
         // Enigma Virtual Box tables are read from the program itself: names, offsets, the format word and aPLib
         // chunks are all the file's claims.
         let evbOut = zip64Root.url.appending(path: "evb")
@@ -78,6 +60,8 @@ struct SafetyTests {
         // A chunk table (20 bytes, one 4-byte chunk), then aPLib that keeps copying past the four bytes declared.
         let bomb = Data([20, 0, 0, 0, 0, 0, 0, 0, 4] + [UInt8](repeating: 0, count: 11) + [0x41, 0xD8, 0x03, 0x03])
         #expect(try evbRefused(evb(name: "a", body: bomb, original: 4), "bomb.evb") is ImportFailure)
+
+        try programFrontends(in: zip64Root)
 
         // RPG Maker installers carry cabinets, which libmspack decodes; their names go through the same validator.
         let cabRoot = try TemporaryGameRoot(name: "cab")
@@ -138,6 +122,53 @@ struct SafetyTests {
         + "UEsBAi0ALQAAAAAAAAAAAIamEDb//////////wUAFAAAAAAAAAAAAAAAAAAAAGEuYmluAQAQAAAAAAAAAABABQAAAAAAAABQSwUGAAAAAAEAAQBH"
         + "AAAAPAAAAAAA"
 
+    /// Web frontends packed into desktop programs: Electron's ASAR archive and Tauri's table inside the executable.
+    private func programFrontends(in root: TemporaryGameRoot) throws {
+        /// ASAR headers are parsed whole by Foundation: one over 16 MiB is refused unread, and a tree past the entry cap
+        /// stops at the cap instead of being copied out first.
+        func asar(_ json: String, declared: Int? = nil) -> Data {
+            let n = json.utf8.count, header = declared ?? n
+            return [4, header + 8, header + 4, header].reduce(into: Data()) { out, word in
+                withUnsafeBytes(of: UInt32(word).littleEndian) { out.append(contentsOf: $0) }
+            } + Data(json.utf8)
+        }
+        let bigHeader = try root.file("big.asar", asar("{}", declared: 17 << 20))
+        #expect(throws: ImportFailure.self) { try AsarExtractor.header(of: bigHeader) }
+        let nodes = (0 ..< 5).map { "\"f\($0)\":{\"size\":0,\"offset\":\"0\"}" }.joined(separator: ",")
+        let crowded = try root.file("crowded.asar", asar("{\"files\":{\(nodes)}}"))
+        var fewEntries = SafetyLimits.default
+        fewEntries.maxEntries = 2
+        #expect { try AsarExtractor(limits: fewEntries).extract(crowded, to: root.url.appending(path: "asar")) } throws: {
+            ($0 as? SafetyViolation)?.rule == .entryCount
+        }
+
+        // Tauri frontends are read out of the program by its own pointers: a path still goes through the validator, a
+        // pointer past its section ends the table, and a few bytes of brotli cannot fill the disk.
+        let page = Data("<html></html>".utf8)
+        func unpack(
+            _ name: String,
+            _ files: [(String, Data)],
+            badLast: Bool = false,
+            limits: SafetyLimits = .default
+        ) throws -> RunningTotals? {
+            try TauriExtractor(limits: limits).extract(
+                root.file(name, tauri(files, badLast: badLast)),
+                to: root.url.appending(path: name + ".out")
+            )
+        }
+        #expect { try unpack("escape.exe", [("/index.html", page), ("/../escape.txt", page)]) } throws: {
+            ($0 as? SafetyViolation)?.rule == .invalidPath
+        }
+        #expect(!FileManager.default.fileExists(atPath: root.url.appending(path: "escape.txt").path(percentEncoded: false)))
+        #expect(try unpack("bounds.exe", [("/index.html", page), ("/far.js", page)], badLast: true)?.entries == 1)
+        var ratioFloor = SafetyLimits.default
+        ratioFloor.minBytesForRatioCheck = 1 << 20
+        let zeros = try #require(Data(base64Encoded: "n///f/gnAOKxQCD3/g8=")) // 14 bytes of brotli, 8 MiB of zeros
+        #expect { try unpack("bomb.exe", [("/index.html", zeros)], limits: ratioFloor) } throws: {
+            ($0 as? SafetyViolation)?.rule == .overallRatio
+        }
+    }
+
     /// 7-Zip AES with encrypted names (OmniPlay's libarchive patch): the header itself needs the password, a wrong
     /// one says so rather than reading as damage, and the right one gives the file back byte for byte.
     private func sealedSevenZip() throws {
@@ -170,6 +201,37 @@ struct SafetyTests {
         // The table begins on the last byte of the root node, so the root's count is written one byte short.
         let root = u32(nodes.count - 1 + 12) + Data(count: 8) + u32(1)
         return Data("EVB\0".utf8) + Data(count: 12) + u32(1) + u32(format) + Data(count: 40) + root.dropLast() + nodes + body
+    }
+
+    /// A PE32+ image with one section holding the paths, the bodies and tauri-codegen's table of (path, bytes) slices.
+    /// `badLast` points the last body past the section.
+    private func tauri(_ files: [(String, Data)], badLast: Bool = false) -> Data {
+        let base: UInt64 = 0x1_4000_0000, rva: UInt64 = 0x1000, headers = 0x200
+        var section = Data(), table: [[UInt64]] = []
+        for (path, body) in files {
+            let key = base + rva + UInt64(section.count)
+            section += Data(path.utf8)
+            let value = base + rva + UInt64(section.count)
+            section += body
+            table.append([key, UInt64(path.utf8.count), value, UInt64(body.count)])
+        }
+        if badLast {
+            table[table.count - 1][2] = base + rva + 0x100000
+        }
+        for word in table.joined() {
+            withUnsafeBytes(of: word.littleEndian) { section.append(contentsOf: $0) }
+        }
+        var pe = Data(count: headers)
+        func put(_ value: some FixedWidthInteger, at offset: Int) {
+            withUnsafeBytes(of: value.littleEndian) { pe.replaceSubrange(offset ..< offset + $0.count, with: $0) }
+        }
+        put(UInt16(0x5A4D), at: 0); put(UInt32(64), at: 0x3C); put(UInt32(0x4550), at: 64)
+        put(UInt16(0x8664), at: 68); put(UInt16(1), at: 70); put(UInt16(240), at: 84) // machine, one section, optional size
+        put(UInt16(0x20B), at: 88); put(base, at: 112) // PE32+, image base
+        for (field, value) in [(8, section.count), (12, Int(rva)), (16, section.count), (20, headers)] {
+            put(UInt32(value), at: 328 + field) // virtual size, address, raw size, raw offset
+        }
+        return pe + section
     }
 
     /// A one-file, uncompressed Microsoft cabinet (MS-CAB: header, folder, file, one data block without checksum).
