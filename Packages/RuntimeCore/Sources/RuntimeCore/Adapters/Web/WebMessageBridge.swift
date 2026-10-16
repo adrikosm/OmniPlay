@@ -5,7 +5,7 @@
 
     /// Receives typed messages from the isolated world and navigation callbacks; never evaluates page strings.
     @MainActor
-    final class MessageBridge: NSObject, WKScriptMessageHandler, WKScriptMessageHandlerWithReply, WKNavigationDelegate {
+    final class MessageBridge: NSObject, WKScriptMessageHandler, WKScriptMessageHandlerWithReply, WKNavigationDelegate, WKUIDelegate {
         static let handlers = [
             "omniplay.console",
             "omniplay.save",
@@ -101,5 +101,65 @@
         }
 
         func webViewWebContentProcessDidTerminate(_: WKWebView) { onEvent(.processTerminated) }
+
+        // MARK: The page's alert, confirm and prompt
+
+        // Without these WebKit answers every confirm() with Cancel, so a game's own "Delete this save?" never deleted.
+        // Each one is answered exactly once; with nowhere to show it (a menu closing) the page gets Cancel at once.
+
+        func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame _: WKFrameInfo) async {
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in done.resume() })
+                if !Self.present(alert, over: webView) {
+                    done.resume()
+                }
+            }
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            runJavaScriptConfirmPanelWithMessage message: String,
+            initiatedByFrame _: WKFrameInfo
+        ) async -> Bool {
+            await withCheckedContinuation { done in
+                let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in done.resume(returning: false) })
+                alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in done.resume(returning: true) })
+                if !Self.present(alert, over: webView) {
+                    done.resume(returning: false)
+                }
+            }
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            runJavaScriptTextInputPanelWithPrompt prompt: String,
+            defaultText: String?,
+            initiatedByFrame _: WKFrameInfo
+        ) async -> String? {
+            await withCheckedContinuation { done in
+                let alert = UIAlertController(title: nil, message: prompt, preferredStyle: .alert)
+                alert.addTextField { $0.text = defaultText }
+                alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in done.resume(returning: nil) })
+                alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak alert] _ in
+                    done.resume(returning: alert?.textFields?.first?.text ?? "")
+                })
+                if !Self.present(alert, over: webView) {
+                    done.resume(returning: nil)
+                }
+            }
+        }
+
+        /// On the top-most screen showing now; false when there is none to show it on.
+        static func present(_ alert: UIAlertController, over webView: WKWebView) -> Bool {
+            var top = webView.window?.rootViewController
+            while let next = top?.presentedViewController, !next.isBeingDismissed {
+                top = next
+            }
+            guard let top, !top.isBeingDismissed, top.viewIfLoaded?.window != nil else { return false }
+            top.present(alert, animated: true)
+            return true
+        }
     }
 #endif

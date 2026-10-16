@@ -101,9 +101,11 @@ public enum GameToolsCapabilityResolver {
             add(.persistentData, .available)
         }
         if playable {
-            // While playing, only an engine that loads and writes its own slots offers them (edit in game, SAVE-009).
+            // While playing, an engine that loads and writes its own slots offers them (edit in game, SAVE-009), and a
+            // web page's saves are mirrored to files as they are written, so they can be backed up and exported live.
             if running {
-                add(.saves, out.state.contains(.slots) ? .available : .unavailable("Leave the game to restore, import or export saves."))
+                let live = out.state.contains(.slots) || [.html5, .rpgMakerMV, .rpgMakerMZ].contains(engine)
+                add(.saves, live ? .available : .unavailable("Leave the game to restore, import or export saves."))
             } else {
                 add(.saves, .available)
             }

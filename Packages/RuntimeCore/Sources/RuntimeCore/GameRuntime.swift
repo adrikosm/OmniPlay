@@ -87,6 +87,13 @@ public protocol ScreenCapturing: AnyObject, Sendable {
     func captureScreen(width: CGFloat?) async -> CGImage?
 }
 
+/// Adapters whose page keeps web storage. A change made while the game runs goes through the page, so the page and
+/// the save files it mirrors to never disagree; `nil` removes the key.
+@MainActor
+public protocol WebStorageWriting: AnyObject, Sendable {
+    func writeStorage(_ key: String, _ value: String?) async throws
+}
+
 /// Adapters that hand over the text their dictionaries missed and show translations as they arrive (TRANS-006).
 @MainActor
 public protocol LiveTranslationHost: AnyObject, Sendable {

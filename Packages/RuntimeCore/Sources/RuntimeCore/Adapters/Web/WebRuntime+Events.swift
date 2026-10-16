@@ -80,6 +80,7 @@
                 dispatch("omniplay:pause")
                 webView?.setAllMediaPlaybackSuspended(true)
             } else {
+                showPage(true)
                 // A second later regardless, in case WebKit never answers (a web process that just ended).
                 let resumed = OutcomeBox()
                 let resume = { [weak self] in
@@ -240,15 +241,23 @@
         public func captureScreen(width: CGFloat?) async -> CGImage? {
             guard let webView else { return nil }
             // A small picture is the frame on screen now, not the next one: the paused page may not draw again soon.
+            // A page taken out of the window under the pause menu (the screenshot button) is put back and drawn first.
+            let wasHidden = webView.window == nil
+            showPage(true)
             let config = width.map { width in
                 let config = WKSnapshotConfiguration()
                 config.snapshotWidth = NSNumber(value: Double(width))
-                config.afterScreenUpdates = false
+                config.afterScreenUpdates = wasHidden
                 return config
             }
-            return await withCheckedContinuation { continuation in
+            let image = await withCheckedContinuation { continuation in
                 webView.takeSnapshot(with: config) { image, _ in continuation.resume(returning: image?.cgImage) }
             }
+            // Once the paused frame is taken the page leaves the window until resume (`showPage`).
+            if userPaused {
+                showPage(false)
+            }
+            return image
         }
     }
 
@@ -302,5 +311,22 @@
         }
 
         var total: (files: Int, bytes: Int64) { state.withLock { $0 } }
+    }
+
+    extension WebRuntime: WebStorageWriting {
+        /// Through the page's own `localStorage`, whose mirror writes the save file and is waited on, so the running
+        /// game sees the change at once and never writes the old value back over it.
+        public func writeStorage(_ key: String, _ value: String?) async throws {
+            guard let webView else { throw StateBridgeError.engine("the game is not running") }
+            _ = try await webView.callAsyncJavaScript(
+                """
+                if (value === null) localStorage.removeItem(key); else localStorage.setItem(key, value);
+                await window.__omniplayFlushSaves();
+                """,
+                arguments: ["key": key, "value": value ?? NSNull()],
+                in: nil,
+                contentWorld: .page
+            )
+        }
     }
 #endif

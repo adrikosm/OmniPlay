@@ -354,6 +354,11 @@ public actor RuntimeCoordinator {
         get async { activeRuntime as? any StateInspecting }
     }
 
+    /// The running page's web storage, for edits made while the game runs.
+    public var storageWriter: (any WebStorageWriting)? {
+        get async { activeRuntime as? any WebStorageWriting }
+    }
+
     /// The running adapter, when it can take live translations.
     public var liveTranslationHost: (any LiveTranslationHost)? {
         get async { activeRuntime as? any LiveTranslationHost }

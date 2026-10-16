@@ -32,6 +32,8 @@ struct SaveBackupsView: View {
     var identityHash: String { AppModel.identityHash(for: game.id, paths: model.paths) }
 
     var strategy: SaveStrategy { SaveStrategy.forEngine(game.engine, generation: game.generation) }
+    /// A plain HTML5 game keeps every save in its web storage, so it has saves without any slot.
+    var hasSaves: Bool { !slots.isEmpty || stores.contains(where: \.isPresent) }
 
     var body: some View {
         ScrollView {
@@ -39,7 +41,7 @@ struct SaveBackupsView: View {
                 VStack(alignment: .leading, spacing: Theme.s4) {
                     GlassSection("Saves") {
                         if slots.isEmpty {
-                            ListRow(title: "Nothing saved yet", dimmed: true)
+                            ListRow(title: hasSaves ? "Saved in the game's own data, below" : "Nothing saved yet", dimmed: true)
                         }
                         ForEach(slots) { slot in
                             Button { withTransaction(\.disablesAnimations, true) { details = slot } } label: {
@@ -197,14 +199,14 @@ struct SaveBackupsView: View {
     @ViewBuilder var actions: some View {
         Button { Task { await backUpNow() } } label: { Text("Back up now") }
             .buttonStyle(.primary)
-            .disabled(busy || slots.isEmpty)
+            .disabled(busy || !hasSaves)
         if let exportURL {
             ShareLink(item: exportURL) { Label("Share", systemImage: "square.and.arrow.up") }
                 .buttonStyle(.secondary)
         } else {
             Button { Task { await exportSaves() } } label: { Label("Export", systemImage: "square.and.arrow.up") }
                 .buttonStyle(.secondary)
-                .disabled(busy || slots.isEmpty)
+                .disabled(busy || !hasSaves)
         }
         Button { showImporter = true } label: { Label("Import", systemImage: "square.and.arrow.down") }
             .buttonStyle(.secondary)

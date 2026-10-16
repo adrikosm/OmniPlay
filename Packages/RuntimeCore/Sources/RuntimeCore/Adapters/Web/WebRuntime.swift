@@ -195,18 +195,10 @@
             webView.scrollView.bounces = false
             webView.scrollView.contentInsetAdjustmentBehavior = .never
             webView.navigationDelegate = bridge
+            webView.uiDelegate = bridge
             webView.customUserAgent = Self.userAgent(profile.userAgent)
-            host.containerView.addSubview(webView)
-            // Inside the safe area at the top and sides, so no page draws under the Dynamic Island in either
-            // orientation; the bottom stays full height, since the home indicator only overlays a thin bar.
-            let guide = host.containerView.safeAreaLayoutGuide
-            NSLayoutConstraint.activate([
-                webView.topAnchor.constraint(equalTo: guide.topAnchor),
-                webView.bottomAnchor.constraint(equalTo: host.containerView.bottomAnchor),
-                webView.leadingAnchor.constraint(equalTo: guide.leadingAnchor),
-                webView.trailingAnchor.constraint(equalTo: guide.trailingAnchor),
-            ])
             self.webView = webView
+            showPage(true)
             let entry = entryPage
             guard let url = URL(string: "http://127.0.0.1:\(port)/\(entry)") else { throw Failure.navigation("bad entry \(entry)") }
             OPLog.log(.web, .info, "loading \(url) bundle v\(WebRuntimeBundle.version)", session: configuration.sessionID)
@@ -226,6 +218,25 @@
                     }
                 }
             }
+        }
+
+        /// In the host's view, or out of the window under the pause menu: a page out of the window is not visible to
+        /// WebKit, so its animation frames, CSS animations and repaints stop (a heavy Twine page made the tools crawl
+        /// while it went on drawing behind them). Hiding the view was not enough; scripts still run either way.
+        func showPage(_ shown: Bool) {
+            guard let webView, let container = host?.containerView else { return }
+            guard shown else { return webView.removeFromSuperview() }
+            guard webView.superview == nil else { return }
+            container.addSubview(webView)
+            // Inside the safe area at the top and sides, so no page draws under the Dynamic Island in either
+            // orientation; the bottom stays full height, since the home indicator only overlays a thin bar.
+            let guide = container.safeAreaLayoutGuide
+            NSLayoutConstraint.activate([
+                webView.topAnchor.constraint(equalTo: guide.topAnchor),
+                webView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+                webView.leadingAnchor.constraint(equalTo: guide.leadingAnchor),
+                webView.trailingAnchor.constraint(equalTo: guide.trailingAnchor),
+            ])
         }
 
         public func pause() async {

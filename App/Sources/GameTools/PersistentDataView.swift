@@ -22,9 +22,11 @@ struct PersistentDataView: View {
     @State private var exportURL: URL?
     @State private var pendingReset: PersistentStoreInfo?
     @State private var restoring: PersistentStoreInfo?
+    /// Read once: it decodes the game's detection file, too slow to redo on every redraw over a running game.
+    @State private var identityHash = ""
+    @State private var writer: (any WebStorageWriting)?
 
     private var location: SaveLocation { SaveLocation.forGame(game.id, paths: model.paths) }
-    private var identityHash: String { AppModel.identityHash(for: game.id, paths: model.paths) }
 
     var body: some View {
         ScrollView {
@@ -131,7 +133,10 @@ struct PersistentDataView: View {
             NavigationLink { VariablesView(tools: tools, categories: [.persistent]) } label: { label() }.buttonStyle(.row)
         } else if store.kind == .webLocalStorage || store.kind == .mvGlobalConfig, store.isPresent {
             NavigationLink {
-                WebStorageEditor(location: location, identityHash: identityHash, paths: store.paths, writable: !running)
+                WebStorageEditor(
+                    location: location, identityHash: identityHash, paths: store.paths,
+                    writable: !running || writer != nil, live: running ? writer : nil
+                )
             } label: { label() }
                 .buttonStyle(.row)
         } else {
@@ -143,9 +148,15 @@ struct PersistentDataView: View {
         let location = location
         let kinds = SaveStrategy.forEngine(game.engine, generation: game.generation).persistentStores
             .compactMap { PersistentStoreKind(rawValue: $0.rawValue) }
-        (stores, snapshots) = await Task.detached {
-            (PersistentStoreRegistry.stores(location: location, kinds: kinds), SaveVault.snapshots(location: location))
+        let (id, paths) = (game.id, model.paths)
+        (stores, snapshots, identityHash) = await Task.detached {
+            (
+                PersistentStoreRegistry.stores(location: location, kinds: kinds),
+                SaveVault.snapshots(location: location),
+                AppModel.identityHash(for: id, paths: paths)
+            )
         }.value
+        writer = running ? await model.coordinator?.storageWriter : nil
     }
 
     private func backUp() async {

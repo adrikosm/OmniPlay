@@ -73,14 +73,58 @@
       return url.href;
     } catch (_) { return value; }
   };
+  // WebKit's Now Playing bookkeeping walks every live media element on each play, pause and end, and for each one
+  // walks them all again. Twine games keep a preloaded <audio> per sound and clone one per play, so a long session
+  // holds hundreds: the page then burns a whole core and a tap waits seconds. A detached <audio> that has ended, or
+  // never started, moves after IDLE_MS into a document with no page, where WebKit forgets it; play() or cloneNode()
+  // brings it back first (a clone made there could never play).
+  const IDLE_MS = 3000;
+  const inert = document.implementation.createHTMLDocument("");
+  const tracked = new Set(), known = new WeakSet(), seen = new WeakMap();
+  const track = (el) => {
+    if (!(el instanceof HTMLAudioElement) || known.has(el)) return;
+    known.add(el);
+    seen.set(el, Date.now());
+    tracked.add(new WeakRef(el));
+  };
+  const unpark = (el) => {
+    seen.set(el, Date.now());
+    if (el.ownerDocument === inert) document.adoptNode(el);
+  };
+  setInterval(() => {
+    const now = Date.now();
+    for (const ref of tracked) {
+      const el = ref.deref();
+      if (!el) { tracked.delete(ref); continue; }
+      if (el.ownerDocument === inert) continue;
+      if (!el.paused || el.networkState === HTMLMediaElement.NETWORK_LOADING) { seen.set(el, now); continue; }
+      if (now - seen.get(el) >= IDLE_MS && (el.ended || el.currentTime === 0) && !el.isConnected) inert.adoptNode(el);
+    }
+  }, 2000);
   const media = window.HTMLMediaElement && HTMLMediaElement.prototype;
   const src = media && Object.getOwnPropertyDescriptor(media, "src");
   if (src && src.set) {
-    Object.defineProperty(media, "src", { configurable: true, enumerable: src.enumerable, get: src.get, set(value) { src.set.call(this, rewrite(value)); } });
+    Object.defineProperty(media, "src", { configurable: true, enumerable: src.enumerable, get: src.get,
+      set(value) { track(this); unpark(this); src.set.call(this, rewrite(value)); } });
   }
   const setAttribute = Element.prototype.setAttribute;
   Element.prototype.setAttribute = function (name, value) {
-    if (this instanceof HTMLMediaElement && String(name).toLowerCase() === "src") value = rewrite(value);
+    if (this instanceof HTMLMediaElement && String(name).toLowerCase() === "src") {
+      value = rewrite(value);
+      track(this);
+      unpark(this);
+    }
     return setAttribute.call(this, name, value);
   };
+  if (media) {
+    const play = media.play, clone = media.cloneNode;
+    media.play = function (...args) { track(this); unpark(this); return play.apply(this, args); };
+    media.cloneNode = function (...args) { unpark(this); return clone.apply(this, args); };
+  }
+  const NativeAudio = window.Audio;
+  if (NativeAudio) {
+    const Audio = function (...args) { const el = new NativeAudio(...args); track(el); return el; };
+    Audio.prototype = NativeAudio.prototype;
+    window.Audio = Audio;
+  }
 })();
