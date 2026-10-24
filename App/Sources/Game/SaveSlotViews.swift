@@ -1,4 +1,5 @@
 import GameCore
+import GameStore
 import SaveKit
 import SwiftUI
 import UIKit
@@ -161,5 +162,78 @@ struct SaveSlotDetails: View {
             Text(value).font(mono ? Theme.mono : .footnote).foregroundStyle(failed ? Theme.danger : Theme.textPrimary)
                 .lineLimit(1).truncationMode(.middle)
         }
+    }
+}
+
+/// "Saves changed in the Files app", asked before a launch and when Saves opens. Use them imports the changed files
+/// through the normal save import, which backs up the current saves first; Ignore puts the folder back to the real
+/// saves. `done` runs once either has happened; the close button leaves everything as it is.
+struct SavesChangedSheet: View {
+    @Environment(AppModel.self) private var model
+    let game: GameRecord
+    let changes: Int
+    let close: () -> Void
+    let done: () -> Void
+    /// What the import said instead of installing: warnings can be confirmed, refusals only ignored.
+    @State private var problem: (title: String, lines: [String], canConfirm: Bool)?
+    @State private var busy = false
+    @State private var appeared = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.s4) {
+            SheetHeader(title: problem?.title ?? "Saves changed in the Files app", close: close)
+            if let problem {
+                ForEach(problem.lines, id: \.self) { line in
+                    Text(line).font(.subheadline).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                Text("\(changes) file\(changes == 1 ? " was" : "s were") added or changed in Titles › Saves › \(folder).")
+                    .font(.subheadline).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+            }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: Theme.s4) { buttons }
+                VStack(alignment: .leading, spacing: 10) { buttons }
+            }
+            .disabled(busy)
+            Text(problem?.canConfirm == false
+                ? "Ignore puts the folder back to your current saves, which stay as they are."
+                : "Your current saves are backed up first. Ignore puts the folder back to them.")
+                .font(.footnote).foregroundStyle(Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
+        }
+        .onAppear { appeared = true }
+        .sensoryFeedback(.warning, trigger: appeared)
+    }
+
+    private var folder: String { model.saveMirror.folder(for: game.id, title: game.title).lastPathComponent }
+
+    @ViewBuilder private var buttons: some View {
+        if problem?.canConfirm != false {
+            Button(problem == nil ? "Use them" : "Use them anyway") { Task { await use(confirmed: problem != nil) } }
+                .buttonStyle(.primary)
+            Button("Ignore") { Task { await ignore() } }.buttonStyle(.link)
+        } else {
+            Button("Ignore") { Task { await ignore() } }.buttonStyle(.primary)
+        }
+    }
+
+    private func use(confirmed: Bool) async {
+        busy = true
+        defer { busy = false }
+        do {
+            switch try await model.useMirrorChanges(for: game, confirmed: confirmed) {
+            case .installed: done()
+            case let .needsConfirmation(warnings): problem = ("Use these saves anyway?", warnings, true)
+            case let .nothingRecognised(reasons): problem = ("These files could not be used", reasons, false)
+            }
+        } catch {
+            problem = ("These files could not be used", ["Nothing was changed: \(error.localizedDescription)"], false)
+        }
+    }
+
+    private func ignore() async {
+        busy = true
+        await model.mirrorSaves(game.id, title: game.title, force: true)
+        busy = false
+        done()
     }
 }

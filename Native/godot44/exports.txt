@@ -6,3 +6,5 @@ _op_godot44_status
 _op_godot44_frames
 _op_godot44_app_event
 _op_godot44_key
+_op_godot44_state
+_op_godot44_state_free

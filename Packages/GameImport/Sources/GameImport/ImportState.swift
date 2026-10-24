@@ -26,6 +26,8 @@ public enum ImportState: Sendable, Hashable {
     case analyzingMedia
     case preparing(ImportProgress)
     case registering
+    /// Paused on a question, staging kept, until the player answers.
+    case waiting(ImportQuestion)
     case ready(GameID)
     case failed(ImportFailure)
     case cancelled
@@ -49,11 +51,32 @@ public enum ImportState: Sendable, Hashable {
         case .analyzingMedia: "analyzingMedia"
         case .preparing: "preparing"
         case .registering: "registering"
+        case .waiting: "waiting"
         case .ready: "ready"
         case .failed: "failed"
         case .cancelled: "cancelled"
         }
     }
+}
+
+/// What an import can stop and ask before it goes on.
+public enum ImportQuestion: Sendable, Hashable {
+    /// The same file was imported before; asked before anything is unpacked.
+    case sameFile(existing: GameID, title: String)
+    /// The same game from other files, with the version each one names and how the new one compares.
+    case otherVersion(existing: GameID, title: String, installed: String?, incoming: String?, order: VersionOrder, incomingBytes: Int64)
+    /// Several plausible game folders (relative paths inside the staged tree).
+    case severalRoots([String])
+}
+
+/// How a release's version compares with the one in the library; `unknown` when either is missing or unreadable.
+public enum VersionOrder: Sendable, Hashable { case newer, older, same, unknown }
+
+public enum ImportAnswer: Sendable, Hashable {
+    case cancel
+    case replace(GameID)
+    case keepBoth
+    case root(String)
 }
 
 public enum ImportFailure: Error, Sendable, Hashable {

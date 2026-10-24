@@ -12,9 +12,12 @@
   'use strict';
   if (window.__omniplayState) return;
 
+  // Started or loaded, not the title: Scene_Boot sets up a throwaway new game for the title (map 0), and after
+  // "To Title" the old game's objects linger until the next start or load replaces them.
   function ready() {
     return typeof $gameSystem !== 'undefined' && $gameSystem && typeof $gameParty !== 'undefined' && $gameParty &&
-      typeof $dataSystem !== 'undefined' && $dataSystem;
+      typeof $dataSystem !== 'undefined' && $dataSystem && typeof $gameMap !== 'undefined' && $gameMap &&
+      $gameMap.mapId() > 0 && !(typeof Scene_Title !== 'undefined' && SceneManager._scene instanceof Scene_Title);
   }
   function itemTable(kind) {
     return kind === 'weapon' ? $dataWeapons : kind === 'armor' ? $dataArmors : $dataItems;
@@ -398,7 +401,7 @@
         case 'list': {
           var all = entries(request.category, request.query);
           var page = all.slice(request.offset, request.offset + request.size);
-          return { entries: page, hasMore: request.offset + request.size < all.length };
+          return { entries: page, hasMore: request.offset + request.size < all.length, total: all.length };
         }
         case 'get': return { entries: [{ target: request.target, name: '', value: read(request.target), editable: true }], hasMore: false };
         case 'set': return write(request.target, request.operation || 'set', request.value);

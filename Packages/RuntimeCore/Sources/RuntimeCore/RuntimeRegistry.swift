@@ -64,6 +64,9 @@ public actor RuntimeRegistry {
 
     public func descriptor(for id: RuntimeIdentifier) -> RuntimeDescriptor? { descriptors[id] }
 
+    /// The runtimes this build carries.
+    public func bundled() -> [RuntimeDescriptor] { descriptors.values.filter { $0.availability == .bundled } }
+
     /// Every runtime the roadmap plans, none built yet.
     public static let planned: [RuntimeDescriptor] = [
         .init(

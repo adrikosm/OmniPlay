@@ -13,6 +13,11 @@ public struct DetectionPipeline: Sendable {
         self.analyzers = analyzers
     }
 
+    /// Each detector's and analyzer's version, as every report records them.
+    public var versions: [String: Int] {
+        Dictionary(detectors.map { ($0.id.rawValue, $0.version) } + analyzers.map { ($0.id.rawValue, $0.version) }) { $1 }
+    }
+
     public func run(
         _ ctx: ScanContext,
         id: GameID = GameID(),
@@ -22,10 +27,8 @@ public struct DetectionPipeline: Sendable {
     ) -> DetectionReport {
         let facts = StructureFacts.inspect(ctx)
         var reports: [(DetectorID, DetectorReport)] = []
-        var versions: [String: Int] = [:]
         var failures: [DetectionEvidence] = []
         for detector in detectors {
-            versions[detector.id.rawValue] = detector.version
             do {
                 try reports.append((detector.id, detector.probe(ctx, facts: facts)))
             } catch {
@@ -38,9 +41,6 @@ public struct DetectionPipeline: Sendable {
                 ))
                 OPLog.log(.detection, .error, "detector \(detector.id.rawValue) failed: \(error)")
             }
-        }
-        for analyzer in analyzers {
-            versions[analyzer.id.rawValue] = analyzer.version
         }
         var report = OutcomeAggregator().aggregate(
             reports: reports, analyzers: analyzers, ctx: ctx, facts: facts, id: id, title: title, identityHash: identityHash,

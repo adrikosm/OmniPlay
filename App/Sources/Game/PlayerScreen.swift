@@ -211,6 +211,8 @@ struct PlayerScreen: View {
                         closeMenu()
                     },
                     onScreenshot: { await screenshot() },
+                    gameID: game.id,
+                    onCapture: { await capture() },
                     onResume: { closeMenu() },
                     onExit: { Task { await leave() } }
                 )

@@ -5,7 +5,7 @@ import GameImport
 /// Godot PCK header and directory: exact version, pack format, flags, GDExtension and C# markers.
 public struct GodotPCKDetector: Detector {
     public let id = DetectorID.godotPCK
-    public let version = 1
+    public let version = 2
     public init() {}
 
     public func probe(_ ctx: ScanContext, facts: StructureFacts) throws -> DetectorReport {
@@ -64,9 +64,13 @@ public struct GodotPCKDetector: Detector {
                 "The package directory is encrypted"
             )
         }
-        let gdext = ctx.glob("*.gdextension", limit: 16) + ctx.glob("*/*.gdextension", limit: 16)
-        if !gdext.isEmpty {
-            let names = gdext.map(\.realRel)
+        // Loose files, or (the usual export) the pack's own list: a Windows DLL beside the pack never loads on iOS.
+        var names = (ctx.glob("*.gdextension", limit: 16) + ctx.glob("*/*.gdextension", limit: 16)).map(\.realRel)
+        if names.isEmpty, flags & 1 == 0,
+           let list = try? Self.packEntry(handle: handle, packStart: offset, format: format, path: ".godot/extension_list.cfg", maxBytes: 64 << 10) {
+            names = String(decoding: list, as: UTF8.self).split(whereSeparator: \.isNewline).map(String.init).filter { !$0.isEmpty }
+        }
+        if !names.isEmpty {
             r.partial.blockers.append(.gdextension(names))
             r.add(
                 id,
@@ -88,7 +92,7 @@ public struct GodotPCKDetector: Detector {
         r.partial.saveFamily = .godotUserDir
         r.partial.exportPlatform = offset > 0 || !facts.exeNames.isEmpty ? .windows : .unknown
         r.partial.entryPoint = name
-        if flags & 1 == 0, let title = try? Self.projectName(handle: handle, packStart: offset, format: format, flags: flags) {
+        if flags & 1 == 0, let title = (try? Self.projectConfig(handle: handle, packStart: offset, format: format))?[Self.nameKey] {
             r.partial.title = title
         }
         return r
@@ -124,11 +128,84 @@ public struct GodotPCKDetector: Detector {
         return (list, nil)
     }
 
-    /// `application/config/name` from the pack's `project.binary`, the game's own name (the import's file name is
-    /// "turbofat-win-v1.1215"). Untrusted bytes: every count, length and offset is bounded, and data counts only when
-    /// it starts with the config magic. Pack format 1 addresses files from the file start, 2 from a file base that may
-    /// be relative to the pack, 3 adds a directory offset; each plausible origin is tried.
-    static func projectName(handle: FileHandle, packStart: Int64, format: UInt32, flags: UInt32) throws -> String? {
+    public static let nameKey = "application/config/name"
+    public static let versionKey = "application/config/version"
+    public static let iconKey = "application/config/icon"
+
+    /// The pack's project settings (`nameKey`, `versionKey`, `iconKey`, whichever are set as strings). Empty when the
+    /// file is not a Godot pack or its directory is encrypted.
+    public static func projectConfig(url: URL, packStart: Int64) -> [String: String] {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return [:] }
+        defer { try? handle.close() }
+        guard let (format, flags) = try? header(handle, packStart), flags & 1 == 0 else { return [:] }
+        return (try? projectConfig(handle: handle, packStart: packStart, format: format)) ?? [:]
+    }
+
+    /// One file of the pack, `res://` path or not, at most `maxBytes`; nil when absent, encrypted or larger.
+    public static func packEntry(url: URL, packStart: Int64, path: String, maxBytes: Int = 8 << 20) -> Data? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard let (format, flags) = try? header(handle, packStart), flags & 1 == 0 else { return nil }
+        return try? packEntry(handle: handle, packStart: packStart, format: format, path: path, maxBytes: maxBytes)
+    }
+
+    /// The `res://` path a Godot 4.4+ `uid://` text stands for, from the pack's `.godot/uid_cache.bin`
+    /// (a count, then per entry a u64 id, a u32 length and the path). Nil when absent or damaged.
+    public static func resolveUID(_ text: String, url: URL, packStart: Int64) -> String? {
+        guard text.hasPrefix("uid://"), text.count > 6, text.count <= 20 else { return nil }
+        var id: UInt64 = 0
+        for c in text.utf8.dropFirst(6) {
+            let digit: UInt8? = switch c {
+            case UInt8(ascii: "a") ... UInt8(ascii: "z"): c - UInt8(ascii: "a")
+            case UInt8(ascii: "0") ... UInt8(ascii: "9"): c - UInt8(ascii: "0") + 25
+            default: nil
+            }
+            guard let digit else { return nil }
+            id = id &* 34 &+ UInt64(digit) // Godot's ResourceUID text: base 34, letters then digits from 25
+        }
+        id &= 0x7FFF_FFFF_FFFF_FFFF
+        guard let cache = packEntry(url: url, packStart: packStart, path: ".godot/uid_cache.bin", maxBytes: 4 << 20)
+        else { return nil }
+        func u32(_ o: Int) -> Int? {
+            o >= 0 && o + 4 <= cache.count ? Int(cache.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: o, as: UInt32.self) }.littleEndian) : nil
+        }
+        guard let count = u32(0), count <= 200_000 else { return nil }
+        var o = 4
+        for _ in 0 ..< count {
+            guard o + 12 <= cache.count, let length = u32(o + 8), length <= 4096, o + 12 + length <= cache.count else { return nil }
+            let entry = cache.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: o, as: UInt64.self) }.littleEndian
+            if entry == id {
+                return String(bytes: cache[(o + 12) ..< (o + 12 + length)].prefix { $0 != 0 }, encoding: .utf8)
+            }
+            o += 12 + length
+        }
+        return nil
+    }
+
+    /// `GDPC`, then the pack format and, from format 2, the pack flags (bit 0: encrypted directory).
+    static func header(_ handle: FileHandle, _ packStart: Int64) throws -> (UInt32, UInt32)? {
+        try handle.seek(toOffset: UInt64(packStart))
+        guard let head = try handle.read(upToCount: 28), head.count >= 28, head.prefix(4).elementsEqual("GDPC".utf8) else { return nil }
+        func u32(_ o: Int) -> UInt32 { head.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: o, as: UInt32.self) }.littleEndian }
+        let format = u32(4)
+        return (format, format >= 2 ? u32(20) : 0)
+    }
+
+    static func projectConfig(handle: FileHandle, packStart: Int64, format: UInt32) throws -> [String: String] {
+        let config = try packEntry(handle: handle, packStart: packStart, format: format, path: "project.binary", maxBytes: 1 << 20)
+        return config.map(configStrings) ?? [:]
+    }
+
+    /// Walks the pack directory for `path` (compared without `res://`). Untrusted bytes: every count, length and
+    /// offset is bounded. Pack format 1 addresses files from the file start, 2 from a file base that may be relative
+    /// to the pack, 3 adds a directory offset; the origin is the one where `project.binary` starts with its magic.
+    static func packEntry(
+        handle: FileHandle,
+        packStart: Int64,
+        format: UInt32,
+        path wanted: String,
+        maxBytes: Int
+    ) throws -> Data? {
         func read(_ at: Int64, _ count: Int) throws -> Data? {
             guard at >= 0, count >= 0 else { return nil }
             try handle.seek(toOffset: UInt64(at))
@@ -142,6 +219,8 @@ public struct GodotPCKDetector: Detector {
             _ o: Int
         ) -> Int64 { Int64(bitPattern: d.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: o, as: UInt64.self) }.littleEndian)
         }
+        func bare(_ p: String) -> String { p.hasPrefix("res://") ? String(p.dropFirst(6)) : p }
+        let target = bare(wanted)
         guard let head = try read(packStart, 128) else { return nil }
         var fileBase: Int64 = 0, cursor: Int64
         switch format {
@@ -153,7 +232,8 @@ public struct GodotPCKDetector: Detector {
         let count = u32(countData, 0)
         guard count > 0, count <= 200_000 else { return nil }
         cursor += 4
-        for _ in 0 ..< count {
+        var found: (offset: Int64, size: Int64)?, config: Int64?
+        for _ in 0 ..< count where found == nil || config == nil {
             guard let lenData = try read(cursor, 4) else { return nil }
             let length = u32(lenData, 0)
             guard length > 0, length <= 4096, let pathData = try read(cursor + 4, length) else { return nil }
@@ -161,42 +241,53 @@ public struct GodotPCKDetector: Detector {
             let tail = format == 1 ? 32 : 36 // offset, size, md5 (and flags from format 2)
             guard let entry = try read(cursor, tail) else { return nil }
             cursor += Int64(tail)
-            let path = String(bytes: pathData.prefix { $0 != 0 }, encoding: .utf8) ?? ""
-            guard path.hasSuffix("project.binary") else { continue }
-            let (fileOffset, size) = (u64(entry, 0), u64(entry, 8))
-            guard size > 8, size <= 1 << 20 else { return nil }
-            for origin in [0, packStart, fileBase, packStart + fileBase] {
-                if let config = try read(origin + fileOffset, Int(size)), config.prefix(4).elementsEqual("ECFG".utf8) {
-                    return configName(config)
-                }
+            let path = bare(String(bytes: pathData.prefix { $0 != 0 }, encoding: .utf8) ?? "")
+            if path == "project.binary" {
+                config = u64(entry, 0)
             }
-            return nil
+            if path == target {
+                // Bit 0 of the file flags: encrypted.
+                guard tail == 32 || u32(entry, 32) & 1 == 0 else { return nil }
+                found = (u64(entry, 0), u64(entry, 8))
+            }
+        }
+        guard let found, let config, found.size > 8, found.size <= maxBytes else { return nil }
+        for origin in [0, packStart, fileBase, packStart + fileBase] {
+            let (at, overflow) = origin.addingReportingOverflow(config)
+            if !overflow, try read(at, 4)?.elementsEqual("ECFG".utf8) == true {
+                let (start, overflow) = origin.addingReportingOverflow(found.offset)
+                return overflow ? nil : try read(start, Int(found.size))
+            }
         }
         return nil
     }
 
     /// ProjectSettings' binary form: "ECFG", a count, then each key (length + UTF-8) and its encoded Variant
-    /// (length + type + value). Only a String `application/config/name` is read.
-    static func configName(_ d: Data) -> String? {
+    /// (length + type + value). Only String values of `nameKey`, `versionKey` and `iconKey` are read.
+    static func configStrings(_ d: Data) -> [String: String] {
         func u32(_ o: Int) -> Int? {
             guard o >= 0, o + 4 <= d.count else { return nil }
             return Int(d.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: o, as: UInt32.self) }.littleEndian)
         }
-        guard let count = u32(4), count <= 10000 else { return nil }
+        let wanted: Set = [nameKey, versionKey, iconKey]
+        var out: [String: String] = [:]
+        guard let count = u32(4), count <= 10000 else { return out }
         var o = 8
         for _ in 0 ..< count {
-            guard let keyLength = u32(o), keyLength <= 1024, o + 4 + keyLength <= d.count else { return nil }
+            guard let keyLength = u32(o), keyLength <= 1024, o + 4 + keyLength <= d.count else { return out }
             let key = String(bytes: d[(o + 4) ..< (o + 4 + keyLength)], encoding: .utf8) ?? ""
             o += 4 + keyLength
-            guard let valueLength = u32(o), valueLength <= d.count - o - 4 else { return nil }
-            if key == "application/config/name", let type = u32(o + 4), type & 0xFFFF == 4, let length = u32(o + 8),
-               length > 0, length <= 256, o + 12 + length <= d.count {
-                let name = (String(bytes: d[(o + 12) ..< (o + 12 + length)], encoding: .utf8) ?? "")
+            guard let valueLength = u32(o), valueLength <= d.count - o - 4 else { return out }
+            if wanted.contains(key), let type = u32(o + 4), type & 0xFFFF == 4, let length = u32(o + 8),
+               length > 0, length <= 1024, o + 12 + length <= d.count {
+                let value = (String(bytes: d[(o + 12) ..< (o + 12 + length)], encoding: .utf8) ?? "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                return name.isEmpty ? nil : name
+                if !value.isEmpty {
+                    out[key] = value
+                }
             }
             o += 4 + valueLength
         }
-        return nil
+        return out
     }
 }

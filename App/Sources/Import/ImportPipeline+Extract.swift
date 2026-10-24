@@ -176,7 +176,9 @@ extension ImportPipeline {
     ) throws -> DetectionReport {
         // Kept in staging: the commit copies it in as the game's `original` layer instead of walking the tree again.
         let ctx = try ScanContext(root: root, sidecars: located.sidecars, pePayload: pePayload, indexFile: indexFile)
-        return DetectionPipeline.standard.run(ctx, title: title, identityHash: fingerprint, rootRelativePath: located.relativePath)
+        var report = DetectionPipeline.standard.run(ctx, title: title, identityHash: fingerprint, rootRelativePath: located.relativePath)
+        report.detectorVersions["prep"] = ProgramFrontends.prepVersion
+        return report
     }
 
     func fileSize(_ url: URL) -> Int64? { (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) }

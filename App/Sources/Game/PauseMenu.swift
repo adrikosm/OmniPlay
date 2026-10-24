@@ -1,5 +1,6 @@
 import Diagnostics
 import Foundation
+import GameCore
 import InputKit
 import RuntimeCore
 import SwiftUI
@@ -34,6 +35,9 @@ struct PauseMenu: View {
     let onEditControls: () -> Void
     /// Takes and saves a screenshot; answers what happened.
     let onScreenshot: () async -> String
+    /// The game whose cover "Use as cover" sets, and the paused picture it starts from.
+    let gameID: GameID
+    let onCapture: () async -> CGImage?
     let onResume: () -> Void
     let onExit: () -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -45,6 +49,7 @@ struct PauseMenu: View {
     @State private var confirmExit = false
     @State private var screenshotResult: String?
     @State private var takingScreenshot = false
+    @State private var coverPicture: CoverPicture?
     @AppStorage(Haptics.intensityKey) private var haptics = 0.7
     @State private var showLogs = false
     @State private var showTools = false
@@ -53,10 +58,15 @@ struct PauseMenu: View {
     @State private var focus: Item?
 
     /// What a controller can reach: up and down move through these, A presses, B or Options resumes.
-    enum Item: Hashable { case resume, screenshot, tools, controls, engineMenu, logs, leave }
+    enum Item: Hashable { case resume, screenshot, cover, tools, controls, engineMenu, logs, leave }
+
+    struct CoverPicture: Identifiable, @unchecked Sendable {
+        let id = UUID()
+        let image: CGImage
+    }
 
     private var items: [Item] {
-        [.resume, .screenshot] + (gameTools == nil ? [] : [.tools]) + (hasTouchControls ? [.controls] : [])
+        [.resume, .screenshot, .cover] + (gameTools == nil ? [] : [.tools]) + (hasTouchControls ? [.controls] : [])
             + (engineMenu == nil ? [] : [.engineMenu]) + [.logs, .leave]
     }
 
@@ -84,6 +94,9 @@ struct PauseMenu: View {
             .background { backdropView }
             .navigationDestination(isPresented: $showLogs) { LogTailView(url: logURL) }
             .navigationDestination(isPresented: $showTools) { gameTools }
+            .fullScreenCover(item: $coverPicture) { picture in
+                CoverCropView(image: picture.image) { await useAsCover($0) } onCancel: { coverPicture = nil }
+            }
             // Only while the menu itself is on screen: a pushed page (the controller mapping screen) takes buttons.
             .onAppear { model.controllerListener = { controller($0) } }
             .onDisappear { model.controllerListener = nil }
@@ -140,6 +153,7 @@ struct PauseMenu: View {
         switch item {
         case .resume: close(then: onResume)
         case .screenshot: takeScreenshot()
+        case .cover: captureCover()
         case .tools: showTools = true
         case .controls: close(then: onEditControls)
         case .engineMenu: close(then: onEngineMenu)
@@ -154,6 +168,30 @@ struct PauseMenu: View {
             screenshotResult = await onScreenshot()
             takingScreenshot = false
         }
+    }
+
+    /// The paused picture into the crop view; its Use as cover comes back here with the result line.
+    private func captureCover() {
+        Task {
+            if let image = await onCapture() {
+                coverPicture = CoverPicture(image: image)
+            } else {
+                screenshotResult = "This game's picture could not be captured."
+            }
+        }
+    }
+
+    private func useAsCover(_ crop: CGImage) async {
+        let (id, paths) = (gameID, model.paths)
+        let path = await Task.detached { CoverExtractor.write(cgImage: crop, game: id, paths: paths) }.value
+        if let path, let store = model.store {
+            CoverExtractor.setCover(path, game: id, manual: true, store: store, paths: paths)
+            screenshotResult = "Cover updated."
+        } else {
+            screenshotResult = "The cover was not saved."
+        }
+        coverPicture = nil
+        OPLog.log(.ui, .info, "pause menu cover \(crop.width)x\(crop.height): \(path ?? "not written")")
     }
 
     /// The fade-out first, then the action (resume, editor, leave), so nothing cuts away.
@@ -265,6 +303,11 @@ struct PauseMenu: View {
                 }
             }
             GlassSection {
+                Button { captureCover() } label: {
+                    ListRow(icon: "photo.on.rectangle", title: "Use as cover", minHeight: 44) { Chevron() }
+                }
+                .buttonStyle(.row)
+                .ring(focus == .cover)
                 Button { showLogs = true } label: {
                     ListRow(icon: "doc.text", title: "Session log", minHeight: 44) { Chevron() }
                 }

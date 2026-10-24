@@ -43,6 +43,8 @@ public final class MutationEngine {
     public private(set) var frozen: [StateTarget: StateValue] = [:]
     /// Watched targets and their latest values; the visible UI owns refreshes, so hidden tools do no polling.
     public private(set) var watched: [StateTarget: StateValue] = [:]
+    /// Find by change: the values the player remembered, per list category. Live only, like `frozen`.
+    public var remembered: [StateCategory: [StateTarget: StateValue]] = [:]
 
     @ObservationIgnored public let inspector: any StateInspecting
     @ObservationIgnored private let backup: BackupHook?
@@ -159,6 +161,7 @@ public final class MutationEngine {
     public func stop() {
         watched = [:]
         frozen = [:]
+        remembered = [:]
     }
 
     public func refreshWatches() async {

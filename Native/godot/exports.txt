@@ -6,3 +6,5 @@ _op_godot_status
 _op_godot_frames
 _op_godot_app_event
 _op_godot_key
+_op_godot_state
+_op_godot_state_free

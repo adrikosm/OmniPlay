@@ -56,28 +56,49 @@ extension AppModel {
         return snapshot.resolution
     }
 
-    /// Runs detection again over the installed files, for a game imported before the detectors learned something
-    /// new or whose report is missing. The player's runtime choice is kept. A payload that only lived in the
-    /// imported `.exe` (not in the installed tree) is not seen again.
-    func redetect(_ id: GameID) async throws -> DetectionSnapshot? {
+    enum RecheckResult {
+        /// An import, a replacement or a deletion holds the game.
+        case busy
+        case checked(wasPlayable: Bool, snapshot: DetectionSnapshot, filesAdded: Int)
+    }
+
+    /// Looks at an installed game's files again: unpacks what import-time preparation would unpack today (a Tauri
+    /// frontend inside the program), then runs detection again. The player's runtime choice is kept. Nil when the game
+    /// is no longer in the library.
+    func recheck(_ id: GameID) async throws -> RecheckResult? {
         guard let store, let record = try store.games.fetch(id: id) else { return nil }
+        guard ImportPipeline.claim(id) else { return .busy }
+        defer { ImportPipeline.release(id) }
         let paths = paths
         let previous = Self.snapshot(for: id, paths: paths)
-        let report = try await Task.detached { () throws -> DetectionReport in
+        let (added, report) = try await Task.detached { () throws -> (Int, DetectionReport) in
             let gameRoot = paths.game(id)
             let original = paths.tier(.original, for: id)
             let root = record.rootRelPath.isEmpty ? original : original.appending(path: record.rootRelPath, directoryHint: .isDirectory)
+            let added = try ProgramFrontends.unpackInstalled(
+                original: original,
+                indexRoot: root,
+                manifest: gameRoot.appending(path: "original.manifest"),
+                index: gameRoot.appending(path: "index.sqlite"),
+                scratch: gameRoot.appending(path: ".recheck-\(UUID().uuidString)", directoryHint: .isDirectory),
+                limits: .default
+            )
             let sidecars = (try? Data(contentsOf: gameRoot.appending(path: "sidecars.json")))
                 .flatMap { try? JSONDecoder().decode(ImportSidecars.self, from: $0) } ?? ImportSidecars()
             let ctx = try ScanContext(root: root, sidecars: sidecars)
             defer { ctx.close() }
-            return DetectionPipeline.standard.run(
+            var report = DetectionPipeline.standard.run(
                 ctx,
                 title: record.title,
                 identityHash: previous?.report.descriptor.identityHash ?? "",
                 rootRelativePath: record.rootRelPath
             )
+            report.detectorVersions["prep"] = ProgramFrontends.prepVersion
+            return (added, report)
         }.value
+        if added > 0 {
+            ImportPipeline(paths: paths, store: store, session: HostSession.shared.sessionID, registry: registry).completeHashingLater(id)
+        }
         let resolution = await RuntimeResolver(registry: registry).resolve(report, override: record.manualRuntimeOverride)
         let snapshot = DetectionSnapshot(report: report, resolution: resolution)
         let url = Self.detectionFile(for: id, paths: paths)
@@ -92,6 +113,14 @@ extension AppModel {
         updated.detectionConfidence = report.confidence
         updated.compatibilityState = report.outcome.isPlayableClass ? .loadable : .refused
         updated.compatProfileJson = report.descriptor.profile
+        if updated.artworkPath == nil {
+            updated.artworkPath = CoverExtractor.extract(
+                game: id,
+                engine: report.descriptor.engine,
+                rootRelativePath: record.rootRelPath,
+                paths: paths
+            )
+        }
         try store.games.update(updated)
         _ = try store.detection.saveResult(DetectionResultRecord(
             gameId: id,
@@ -103,13 +132,50 @@ extension AppModel {
         if let selected = resolution.selectedRuntime {
             _ = try? store.runtime.saveSelection(.init(gameId: id, selectedRuntime: selected, reason: resolution.reason))
         }
+        // New files or another runtime can mean media the old plan never converted.
+        if added > 0 || resolution.selectedRuntime != previous?.resolution.selectedRuntime {
+            prepareMediaInBackground(for: id)
+        }
+        let old = previous.map { ImportPipeline.outcomeName($0.report.outcome) } ?? "none"
         OPLog.log(
             .ui,
             .info,
-            "\(record.title) detected again as \(report.descriptor.engine.rawValue)",
+            "re-checked \(record.title): \(old) -> \(ImportPipeline.outcomeName(report.outcome)), \(added) files added",
             session: HostSession.shared.sessionID
         )
-        return snapshot
+        return .checked(wasPlayable: record.compatibilityState != .refused, snapshot: snapshot, filesAdded: added)
+    }
+
+    /// Every version a report written by this build carries: the detectors', the analyzers' and import preparation's.
+    nonisolated static var currentDetectionVersions: [String: Int] {
+        var versions = DetectionPipeline.standard.versions
+        versions["prep"] = ProgramFrontends.prepVersion
+        return versions
+    }
+
+    /// Once per app update: re-checks, one at a time, each game whose stored report was written with other detector or
+    /// preparation versions. Only a clean re-check writes the new versions, so a pass the app is killed in resumes at
+    /// the next launch. Games that became playable are announced on the Library.
+    func recheckLibrary(store: GameStore) async {
+        let paths = paths
+        let current = Self.currentDetectionVersions
+        let due = await Task.detached(priority: .utility) {
+            ((try? store.games.fetchAll(limit: 10000)) ?? []).filter { Self.snapshot(for: $0.id, paths: paths)?.report.detectorVersions != current }
+        }.value
+        var playable: [GameRecord] = []
+        for game in due where game.id != playing?.id {
+            do {
+                if case let .checked(wasPlayable, snapshot, _)? = try await recheck(game.id), !wasPlayable,
+                   snapshot.report.outcome.isPlayableClass, let record = try store.games.fetch(id: game.id) {
+                    playable.append(record)
+                }
+            } catch {
+                OPLog.log(.ui, .error, "re-check of \(game.title) failed: \(error)", session: HostSession.shared.sessionID)
+            }
+        }
+        if !playable.isEmpty {
+            nowPlayable = playable
+        }
     }
 
     /// The stored detection report and resolution for a game, read off the main actor. A report from before plugins
@@ -130,34 +196,6 @@ extension AppModel {
         else { return nil }
         snapshot.report = snapshot.report.liftingPluginBlockers()
         return snapshot
-    }
-
-    /// Games refused at import for a plugin that only names `child_process` or a native addon: their stored report,
-    /// runtime and library state are brought up to date once, so the shelf stops calling them refused.
-    func repairPluginRefusals(store: GameStore) async {
-        let paths = paths
-        let refused = await Task.detached { () -> [(GameRecord, DetectionSnapshot)] in
-            var out: [(GameRecord, DetectionSnapshot)] = []
-            for game in (try? store.games.fetchAll(limit: 10000)) ?? [] where game.compatibilityState == .refused {
-                // Refused at import, playable when read now: only a lifted plugin refusal changes that.
-                if let snapshot = Self.snapshot(for: game.id, paths: paths), snapshot.report.outcome.isPlayableClass {
-                    out.append((game, snapshot))
-                }
-            }
-            return out
-        }.value
-        for (game, stored) in refused {
-            var snapshot = stored
-            snapshot.resolution = await RuntimeResolver(registry: registry).resolve(snapshot.report, override: game.manualRuntimeOverride)
-            let url = Self.detectionFile(for: game.id, paths: paths)
-            try? JSONEncoder().encode(snapshot).write(to: url, options: .atomic)
-            guard var record = try? store.games.fetch(id: game.id) else { continue }
-            record.compatibilityState = .loadable
-            record.runtime = snapshot.resolution.selectedRuntime
-            record.runtimeVersion = snapshot.resolution.selectedRuntimeVersion
-            try? store.games.update(record)
-            OPLog.log(.ui, .info, "\(game.title) no longer refused for its plugins", session: HostSession.shared.sessionID)
-        }
     }
 
     /// Re-resolves a stored report against the runtimes this build actually has (a game imported before

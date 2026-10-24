@@ -16,6 +16,7 @@ struct RuntimePageView: View {
     @State private var resolution: RuntimeResolution?
     @State private var advanced = false
     @State private var message: String?
+    @State private var checking = false
     @State private var settings: [String: String] = [:]
     /// Conversions for this game's engine (MEDIA-008's jobs), for the Media card.
     @State private var media: [MediaJobRecord] = []
@@ -128,8 +129,18 @@ struct RuntimePageView: View {
             Button("Back to automatic choice") { Task { await choose(nil) } }
                 .buttonStyle(.link)
                 .disabled(resolution?.manualOverride != true)
-            Button("Detect the engine again") { Task { await redetect() } }
-                .buttonStyle(.link)
+            Button {
+                Task { await recheck() }
+            } label: {
+                HStack(spacing: Theme.s2) {
+                    if checking {
+                        ProgressView()
+                    }
+                    Text(checking ? "Checking the game's files…" : "Check the game's files again")
+                }
+            }
+            .buttonStyle(.link)
+            .disabled(checking)
             let available = RuntimeSettings.available(for: resolution?.selectedRuntime, engine: snapshot?.report.descriptor.engine)
             if !available.isEmpty {
                 Divider().padding(.vertical, Theme.s2)
@@ -191,14 +202,28 @@ struct RuntimePageView: View {
         media = (try? model.store?.fetchAll(MediaJobRecord.self, game: game.id)) ?? []
     }
 
-    private func redetect() async {
+    private func recheck() async {
+        checking = true
+        defer { checking = false }
+        let before = snapshot
         do {
-            guard let fresh = try await model.redetect(game.id) else { return }
-            snapshot = fresh
-            resolution = fresh.resolution
-            message = "Detected as \(fresh.report.descriptor.engine.displayName); applies from the next start."
+            switch try await model.recheck(game.id) {
+            case .busy?:
+                message = "This game is being imported or deleted. Try again in a moment."
+            case let .checked(_, fresh, added)?:
+                snapshot = fresh
+                resolution = fresh.resolution
+                let same = added == 0 && before?.report.descriptor.engine == fresh.report.descriptor.engine
+                    && before?.report.descriptor.version == fresh.report.descriptor.version
+                    && before?.resolution.selectedRuntime == fresh.resolution.selectedRuntime
+                let d = fresh.report.descriptor
+                let name = ([d.engine.displayName] + [d.version?.raw].compactMap(\.self)).joined(separator: " ")
+                message = same ? "Checked. Nothing changed." : "Checked. Now detected as \(name); applies from the next start."
+            case nil:
+                break
+            }
         } catch {
-            message = "Detection failed: \(error.localizedDescription)"
+            message = "The game's files could not be checked: \(error.localizedDescription)"
         }
     }
 

@@ -6,8 +6,8 @@ public enum RTPFamily: String, CaseIterable, Sendable, Codable {
 }
 
 /// The on-device storage layout (§15.2). Everything persistent lives under
-/// `Library/Application Support/OmniPlay/`; caches under `Library/Caches/OmniPlay/`; the only
-/// user-visible folder is `Documents/OmniPlay/Saves-Export/`.
+/// `Library/Application Support/OmniPlay/`; caches under `Library/Caches/OmniPlay/`; the user-visible folders are
+/// `Documents/Titles/Exports/` and the save mirror `Documents/Titles/Saves/`.
 public struct AppPaths: Sendable, Equatable {
     public let root: URL
     public let cachesRoot: URL
@@ -26,7 +26,7 @@ public struct AppPaths: Sendable, Equatable {
         return try AppPaths(
             root: dir(.applicationSupportDirectory).appending(path: "OmniPlay", directoryHint: .isDirectory),
             cachesRoot: dir(.cachesDirectory).appending(path: "OmniPlay", directoryHint: .isDirectory),
-            exportsRoot: dir(.documentDirectory).appending(path: "OmniPlay/Saves-Export", directoryHint: .isDirectory)
+            exportsRoot: dir(.documentDirectory).appending(path: "Titles/Exports", directoryHint: .isDirectory)
         )
     }
 
@@ -38,6 +38,23 @@ public struct AppPaths: Sendable, Equatable {
             cachesRoot: base.appending(path: "Caches"),
             exportsRoot: base.appending(path: "Export")
         )
+    }
+
+    /// `Documents/Titles/Saves`: each game's saves as the Files app shows them (`SaveMirror`).
+    public var savesMirror: URL { exportsRoot.deletingLastPathComponent().appending(path: "Saves", directoryHint: .isDirectory) }
+
+    /// Moves exports out of `Documents/OmniPlay/Saves-Export`, where Files showed them as OmniPlay › OmniPlay, once.
+    public func moveLegacyExports(fileManager fm: FileManager = .default) {
+        guard let documents = try? fm.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false),
+              exportsRoot.deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL == documents.standardizedFileURL
+        else { return }
+        let old = documents.appending(path: "OmniPlay/Saves-Export", directoryHint: .isDirectory)
+        for item in (try? fm.contentsOfDirectory(at: old, includingPropertiesForKeys: nil)) ?? [] {
+            try? fm.moveItem(at: item, to: exportsRoot.appending(path: item.lastPathComponent))
+        }
+        for dir in [old, old.deletingLastPathComponent()] where (try? fm.contentsOfDirectory(atPath: dir.path(percentEncoded: false)))?.isEmpty == true {
+            try? fm.removeItem(at: dir)
+        }
     }
 
     public func database() -> URL { root.appending(path: "Database/omniplay.sqlite") }
@@ -107,7 +124,7 @@ public struct AppPaths: Sendable, Equatable {
     /// Creates the layout idempotently, marks the big trees as excluded from backup, and leaves the
     /// default data-protection class (`completeUntilFirstUserAuthentication`) so background work can read.
     public func ensureLayout(fileManager: FileManager = .default) throws {
-        var dirs = [database().deletingLastPathComponent(), soundFonts(), sub("Logs"), cachesRoot, exportsRoot] + backupExcluded
+        var dirs = [database().deletingLastPathComponent(), soundFonts(), sub("Logs"), cachesRoot, exportsRoot, savesMirror] + backupExcluded
         dirs += RTPFamily.allCases.map(rtp)
         for dir in dirs {
             try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)

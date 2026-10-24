@@ -69,6 +69,9 @@ public final class GodotEngineLibrary {
         let appEvent: @convention(c) (Int32) -> Void
         /// Absent from frameworks built before the touch controls could drive Godot.
         let key: (@convention(c) (UnsafePointer<CChar>?, Int32) -> Void)?
+        /// Absent from frameworks built before the Game Tools could read Godot games.
+        let state: (@convention(c) (UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>?)?
+        let stateFree: (@convention(c) (UnsafeMutablePointer<CChar>?) -> Void)?
     }
 
     public let engine: Engine
@@ -120,7 +123,9 @@ public final class GodotEngineLibrary {
             status: symbol("\(p)_status", as: (@convention(c) () -> Int32).self),
             frames: symbol("\(p)_frames", as: (@convention(c) () -> UInt).self),
             appEvent: symbol("\(p)_app_event", as: (@convention(c) (Int32) -> Void).self),
-            key: try? symbol("\(p)_key", as: (@convention(c) (UnsafePointer<CChar>?, Int32) -> Void).self)
+            key: try? symbol("\(p)_key", as: (@convention(c) (UnsafePointer<CChar>?, Int32) -> Void).self),
+            state: try? symbol("\(p)_state", as: (@convention(c) (UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>?).self),
+            stateFree: try? symbol("\(p)_state_free", as: (@convention(c) (UnsafeMutablePointer<CChar>?) -> Void).self)
         )
         self.api = api
         OPLog.log(.runtime, .info, "loaded \(engine.framework) \(api.version().map { String(cString: $0) } ?? "?")")
@@ -154,4 +159,14 @@ public final class GodotEngineLibrary {
     public func appEvent(_ event: Int32) { api?.appEvent(event) }
     /// A key by Godot's own name ("Up", "Z", "Shift").
     public func key(_ name: String, pressed: Bool) { api?.key?(name, pressed ? 1 : 0) }
+
+    /// This framework answers the Game Tools' state requests.
+    public var hasState: Bool { api?.state != nil && api?.stateFree != nil }
+
+    /// One state request (StateWire's JSON) answered between two Godot frames; nil without a bridge.
+    public func state(_ json: String) -> String? {
+        guard let state = api?.state, let free = api?.stateFree, let reply = state(json) else { return nil }
+        defer { free(reply) }
+        return String(cString: reply)
+    }
 }

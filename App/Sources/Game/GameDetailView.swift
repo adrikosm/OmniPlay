@@ -23,6 +23,7 @@ struct GameDetailView: View {
     @State var artworkPath: String?
     @State var showPhotos = false
     @State var showFiles = false
+    @State var showGameArt = false
     @State var photoItem: PhotosPickerItem?
     @State var lowMemory = false
     @State var preflight: LaunchPreflight?
@@ -34,6 +35,10 @@ struct GameDetailView: View {
     @State var missingRTP: String?
     @State var askRTP = false
     @State var showEngineFiles = false
+    /// Files changed in the game's Files-app save folder, asked about before the launch.
+    @State var mirrorChanges = 0
+    @State var askMirror = false
+    @State var playAfterMirror = false
     @Environment(\.dismiss) var dismiss
     /// The visible height of the scroll view, so the hero can fill the first screen.
     @State var viewport: CGFloat = 0
@@ -112,6 +117,7 @@ struct GameDetailView: View {
             }
         }
         .navigationDestination(isPresented: $showEngineFiles) { EngineAssetsView() }
+        .sheet(isPresented: $showGameArt) { GameArtPicker(game: game) { await setCover($0) }.environment(model) }
         .photosPicker(isPresented: $showPhotos, selection: $photoItem, matching: .images)
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.image]) { result in
             if case let .success(url) = result {
@@ -133,6 +139,18 @@ struct GameDetailView: View {
                     await choose($0)
                     close()
                 }
+            }
+        }
+        .centeredSheet(isPresented: $askMirror) { close in
+            SavesChangedSheet(game: game, changes: mirrorChanges, close: close) {
+                playAfterMirror = true
+                close()
+            }
+        }
+        .onChange(of: askMirror) { _, open in
+            if !open, playAfterMirror {
+                playAfterMirror = false
+                startPlay()
             }
         }
         .fullScreenCover(isPresented: $showPlayer, onDismiss: { Task { await refreshAfterPlay() } }, content: {
@@ -234,8 +252,18 @@ struct GameDetailView: View {
         }
     }
 
-    /// Asks first when the engine would stop at a missing RTP picture, since that also spends its one boot.
+    /// Asks first about saves changed in the Files app, then when the engine would stop at a missing RTP picture,
+    /// since that also spends its one boot.
     func play() {
+        mirrorChanges = model.mirrorChanges(for: game).count
+        if mirrorChanges > 0 {
+            withTransaction(\.disablesAnimations, true) { askMirror = true }
+        } else {
+            startPlay()
+        }
+    }
+
+    func startPlay() {
         if missingRTP == nil {
             showPlayer = true
         } else {

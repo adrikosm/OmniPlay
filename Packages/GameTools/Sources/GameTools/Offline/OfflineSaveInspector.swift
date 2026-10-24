@@ -73,9 +73,11 @@ public final class OfflineSaveInspector: StateInspecting {
                 return entry.name.lowercased().contains(q) || entry.target.idString == q
             }
             let slice = Array(all.dropFirst(page.offset).prefix(page.size))
-            return StateInspectionResult(entries: slice, page: page, hasMore: page.offset + page.size < all.count)
+            return StateInspectionResult(entries: slice, page: page, hasMore: page.offset + page.size < all.count, total: all.count)
         case .metadata:
             return StateInspectionResult(entries: [], page: StatePage(), hasMore: false)
+        case .children, .search:
+            throw StateBridgeError.engine("not in an RPG Maker save")
         }
     }
 

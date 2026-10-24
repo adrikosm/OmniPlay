@@ -27,6 +27,8 @@ struct SaveBackupsView: View {
     @State var stores: [PersistentStoreInfo] = []
     @State var pendingReset: PersistentStoreInfo?
     @State var busy = false
+    @State var mirrorChanges = 0
+    @State var copiedPath = false
 
     var location: SaveLocation { SaveLocation.forGame(game.id, paths: model.paths) }
     var identityHash: String { AppModel.identityHash(for: game.id, paths: model.paths) }
@@ -52,11 +54,12 @@ struct SaveBackupsView: View {
                         }
                     }
                     .rise(0)
+                    filesRow.rise(1)
                     ViewThatFits(in: .horizontal) {
                         HStack(spacing: 10) { actions }
                         VStack(alignment: .leading, spacing: 10) { actions }
                     }
-                    .rise(1)
+                    .rise(2)
                     if running {
                         Text("Close the game to restore, import or change saves. Back up and Export still work.")
                             .font(.footnote).foregroundStyle(Theme.textSecondary).padding(.horizontal, Theme.s1)
@@ -101,6 +104,7 @@ struct SaveBackupsView: View {
         .sheet(item: $editing) { slot in
             OfflineSaveEditor(game: game, slot: slot, identityHash: identityHash) {
                 message = "Save changed. The snapshot taken first keeps the old one."
+                model.reindexSaves(game.id)
                 Task { await reload() }
             }
         }
@@ -144,7 +148,22 @@ struct SaveBackupsView: View {
         .navigationTitle("Saves and backups")
         .navigationBarTitleDisplayMode(.inline)
         .canvas()
-        .task { await reload() }
+        .task {
+            await reload()
+            // Changes made in the Files app are asked about here too; while the game runs they wait for its next launch.
+            if !running {
+                mirrorChanges = model.mirrorChanges(for: game).count
+                if mirrorChanges == 0 {
+                    await model.mirrorSaves(game.id, title: game.title)
+                }
+            }
+        }
+        .centeredSheet(isPresented: Binding(get: { mirrorChanges > 0 }, set: { if !$0 { mirrorChanges = 0 } })) { close in
+            SavesChangedSheet(game: game, changes: mirrorChanges, close: close) {
+                close()
+                Task { await reload() }
+            }
+        }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.zip, .folder, .data]) { result in
             if case let .success(url) = result {
                 pickedImport = url
@@ -193,6 +212,39 @@ struct SaveBackupsView: View {
             Text(pendingRestore?.1 == .replace
                 ? "Current saves and settings are replaced. A snapshot of them is taken first."
                 : "The snapshot's saves are added under free slot numbers. Current saves stay.")
+        }
+    }
+
+    /// Where the Files app shows this game's saves, and a way there.
+    var filesRow: some View {
+        let path = "On My iPhone › OmniPlay › Titles › Saves › " + model.saveMirror.folder(for: game.id, title: game.title).lastPathComponent
+        return GlassSection {
+            HStack(spacing: Theme.s3) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("In the Files app").font(.subheadline).foregroundStyle(Theme.textPrimary)
+                    Text(path).font(Theme.mono).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                        .contextMenu {
+                            Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = path }
+                        }
+                }
+                Spacer(minLength: Theme.s2)
+                Button("Show") { showInFiles() }.buttonStyle(.link)
+            }
+            .padding(.horizontal, Theme.s4)
+            .padding(.vertical, Theme.s2)
+            .frame(minHeight: Theme.rowHeight)
+        }
+    }
+
+    /// Opens Files at the folder, written first so it is there to open.
+    func showInFiles() {
+        Task {
+            await model.mirrorSaves(game.id, title: game.title)
+            let folder = model.saveMirror.folder(for: game.id, title: game.title)
+            if let url = URL(string: "shareddocuments://" + folder.path(percentEncoded: true)) {
+                await UIApplication.shared.open(url)
+            }
         }
     }
 

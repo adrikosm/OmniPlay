@@ -3,7 +3,7 @@ import RuntimeCore
 
 /// The parts of Game Tools, in the order the control centre lists them.
 public enum ToolsSection: String, CaseIterable, Sendable, Identifiable, Hashable {
-    case variables, cheats, renpyTools, mods, translations, saves, persistentData, controls, runtime, diagnostics
+    case variables, cheats, renpyTools, mods, translations, saves, persistentData, gameFiles, controls, runtime, diagnostics
 
     public var id: String { rawValue }
 }
@@ -55,6 +55,8 @@ public enum GameToolsCapabilityResolver {
         switch engine {
         case .rpgMakerMV, .rpgMakerMZ, .rpgMakerXP, .rpgMakerVX, .rpgMakerVXAce: .rpgMaker
         case .renpy: .renpy
+        // SugarCube, Harlowe, TyranoScript or the page's own globals (`omniplay-web-state.js`).
+        case .html5: [.store, .live]
         default: []
         }
     }
@@ -82,7 +84,8 @@ public enum GameToolsCapabilityResolver {
         func add(_ section: ToolsSection, _ availability: GameToolsCapabilities.Availability) {
             entries.append(.init(section: section, availability: availability))
         }
-        if playable, !out.state.isEmpty {
+        // Godot's bridge lives in its engine framework, so what it offers is known once the game runs.
+        if playable, !out.state.isEmpty || (!running && engine == .godot) {
             add(.variables, running ? .available : .unavailable("Start the game to inspect live values."))
         }
         // The generic catalog is written against RPG Maker's objects; Ren'Py games have no gold or inventory.
@@ -93,7 +96,7 @@ public enum GameToolsCapabilityResolver {
             add(.renpyTools, .available)
         }
         // Mods need an engine whose files OmniPlay can layer: the RPG Maker families and Ren'Py.
-        if playable, !expectedState(for: engine).isEmpty {
+        if playable, !expectedState(for: engine).isEmpty, engine != .html5 {
             add(.mods, .available)
             add(.translations, .available)
         }
@@ -110,6 +113,8 @@ public enum GameToolsCapabilityResolver {
                 add(.saves, .available)
             }
         }
+        // Read-only, so it works for every engine and while the game runs.
+        add(.gameFiles, .available)
         // Controller keys and the touch layout matter where OmniPlay turns input into keys; Ren'Py, ScummVM and Godot
         // read controllers and touches themselves.
         if playable, ![.renpy, .scummvm, .godot].contains(engine) {

@@ -99,6 +99,49 @@ struct SaveKitTests {
             #expect(preview?.playtime == expected)
         }
         try await verifyIncompleteBackupRefusal(loc)
+        try await verifyMirrorImport(loc, root: root.url)
+    }
+
+    /// The Files-app mirror: a changed file is found and staged; a failed import transaction leaves the real saves as
+    /// they were; links (to `../` outside the folder, file or folder) are neither reported nor staged.
+    private func verifyMirrorImport(_ location: SaveLocation, root: URL) async throws {
+        let fm = FileManager.default
+        let mirror = SaveMirror(root: root.appending(path: "Titles/Saves"))
+        let id = GameID()
+        let folder = try mirror.write(from: location, id: id, title: "A/B: ..C")
+        #expect(folder.lastPathComponent == "AB ..C")
+        #expect(mirror.pendingChanges(for: id, title: "Renamed").isEmpty)
+        #expect(mirror.folder(for: GameID(), title: "A/B: ..C").lastPathComponent.hasPrefix("AB ..C ("))
+        let live = location.slots.appending(path: "file1.rpgsave")
+        let before = try Data(contentsOf: live)
+        try Data("dropped".utf8).write(to: folder.appending(path: "slots/file1.rpgsave"))
+        try Data("outside".utf8).write(to: root.appending(path: "outside.rpgsave"))
+        try fm.createSymbolicLink(atPath: folder.appending(path: "slots/link.rpgsave").path, withDestinationPath: "../../../../outside.rpgsave")
+        try fm.createSymbolicLink(at: folder.appending(path: "up"), withDestinationURL: root)
+        #expect(mirror.pendingChanges(for: id, title: "A/B: ..C") == ["slots/file1.rpgsave"])
+        let staging = root.appending(path: "mirror-staging")
+        #expect(try mirror.stageChanges(for: id, title: "A/B: ..C", into: staging) == 1)
+        #expect(try fm.contentsOfDirectory(atPath: staging.appending(path: "slots").path) == ["file1.rpgsave"])
+
+        let txn = SafePersistTransaction(location: location, identityHash: "h")
+        await #expect(throws: PersistError.self) {
+            try await txn.run(
+                targets: [live],
+                mutate: { staging0 in
+                    try FileManager.default.removeItem(at: staging0.url(for: live))
+                    try FileManager.default.copyItem(at: staging.appending(path: "slots/file1.rpgsave"), to: staging0.url(for: live))
+                },
+                validate: { _ in throw CocoaError(.fileReadCorruptFile) }
+            )
+        }
+        #expect(try Data(contentsOf: live) == before)
+        #expect(mirror.pendingChanges(for: id, title: "A/B: ..C") == ["slots/file1.rpgsave"])
+        // Unanswered changes survive an automatic rewrite; a forced one puts the folder back to the real saves.
+        try mirror.write(from: location, id: id, title: "A/B: ..C")
+        #expect(try Data(contentsOf: folder.appending(path: "slots/file1.rpgsave")) == Data("dropped".utf8))
+        try mirror.write(from: location, id: id, title: "A/B: ..C", force: true)
+        #expect(try Data(contentsOf: folder.appending(path: "slots/file1.rpgsave")) == before)
+        #expect(mirror.pendingChanges(for: id, title: "A/B: ..C").isEmpty)
     }
 
     private func verifyIncompleteBackupRefusal(_ location: SaveLocation) async throws {

@@ -11,7 +11,7 @@ import UIKit
 extension PlayerScreen {
     /// The game's picture while paused: a native engine's frozen frame, the web view's own snapshot, or failing
     /// both the host view as drawn.
-    func screenshot() async -> String {
+    func capture() async -> CGImage? {
         var image = host.frozenFrameView.isHidden ? nil : host.frozenFrameView.image?.cgImage
         if image == nil {
             image = await model.coordinator?.captureScreen()
@@ -20,7 +20,11 @@ extension PlayerScreen {
             let renderer = UIGraphicsImageRenderer(bounds: view.bounds)
             image = renderer.image { _ in _ = view.drawHierarchy(in: view.bounds, afterScreenUpdates: false) }.cgImage
         }
-        guard let image else { return "This game's picture could not be captured." }
+        return image
+    }
+
+    func screenshot() async -> String {
+        guard let image = await capture() else { return "This game's picture could not be captured." }
         let result = await Screenshot.save(image)
         OPLog.log(.ui, .info, "screenshot \(image.width)x\(image.height): \(result)")
         return result

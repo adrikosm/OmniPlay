@@ -58,6 +58,8 @@ final class AppModel {
     var runtimeFailure: String?
     /// A failed or unconfirmed web save, retained until the player acknowledges it when leaving.
     var saveWarning: String?
+    /// Games the launch re-check made playable, for the Library's one-line notice.
+    var nowPlayable: [GameRecord] = []
     /// Something the running game went through that the player should hear about (a web page reloaded after its
     /// process died); the player screen shows it briefly and clears it.
     var runtimeNotice: String?
@@ -99,6 +101,7 @@ final class AppModel {
                     }
                 #endif
                 try paths.ensureLayout()
+                paths.moveLegacyExports()
                 let store = try GameStore.open(paths: paths)
                 ImportCoordinator.sweepStaleStaging(paths: paths, olderThan: 0) // nothing can be in flight at launch
                 ImportPipeline.recoverReplacements(paths: paths) // a replacement the app was killed in is put back
@@ -145,7 +148,7 @@ final class AppModel {
             phase = .ready
             reportUnfinishedSessions()
             Task { await PhoneTesting.remindBeforeExpiry() }
-            Task { await self.repairPluginRefusals(store: store) }
+            Task(priority: .utility) { await self.recheckLibrary(store: store) }
             pendingOpen = Self.consumeRelaunchRequest(paths: paths)
             #if DEBUG
                 OPLog.log(

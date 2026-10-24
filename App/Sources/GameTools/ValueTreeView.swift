@@ -3,17 +3,25 @@ import GameTools
 import RuntimeCore
 import SwiftUI
 
-/// A list or a set of values, one level at a time, in the same layout as Variables. Children of a Ren'Py store or
-/// persistent value are edited in place by path; anything else is shown as it is.
+/// A list, a set of values or a game object, one level at a time and a page at a time, in the same layout as
+/// Variables. Engines that list children themselves (`.nested`, Ren'Py) answer with every value inside, objects too,
+/// and their plain values are edited in place by path; anything else is shown as it is.
 struct ValueTreeView: View {
     let title: String
     let target: StateTarget
     @State var value: StateValue
     let tools: MutationEngine
     @State private var error: String?
+    @State private var page = StatePage(size: 60)
+    /// The bridge's page of children, for `.nested` engines.
+    @State private var listed: StateInspectionResult?
+    @State private var loading = false
     @Wide private var wide
 
-    private var children: [StateEntry] {
+    private var fromBridge: Bool { tools.capabilities.contains(.nested) && target.child("") != nil }
+
+    /// Children read from the value itself, for engines without `.nested`.
+    private var derived: [StateEntry] {
         let pairs: [(key: String, value: StateValue)] = switch value {
         case let .list(items): items.enumerated().map { (String($0.offset), $0.element) }
         case let .dict(values): values.sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
@@ -28,34 +36,77 @@ struct ValueTreeView: View {
         }
     }
 
+    private var shown: [StateEntry] {
+        fromBridge ? listed?.entries ?? [] : Array(derived.dropFirst(page.offset).prefix(page.size))
+    }
+
+    private var hasMore: Bool { fromBridge ? listed?.hasMore ?? false : page.offset + page.size < derived.count }
+    private var total: Int? { fromBridge ? listed?.total : derived.count }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Theme.s3) {
-                if let error {
-                    Text(error).font(.footnote).foregroundStyle(Theme.danger)
-                }
-                ValueColumns(
-                    entries: children,
-                    wide: wide
-                ) { entry in
-                    VariableRow(entry: entry, live: nil, tools: tools, error: nil) { operation in
-                        let result = await tools.apply(operation, to: entry.target)
-                        if result.result == .rejected {
-                            error = result.validation.first?.message
-                        } else if let refreshed = try? await tools.inspector.inspect(.get(target)).entries.first?.value {
-                            value = refreshed
-                            error = nil
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: Theme.s3) {
+                    Color.clear.frame(height: 0).id("top")
+                    if let error {
+                        Text(error).font(.footnote).foregroundStyle(Theme.danger)
+                    }
+                    if shown.isEmpty, !loading {
+                        Text("Nothing inside.").font(.subheadline).foregroundStyle(Theme.textSecondary).padding(.vertical, Theme.s4)
+                    }
+                    ValueColumns(entries: shown, wide: wide) { entry in
+                        VariableRow(
+                            entry: entry,
+                            live: tools.watched[entry.target] ?? tools.frozen[entry.target],
+                            tools: tools,
+                            error: nil
+                        ) { operation in
+                            let result = await tools.apply(operation, to: entry.target)
+                            if result.result == .rejected {
+                                error = result.validation.first?.message
+                            } else {
+                                error = nil
+                                await reload()
+                            }
                         }
                     }
+                    .rise(0)
+                    PageBar(page: page, hasMore: hasMore, total: total, loading: loading) { next in
+                        page = next
+                        proxy.scrollTo("top", anchor: .top)
+                    }
                 }
-                .rise(0)
+                .padding(.horizontal, Theme.s4)
+                .padding(.vertical, Theme.s3)
             }
-            .padding(.horizontal, Theme.s4)
-            .padding(.vertical, Theme.s3)
+            .modifier(BackToTopPastEnd(proxy: proxy))
         }
         .canvas()
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
+        .overlay {
+            if loading, shown.isEmpty {
+                ProgressView()
+            }
+        }
+        .task(id: page) { await reload() }
+    }
+
+    /// The current page again after a change: from the bridge, or the whole value for engines without children.
+    private func reload() async {
+        loading = true
+        defer { loading = false }
+        do {
+            if fromBridge {
+                listed = try await tools.inspector.inspect(.children(of: target, page: page))
+            } else if let refreshed = try await tools.inspector.inspect(.get(target)).entries.first?.value {
+                value = refreshed
+            }
+        } catch StateBridgeError.timedOut {
+            error = "The game did not answer in time. Resume it for a moment, then try again."
+        } catch {
+            self.error = "This value is not available: \(error)"
+        }
     }
 }
 

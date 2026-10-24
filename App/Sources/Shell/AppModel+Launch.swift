@@ -72,9 +72,8 @@ extension AppModel {
         return newest?.what
     }
 
-    nonisolated static func relaunchFile(_ paths: AppPaths) -> URL { paths.exportsRoot.deletingLastPathComponent()
-        .appending(path: "relaunch.json")
-    }
+    /// Kept out of `Documents/`, which the Files app shows.
+    nonisolated static func relaunchFile(_ paths: AppPaths) -> URL { paths.root.appending(path: "relaunch.json") }
 
     /// Save & Relaunch: saves are already flushed by the stop; the target is written for the next launch and the
     /// process exits. A personal app may do this; the confirmation dialog says so.

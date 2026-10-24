@@ -68,6 +68,7 @@ struct LibraryContent: View {
             if wide {
                 VStack(alignment: .leading, spacing: 22) {
                     header
+                    recheckNotice
                     if let featured {
                         HStack(alignment: .top, spacing: 30) {
                             featuredColumn(featured).frame(width: 300, alignment: .leading)
@@ -83,6 +84,7 @@ struct LibraryContent: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: Theme.s6) {
                         header
+                        recheckNotice
                         if let featured {
                             featuredColumn(featured)
                             grid

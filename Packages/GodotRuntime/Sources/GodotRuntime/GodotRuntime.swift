@@ -160,7 +160,29 @@
         }
 
         private func observeLifecycle() {
-            observers = EngineAppEvents.observe(memoryWarning: true) { [weak self] event in self?.library?.appEvent(event) }
+            observers = EngineAppEvents.observe(memoryWarning: true) { [weak self] event in
+                self?.library?.appEvent(event)
+                if event == 3 {
+                    self?.logDrawing("back from Home")
+                }
+            }
+        }
+
+        /// Whether Godot draws again after a pause or Home: a game that comes back frozen leaves this in its log.
+        private func logDrawing(_ moment: String) {
+            guard let library, library.status == .running else { return }
+            let before = library.frames
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(2))
+                guard let self, let library = self.library, library.status == .running else { return }
+                let drawn = library.frames &- before
+                OPLog.log(
+                    .runtime,
+                    drawn > 0 ? .info : .error,
+                    "godot \(moment): \(drawn) frames in 2 s",
+                    session: configuration?.sessionID
+                )
+            }
         }
 
         public func pause() async {
@@ -172,6 +194,7 @@
         public func resume() async {
             host?.hideFrozenFrame()
             library?.request(.run)
+            logDrawing("resumed")
         }
 
         /// Keys from the host's touch controls; Godot reads touches and controllers itself.
@@ -200,6 +223,50 @@
             window = nil
             OPLog.log(.runtime, .info, "godot stopped (\(reason)): slotSpent", session: configuration?.sessionID)
             return .slotSpent
+        }
+    }
+
+    /// The Game Tools' view of a Godot game: the script variables of /root's children (autoloads) and of the current
+    /// scene, answered by the framework's bridge (`op_godot_state`) on the main thread, between two frames.
+    extension GodotRuntime: StateInspecting {
+        public var stateCapabilities: StateCapabilities { library?.hasState == true ? [.store, .live] : [] }
+
+        public func inspect(_ request: StateInspectionRequest) async throws -> StateInspectionResult {
+            guard let body = StateWire.request(request) else { throw StateBridgeError.engine("not a Godot target") }
+            let reply = try send(body)
+            if let error = StateWire.error(in: reply) {
+                throw error
+            }
+            return StateWire.inspectionResult(reply, for: request)
+        }
+
+        public func mutate(_ mutation: StateMutation) async -> StateMutationResult {
+            guard let body = StateWire.mutationRequest(mutation) else { return .rejected(mutation, "not a Godot target") }
+            do {
+                let reply = try send(body)
+                if let error = StateWire.error(in: reply) {
+                    throw error
+                }
+                return StateWire.mutationResult(reply, for: mutation)
+            } catch StateBridgeError.notInGame {
+                return .rejected(mutation, "The game has not started yet.")
+            } catch let StateBridgeError.engine(message) {
+                return .rejected(mutation, message)
+            } catch {
+                return .rejected(mutation, String(describing: error))
+            }
+        }
+
+        private func send(_ body: [String: Any]) throws -> [String: Any] {
+            let data = try JSONSerialization.data(withJSONObject: body)
+            guard data.count <= 256 << 10, let json = String(data: data, encoding: .utf8) else {
+                throw StateBridgeError.engine("request too large")
+            }
+            guard let text = library?.state(json) else { throw StateBridgeError.notInGame }
+            guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else {
+                throw StateBridgeError.engine("unreadable reply")
+            }
+            return object
         }
     }
 

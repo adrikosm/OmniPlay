@@ -229,6 +229,34 @@ extension LibraryContent {
         naming = true
     }
 
+    /// After an update's re-check: which games can now be played, until tapped or for 8 seconds.
+    @ViewBuilder var recheckNotice: some View {
+        if let first = model.nowPlayable.first {
+            let count = model.nowPlayable.count
+            let line = count == 1 ? "\(first.title) can now be played." : "\(count) games can now be played."
+            HStack(spacing: Theme.s3) {
+                Text(line).font(.subheadline).foregroundStyle(Theme.textPrimary)
+                Spacer(minLength: Theme.s3)
+                Button("Show") {
+                    model.nowPlayable = []
+                    path = [first]
+                }
+                .buttonStyle(.link)
+            }
+            .padding(.horizontal, Theme.s4)
+            .frame(minHeight: 44)
+            .glass(radius: Theme.listRadius)
+            .contentShape(.rect)
+            .onTapGesture { model.nowPlayable = [] }
+            .rise(0)
+            .task(id: first.id) {
+                AccessibilityNotification.Announcement(line).post()
+                try? await Task.sleep(for: .seconds(8))
+                withAnimation(Theme.motion(Theme.settle, reduce: reduceMotion)) { model.nowPlayable = [] }
+            }
+        }
+    }
+
     @ViewBuilder var errorLine: some View {
         if let error = viewModel.error ?? shelfError {
             Text(error).font(.footnote).foregroundStyle(Theme.danger).padding(.vertical, Theme.s2)

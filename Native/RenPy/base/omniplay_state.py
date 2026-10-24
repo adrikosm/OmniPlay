@@ -11,6 +11,7 @@
 import json
 import math
 import sys
+import types
 
 PY2 = sys.version_info[0] == 2
 
@@ -33,10 +34,21 @@ def handle(raw):
         if not ready():
             return dump({"error": "notInGame"})
         op = request.get("op")
+        if on_main_menu() and touches_store(request):
+            return dump({"error": "notInGame"})
         if op == "list":
-            everything = entries(request.get("category"), request.get("query") or "")
-            offset, size = int(request.get("offset") or 0), int(request.get("size") or 200)
-            reply = {"entries": everything[offset:offset + size], "hasMore": offset + size < len(everything)}
+            reply = page(entries(request.get("category"), request.get("query") or ""), request)
+        elif op == "children":
+            reply = page(children(request["target"]), request)
+        elif op == "search":
+            found = deep_search(
+                request.get("category"),
+                request.get("query") or "",
+                request.get("names", True),
+                request.get("values", True),
+                fresh=not request.get("offset"),
+            )
+            reply = page(found, request)
         elif op == "get":
             target = request["target"]
             reply = {"entries": [entry(target, "", read(target))], "hasMore": False}
@@ -122,6 +134,11 @@ def dump(obj):
     return json.dumps(obj)
 
 
+def page(everything, request):
+    offset, size = int(request.get("offset") or 0), int(request.get("size") or 200)
+    return {"entries": everything[offset:offset + size], "hasMore": offset + size < len(everything), "total": len(everything)}
+
+
 def ready():
     """A game is past init and in its script: store variables mean something."""
     import renpy
@@ -130,6 +147,23 @@ def ready():
         return bool(renpy.game.contexts) and not renpy.game.context().init_phase
     except Exception:
         return False
+
+
+def on_main_menu():
+    """
+    The main menu runs on the store's start values; the game's own values (`default`s) are set when it starts or
+    loads, so an edit made here would be lost. Ren'Py sets store.main_menu in _main_menu (7.8, 8.3, 8.5).
+    """
+    import renpy
+
+    return bool(getattr(renpy.store, "main_menu", False))
+
+
+def touches_store(request):
+    """Store variables only: persistent data, labels, the console, slots and translation work on the main menu."""
+    if request.get("op") == "list":
+        return request.get("category") == "store"
+    return (request.get("target") or {}).get("kind") == "store"
 
 
 # ---- Values ----
@@ -236,12 +270,137 @@ def persistent_fields():
     return sorted(n for n in fields if isinstance(n, STRINGS) and not n.startswith("_"))
 
 
+def dict_key(d, key):
+    """Keys travel as text: a number key is found by its digits."""
+    if key in d:
+        return key
+    try:
+        return int(key)
+    except ValueError:
+        raise KeyError(key)
+
+
 def step(container, key):
     if isinstance(container, (list, tuple)):
         return container[int(key)]
     if isinstance(container, dict):
-        return container[key]
+        return container[dict_key(container, key)]
     return getattr(container, key)
+
+
+def members(value):
+    """
+    (key, child) one level down: list and tuple items, dict entries with text or number keys, and an object's own
+    attributes (the game's classes keep their numbers there, `_money` included). Code and engine types have none.
+    """
+    if isinstance(value, (list, tuple)):
+        return [(str(i), v) for i, v in enumerate(value)]
+    if isinstance(value, dict):
+        return [(str(k), v) for k, v in list(value.items()) if isinstance(k, STRINGS + INTEGERS) and not isinstance(k, bool)]
+    if isinstance(value, (type, types.ModuleType, types.FunctionType, types.BuiltinFunctionType, types.MethodType)):
+        return []
+    fields = getattr(value, "__dict__", None)
+    if not isinstance(fields, dict):
+        return []
+    return [(k, v) for k, v in list(fields.items()) if isinstance(k, STRINGS) and not k.startswith("__")]
+
+
+def child_entry(target, key, value, locked):
+    out = entry(dict(target, path=list(target.get("path") or []) + [key]), key, value, target.get("kind") == "persistent")
+    if locked:  # a tuple's items cannot be replaced one by one
+        out["editable"] = False
+    return out
+
+
+def children(target):
+    parent = read(target)
+    return [child_entry(target, k, v, isinstance(parent, tuple)) for k, v in members(parent)]
+
+
+# ---- Search at any depth: the game's names and values inside lists, dicts and its own objects ----
+
+SEARCH_DEPTH = 8
+# shortcut: a search stops walking after a second (the host waits two), so a huge store can miss deep matches; page
+# the walk across requests if a game ever needs more.
+SEARCH_SECONDS = 1.0
+_search = (None, [])
+
+
+def matches_value(value, q):
+    """The same rule as the Variables list: text contains the query, a number or a switch equals it."""
+    if isinstance(value, bool):
+        return q in (("on", "true") if value else ("off", "false"))
+    if isinstance(value, INTEGERS):
+        return q.replace(",", "") == str(value)
+    if isinstance(value, float):
+        try:
+            return float(q) == value
+        except ValueError:
+            return False
+    if isinstance(value, STRINGS):
+        return q in value.lower()
+    return False
+
+
+def searchable(value):
+    """Containers and the game's own classes (defined in its store), not Ren'Py's displayables and characters."""
+    if isinstance(value, (list, tuple, dict)):
+        return True
+    module = getattr(type(value), "__module__", "") or ""
+    return module == "store" or module.startswith("store.")
+
+
+def deep_search(category, query, names, values, fresh=True):
+    """
+    Every value whose own name contains the query (names first, shallowest first) or whose value matches it, reached
+    from the store's variables (or persistent's fields) through lists, dicts and the game's objects. A later page reuses the first
+    page's result, so the list does not shift while the player pages through it.
+    """
+    global _search
+    import time
+    import renpy
+
+    key = (category, query, bool(names), bool(values))
+    if not fresh and _search[0] == key:
+        return _search[1]
+    q = query.strip().lower()
+    named, valued, seen = [], [], set()
+    deadline = time.time() + SEARCH_SECONDS
+
+    def visit(target, label, name, value, depth, locked, persistent):
+        # A dotted query ("game.experience") matches the whole path; otherwise a value's own name.
+        if names and (q in name.lower() or ("." in q and q in label.lower())):
+            out = entry(target, label, value, persistent)
+            if locked:
+                out["editable"] = False
+            named.append(out)
+        elif values and leaf(value) and matches_value(value, q):
+            out = entry(target, label, value, persistent)
+            if locked:
+                out["editable"] = False
+            valued.append(out)
+        if depth >= SEARCH_DEPTH or leaf(value) or id(value) in seen or not searchable(value) or time.time() > deadline:
+            return
+        seen.add(id(value))
+        for k, v in members(value):
+            visit(dict(target, path=target["path"] + [k]), label + "." + k, k, v, depth + 1, isinstance(value, tuple), persistent)
+
+    if category == "store":
+        for store in sorted(store_names(), key=lambda n: (n != "store", n)):
+            d = store_dict(store)
+            prefix = "" if store == "store" else store[len("store."):] + "."
+            for name in game_variables(store, d):
+                visit({"kind": "store", "store": store, "path": [name]}, prefix + name, name, d[name], 0, False, False)
+    elif category == "persistent":
+        fields = vars(renpy.game.persistent)
+        for name in persistent_fields():
+            visit({"kind": "persistent", "path": [name]}, name, name, fields[name], 0, False, True)
+    else:
+        raise ValueError("category not available here: %s" % (category,))
+    # Shallow first (game.experience before game.level.nodes.1...experience); sorted() keeps walk order within a depth.
+    depth = lambda e: len(e["target"]["path"])  # noqa: E731
+    _search = (key, sorted(named, key=depth) + sorted(valued, key=depth))
+    return _search[1]
 
 
 def root_and_path(target):
@@ -274,7 +433,7 @@ def assign(container, key, value):
     if isinstance(container, list):
         container[int(key)] = value
     elif isinstance(container, dict):
-        container[key] = value
+        container[dict_key(container, key)] = value
     else:
         setattr(container, key, value)
 

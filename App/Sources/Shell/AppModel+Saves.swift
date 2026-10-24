@@ -1,3 +1,4 @@
+import Diagnostics
 import Foundation
 import GameCore
 import GameDetection
@@ -39,5 +40,39 @@ extension AppModel {
             )
         }
         try? store.persistentStores.replaceAll(game: descriptor.id, with: stores)
+        let title = (try? store.games.fetch(id: descriptor.id))?.title ?? descriptor.title
+        Task { await mirrorSaves(descriptor.id, title: title) }
+    }
+
+    // MARK: Saves in the Files app
+
+    var saveMirror: SaveMirror { SaveMirror(root: paths.savesMirror) }
+
+    /// Rewrites `Titles/Saves/<Title>/` from the real saves. Unless `force`, a folder with unanswered changes is kept.
+    func mirrorSaves(_ id: GameID, title: String, force: Bool = false) async {
+        let (mirror, location) = (saveMirror, SaveLocation.forGame(id, paths: paths))
+        do {
+            try await Task.detached(priority: .utility) { _ = try mirror.write(from: location, id: id, title: title, force: force) }.value
+        } catch {
+            OPLog.log(.save, .error, "save mirror of \(title) not written: \(error.localizedDescription)")
+        }
+    }
+
+    /// Files added or changed in the game's Files folder since OmniPlay last wrote it.
+    func mirrorChanges(for game: GameRecord) -> [String] { saveMirror.pendingChanges(for: game.id, title: game.title) }
+
+    /// Imports the changed files through the normal save import (validation, snapshot, transaction), replacing
+    /// same-named slots; once installed, the folder is rewritten from the real saves.
+    func useMirrorChanges(for game: GameRecord, confirmed: Bool) async throws -> SaveTransfer.Outcome {
+        let staging = paths.tier(.importStaging, for: game.id).appending(path: "mirror-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: staging) }
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        _ = try saveMirror.stageChanges(for: game.id, title: game.title, into: staging)
+        let outcome = try await SaveTransfer(paths: paths, game: game).importSaves(from: staging, collision: .replace, confirmed: confirmed)
+        if case .installed = outcome {
+            reindexSaves(game.id)
+            await mirrorSaves(game.id, title: game.title, force: true)
+        }
+        return outcome
     }
 }

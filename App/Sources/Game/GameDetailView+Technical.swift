@@ -137,6 +137,7 @@ extension GameDetailView {
     }
 
     @ViewBuilder var coverMenuItems: some View {
+        Button("Choose from the game", systemImage: "photo.stack") { showGameArt = true }
         Button("Cover from Photos", systemImage: "photo") { showPhotos = true }
         Button("Cover from Files", systemImage: "folder") { showFiles = true }
         if artworkPath != nil {
@@ -175,13 +176,10 @@ extension GameDetailView {
         }
     }
 
+    /// Every cover set here is the player's choice, removal included: automatic passes leave such a game alone.
     func setCover(_ path: String?) async {
-        guard let store = model.store, var record = try? store.games.fetch(id: game.id) else { return }
-        if path == nil, let old = record.artworkPath {
-            try? FileManager.default.removeItem(at: model.paths.url(forStored: old))
-        }
-        record.artworkPath = path
-        try? store.games.update(record)
+        guard let store = model.store else { return }
+        CoverExtractor.setCover(path, game: game.id, manual: true, store: store, paths: model.paths)
         withAnimation(Theme.quick) { artworkPath = path }
     }
 
@@ -199,6 +197,10 @@ extension GameDetailView {
     /// A one-game-per-process engine is spent once its game ends: the page offers Save & Relaunch instead of Play.
     func refreshAfterPlay() async {
         await loadFacts()
+        // The pause menu's Use as cover may have set a new one.
+        if let record = try? model.store?.games.fetch(id: game.id), record.artworkPath != artworkPath {
+            artworkPath = record.artworkPath
+        }
         if let snapshot {
             preflight = await model.preflight(game, snapshot: snapshot)
         }
@@ -275,6 +277,8 @@ extension GameDetailView {
 
     func choose(_ runtime: RuntimeIdentifier?) async {
         if let resolution = await model.chooseRuntime(runtime, for: game.id) {
+            // The picker looked at the files again first: the report may be new too.
+            snapshot = AppModel.snapshot(for: game.id, paths: model.paths) ?? snapshot
             snapshot?.resolution = resolution
         }
     }

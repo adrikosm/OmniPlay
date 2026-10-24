@@ -1,7 +1,9 @@
 import Diagnostics
 import Foundation
 import GameCore
+import GameDetection
 import GameImport
+import GameStore
 import RuntimeCore
 import SaveKit
 
@@ -34,7 +36,23 @@ struct SaveTransfer: Sendable {
     let target: Target
     var location: SaveLocation { SaveLocation.forGame(target.id, paths: paths) }
 
-    /// `Documents/OmniPlay/Saves-Export/<title>-<date>.zip`, visible in Files.
+    init(paths: AppPaths, target: Target) {
+        self.paths = paths
+        self.target = target
+    }
+
+    /// The transfer for a library game, with its save strategy, identity and root.
+    init(paths: AppPaths, game: GameRecord) {
+        let strategy = SaveStrategy.forEngine(game.engine, generation: game.generation)
+        let original = paths.tier(.original, for: game.id)
+        self.init(paths: paths, target: .init(
+            id: game.id, title: game.title, engine: game.engine, family: strategy.family, slotPattern: strategy.slotPattern,
+            identityHash: AppModel.identityHash(for: game.id, paths: paths),
+            gameRoot: game.rootRelPath.isEmpty ? original : original.appending(path: game.rootRelPath, directoryHint: .isDirectory)
+        ))
+    }
+
+    /// `Documents/Titles/Exports/<title>-<date>.zip`, visible in Files.
     func export() async throws -> URL {
         try location.ensure()
         let stamp = Date.now.formatted(.iso8601.year().month().day().timeZone(separator: .omitted).time(includingFractionalSeconds: false))

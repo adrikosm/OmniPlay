@@ -19,6 +19,8 @@
 
 #include <atomic>
 
+#include "op_godot_state.inc"
+
 #define OP_EXPORT extern "C" __attribute__((visibility("default")))
 
 // user:// and the cache go where OmniPlay keeps the game's saves and caches (stock iOS Godot uses Documents).
@@ -139,3 +141,10 @@ OP_EXPORT void op_godot_app_event(int event) {
 	default: break;
 	}
 }
+
+OP_EXPORT char *op_godot_state(const char *request_json) {
+	int now = status;
+	return op_state::reply(request_json, now == OP_GODOT_STATUS_RUNNING || now == OP_GODOT_STATUS_PAUSED);
+}
+
+OP_EXPORT void op_godot_state_free(char *reply) { free(reply); }

@@ -130,7 +130,15 @@ module OmniPlay
       defined?(RPG::BaseItem) ? true : false
     end
 
+    # Started or loaded, not the title: VX Ace builds its game objects for the title screen (map 0), and after
+    # "To Title" every version keeps the old game's objects until the next start or load replaces them.
     def ready?
+      return false unless objects? && $game_map && $game_map.map_id.to_i > 0
+      return true unless defined?(Scene_Title)
+      !(defined?(SceneManager) ? SceneManager.scene_is?(Scene_Title) : $scene.is_a?(Scene_Title))
+    end
+
+    def objects?
       $game_party && $game_variables && $game_switches && $data_system ? true : false
     end
 
@@ -664,13 +672,15 @@ module OmniPlay
       # The host stopped waiting at "expires" (seconds since 1970) and told the player so; doing it now would apply
       # an edit reported as failed.
       return dump({ "error" => "timedOut" }) if request["expires"] && Time.now.to_f > request["expires"]
+      # Loading a slot is how a title screen becomes a game, so the title answers it (as before, once objects exist).
+      return dump(load_slot(request["file"].to_s)) if request["op"] == "loadSlot" && objects?
       return dump({ "error" => "notInGame" }) unless ready?
       reply = case request["op"]
               when "list"
                 all = entries(request["category"], request["query"])
                 offset = request["offset"].to_i
                 size = request["size"].to_i
-                { "entries" => all[offset, size] || [], "hasMore" => offset + size < all.size }
+                { "entries" => all[offset, size] || [], "hasMore" => offset + size < all.size, "total" => all.size }
               when "get"
                 { "entries" => [{ "target" => request["target"], "name" => "", "value" => read(request["target"]), "editable" => true }], "hasMore" => false }
               when "set" then write(request["target"], request["operation"] || "set", request["value"])
@@ -679,7 +689,6 @@ module OmniPlay
                 frozen.delete(frozen_key(request["target"]))
                 {}
               when "metadata" then { "variables" => $data_system.variables, "switches" => $data_system.switches }
-              when "loadSlot" then load_slot(request["file"].to_s)
               when "saveSlot" then save_slot(request["file"].to_s)
               else { "error" => "unknown op #{request["op"]}" }
               end

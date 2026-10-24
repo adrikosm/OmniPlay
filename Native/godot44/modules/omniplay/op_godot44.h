@@ -41,6 +41,12 @@ void op_godot44_app_event(int event);
 // ignored. Delivered while set up, running or paused, so a release during a pause is not lost.
 void op_godot44_key(const char *name, int pressed);
 
+// The Game Tools' state requests (RuntimeCore's StateWire JSON: list, get, set, freeze, unfreeze, metadata) on the
+// game's script variables; Native/godot/modules/omniplay/op_godot_state.inc has the details. The reply is JSON, never
+// null, freed with op_godot44_state_free. {"error": "notInGame"} unless running or paused.
+char *op_godot44_state(const char *request_json);
+void op_godot44_state_free(char *reply);
+
 #ifdef __cplusplus
 }
 #endif

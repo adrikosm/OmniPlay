@@ -61,6 +61,10 @@ public enum StateCategory: String, Codable, Sendable, Hashable, CaseIterable {
 public enum StateInspectionRequest: Codable, Sendable, Hashable {
     /// A page of one category, optionally filtered by name or id.
     case list(category: StateCategory, query: String?, page: StatePage)
+    /// The values inside a list, a set of values or a game object, a page at a time (`.nested` engines).
+    case children(of: StateTarget, page: StatePage)
+    /// Values whose own name (or value) matches, at any depth inside the category's lists and objects (`.nested`).
+    case search(category: StateCategory, query: String, names: Bool, values: Bool, page: StatePage)
     case get(StateTarget)
     /// Names from the game's data (variable and switch names, item names), for labels in the tools.
     case metadata
@@ -77,6 +81,7 @@ public struct StatePage: Codable, Sendable, Hashable {
     }
 
     public var next: StatePage { StatePage(offset: offset + size, size: size) }
+    public var first: StatePage { StatePage(size: size) }
 }
 
 public struct StateEntry: Codable, Sendable, Hashable {
@@ -105,9 +110,11 @@ public struct StateInspectionResult: Codable, Sendable, Hashable {
     public var page: StatePage
     /// More entries follow this page.
     public var hasMore: Bool
+    /// Entries on every page together, when the engine says.
+    public var total: Int?
 
-    public init(entries: [StateEntry], page: StatePage, hasMore: Bool) {
-        (self.entries, self.page, self.hasMore) = (entries, page, hasMore)
+    public init(entries: [StateEntry], page: StatePage, hasMore: Bool, total: Int? = nil) {
+        (self.entries, self.page, self.hasMore, self.total) = (entries, page, hasMore, total)
     }
 }
 
@@ -220,6 +227,8 @@ public struct StateCapabilities: OptionSet, Sendable, Hashable {
     public static let slots = StateCapabilities(rawValue: 1 << 14)
     /// The enemies of a battle in progress can be read, hurt, defeated and brought back.
     public static let battle = StateCapabilities(rawValue: 1 << 15)
+    /// The bridge lists what is inside game objects and searches at any depth (`children`, `search` requests).
+    public static let nested = StateCapabilities(rawValue: 1 << 16)
     public static let rpgMaker: StateCapabilities = [
         .variables,
         .switches,
@@ -233,7 +242,7 @@ public struct StateCapabilities: OptionSet, Sendable, Hashable {
         .live,
         .battle,
     ]
-    public static let renpy: StateCapabilities = [.store, .persistent, .labels, .console, .live]
+    public static let renpy: StateCapabilities = [.store, .persistent, .labels, .console, .live, .nested]
 
     /// The capability a target needs.
     public static func required(for target: StateTarget) -> StateCapabilities {

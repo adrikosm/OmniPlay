@@ -31,6 +31,10 @@ void op_godot3_app_event(int event);
 // A key from the host's touch controls, by Godot's key name ("Up", "Z", "Shift"); unknown names are ignored.
 void op_godot3_key(const char *name, int pressed);
 
+// The Game Tools' state requests, as op_godot.h's op_godot_state (op_godot3_state.inc). Freed with op_godot3_state_free.
+char *op_godot3_state(const char *request_json);
+void op_godot3_state_free(char *reply);
+
 #ifdef __cplusplus
 }
 #endif

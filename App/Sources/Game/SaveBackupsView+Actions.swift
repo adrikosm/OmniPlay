@@ -27,22 +27,14 @@ extension SaveBackupsView {
         stores = storeList
     }
 
-    var transfer: SaveTransfer {
-        SaveTransfer(paths: model.paths, target: .init(
-            id: game.id, title: game.title, engine: game.engine,
-            family: strategy.family,
-            slotPattern: strategy.slotPattern, identityHash: identityHash,
-            gameRoot: game.rootRelPath.isEmpty ? model.paths.tier(.original, for: game.id)
-                : model.paths.tier(.original, for: game.id).appending(path: game.rootRelPath, directoryHint: .isDirectory)
-        ))
-    }
+    var transfer: SaveTransfer { SaveTransfer(paths: model.paths, game: game) }
 
     func exportSaves() async {
         busy = true
         defer { busy = false }
         do {
             exportURL = try await transfer.export()
-            message = "Exported to Files › OmniPlay › Saves-Export."
+            message = "Exported to Files › OmniPlay › Titles › Exports."
         } catch {
             message = "Export failed: \(error.localizedDescription)"
         }
@@ -118,6 +110,7 @@ extension SaveBackupsView {
         do {
             try FileManager.default.copyItem(at: slot.url, to: location.slots.appending(path: name))
             message = "Copied to \(name)."
+            model.reindexSaves(game.id)
         } catch {
             message = "Could not copy: \(error.localizedDescription)"
         }
@@ -133,6 +126,7 @@ extension SaveBackupsView {
             _ = try await SaveVault.snapshot(location: location, identityHash: identityHash, reason: .beforeEdit)
             try FileManager.default.removeItem(at: slot.url)
             message = "Deleted. The snapshot taken just now can bring it back."
+            model.reindexSaves(game.id)
         } catch {
             message = "Nothing was deleted: \(error.localizedDescription)"
         }
@@ -146,6 +140,7 @@ extension SaveBackupsView {
         do {
             try await SaveVault.restore(snapshot: dir, into: location, identityHash: identityHash, mode: mode)
             message = "Restored."
+            model.reindexSaves(game.id)
         } catch {
             message = "Restore failed, nothing was changed: \(error.localizedDescription)"
         }

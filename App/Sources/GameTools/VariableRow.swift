@@ -53,6 +53,76 @@ struct ValueColumns<Row: View>: View {
     }
 }
 
+/// Previous and Next around "Page 2 of 9": long lists go a page at a time, so the list never grows past one page.
+/// Hidden while everything fits on one page.
+struct PageBar: View {
+    let page: StatePage
+    let hasMore: Bool
+    let total: Int?
+    let loading: Bool
+    let go: (StatePage) -> Void
+
+    private var number: Int { page.offset / page.size + 1 }
+    private var pages: Int? { total.map { max(1, ($0 + page.size - 1) / page.size) } }
+
+    var body: some View {
+        if page.offset > 0 || hasMore {
+            HStack(spacing: Theme.s3) {
+                Button { go(StatePage(offset: page.offset - page.size, size: page.size)) } label: {
+                    HStack(spacing: Theme.s1) { Image(systemName: "chevron.left"); Text("Previous") }.padding(.horizontal, Theme.s3)
+                }
+                .disabled(page.offset == 0 || loading)
+                Spacer(minLength: Theme.s2)
+                VStack(spacing: 2) {
+                    Text(pages.map { "Page \(number) of \($0)" } ?? "Page \(number)")
+                        .font(.subheadline.weight(.semibold).monospacedDigit()).foregroundStyle(Theme.textPrimary)
+                    if let total {
+                        Text("\(page.offset + 1)–\(min(page.offset + page.size, total)) of \(total)")
+                            .font(.footnote.monospacedDigit()).foregroundStyle(Theme.textSecondary)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+                Spacer(minLength: Theme.s2)
+                Button { go(page.next) } label: {
+                    HStack(spacing: Theme.s1) { Text("Next"); Image(systemName: "chevron.right") }.padding(.horizontal, Theme.s3)
+                }
+                .disabled(!hasMore || loading)
+            }
+            .buttonStyle(PillButtonStyle(kind: .secondary, height: 44))
+            .font(.subheadline.weight(.semibold))
+        }
+    }
+}
+
+/// UIKit leaves a scroll view's offset where it was when its list gets shorter (a search, a new page, the keyboard
+/// closing), which shows an empty screen below the end of the list; once at rest past its end, it goes back to the
+/// view marked "top".
+struct BackToTopPastEnd: ViewModifier {
+    let proxy: ScrollViewProxy
+    @State private var idle = true
+    @State private var pastEnd = false
+
+    func body(content: Content) -> some View {
+        content
+            .onScrollPhaseChange { _, phase in
+                idle = phase == .idle
+                settle()
+            }
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentOffset.y + geometry.containerSize.height > geometry.contentSize.height + geometry.contentInsets.bottom + 44
+            } action: { _, beyond in
+                pastEnd = beyond
+                settle()
+            }
+    }
+
+    private func settle() {
+        if idle, pastEnd {
+            proxy.scrollTo("top", anchor: .top)
+        }
+    }
+}
+
 /// One value: its name in mono, a small status after it (Watching, Frozen), and the control for its type. Touch and
 /// hold, or •••, for watch, freeze and reset; a tap on the name shows the whole name and value. A changed value carries
 /// a small accent dot.
@@ -152,6 +222,16 @@ struct VariableRow: View {
             }
         case .double where entry.editable, .string where entry.editable:
             valueField(value.shortText, number: nil)
+        case let .engineObject(typeName, _) where tools.capabilities.contains(.nested) && entry.target.child("") != nil:
+            // A game object (a character, the game's own state): opened like a list, its numbers edited inside.
+            NavigationLink { ValueTreeView(title: title, target: entry.target, value: value, tools: tools) } label: {
+                HStack(spacing: Theme.s1) {
+                    Text(typeName).font(.subheadline).foregroundStyle(Theme.textSecondary).lineLimit(1)
+                    Chevron()
+                }
+                .frame(minHeight: 44)
+            }
+            .accessibilityHint("Shows the values inside")
         case let .engineObject(typeName, summary):
             VStack(alignment: .trailing, spacing: 2) {
                 Text(typeName).font(.footnote.weight(.semibold)).foregroundStyle(Theme.textSecondary)

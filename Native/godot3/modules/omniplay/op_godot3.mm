@@ -18,6 +18,8 @@
 
 #include <atomic>
 
+#include "op_godot3_state.inc"
+
 #define OP_EXPORT extern "C" __attribute__((visibility("default")))
 
 extern int iphone_main(int, char **, String, String);
@@ -130,3 +132,10 @@ OP_EXPORT void op_godot3_app_event(int event) {
 	default: break;
 	}
 }
+
+OP_EXPORT char *op_godot3_state(const char *request_json) {
+	int now = status;
+	return op_state::reply(request_json, now == OP_GODOT3_STATUS_RUNNING || now == OP_GODOT3_STATUS_PAUSED);
+}
+
+OP_EXPORT void op_godot3_state_free(char *reply) { free(reply); }

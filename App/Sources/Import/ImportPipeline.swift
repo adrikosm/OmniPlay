@@ -25,12 +25,15 @@ struct ImportPipeline: Sendable {
         var duplicates: DuplicatePolicy = .ask
         var passphrase: String?
         var chosenRoot: String?
+        /// Set by the Import screen: same file, same game in other files and several game folders pause the import
+        /// on a question instead of failing it. Unset, they fail as before.
+        var ask: (@Sendable (ImportQuestion) async -> ImportAnswer)?
     }
 
     struct Materialized { let root: URL, totals: RunningTotals, sourceBytes: Int64? }
 
     func run(_ txn: ImportTransaction, options: Options = Options()) async throws -> GameID {
-        let duplicates = options.duplicates
+        var duplicates = options.duplicates
         let source = txn.source
         let staging = txn.stagingURL
         let accessed = source.url.startAccessingSecurityScopedResource()
@@ -45,7 +48,9 @@ struct ImportPipeline: Sendable {
         let fingerprint = try SourceFingerprint.compute(source.url)
         if case .ask = duplicates, let previous = try store.imports.find(sha256: fingerprint).compactMap(\.gameId).first,
            let existing = try store.games.fetch(id: previous) {
-            throw ImportFailure.duplicate(existing: existing.id, title: existing.title)
+            guard let ask = options.ask else { throw ImportFailure.duplicate(existing: existing.id, title: existing.title) }
+            let answer = try await pause(on: .sameFile(existing: existing.id, title: existing.title), ask, txn, then: .inspecting)
+            duplicates = if case let .replace(id) = answer { .replace(id) } else { .keepBoth }
         }
         let staged = try await materialize(kind: kind, source: source, staging: staging, txn: txn, passphrase: options.passphrase)
 
@@ -56,7 +61,15 @@ struct ImportPipeline: Sendable {
         } catch let v as SafetyViolation {
             throw ImportFailure.safetyViolation(v)
         }
-        let located = try GameRootLocator.locate(stagingRoot: staged.root, chosen: options.chosenRoot)
+        let located: LocatedRoot
+        do {
+            located = try GameRootLocator.locate(stagingRoot: staged.root, chosen: options.chosenRoot)
+        } catch let ImportFailure.multipleRoots(candidates) {
+            guard let ask = options.ask,
+                  case let .root(chosen) = try await pause(on: .severalRoots(candidates), ask, txn, then: .normalizing)
+            else { throw ImportFailure.multipleRoots(candidates) }
+            located = try GameRootLocator.locate(stagingRoot: staged.root, chosen: chosen)
+        }
         let gameRoot = located.relativePath.isEmpty ? staged.root : staged.root.appending(
             path: located.relativePath,
             directoryHint: .isDirectory
@@ -84,11 +97,32 @@ struct ImportPipeline: Sendable {
         let resolution = await RuntimeResolver(registry: registry).resolve(report)
 
         try Task.checkCancellation()
+        let planTitle = report.descriptor.title.isEmpty ? title : report.descriptor.title
+        if case .ask = duplicates, let ask = options.ask,
+           let match = try sameGame(engine: report.descriptor.engine, title: planTitle, root: gameRoot) {
+            let incoming = GameRelease.version(
+                root: gameRoot,
+                engine: report.descriptor.engine,
+                names: [source.url.deletingPathExtension().lastPathComponent, firstFolder ?? ""]
+            )
+            let installed = installedVersion(of: match)
+            let question = ImportQuestion.otherVersion(
+                existing: match.id,
+                title: match.title,
+                installed: installed,
+                incoming: incoming,
+                order: GameRelease.order(incoming, installed),
+                incomingBytes: audited.writtenBytes
+            )
+            if case let .replace(id) = try await pause(on: question, ask, txn, then: .resolvingRuntime) {
+                duplicates = .replace(id)
+            }
+        }
         await txn.transition(to: .registering)
         let plan = CommitPlan(
             stagedRoot: staged.root,
             located: located,
-            title: report.descriptor.title.isEmpty ? title : report.descriptor.title,
+            title: planTitle,
             report: report,
             resolution: resolution,
             bytes: audited.writtenBytes,
@@ -101,6 +135,49 @@ struct ImportPipeline: Sendable {
             return try await replace(existing, with: plan)
         }
         return try await commit(plan)
+    }
+
+    /// Waits for the player's answer with staging kept; Cancel ends the import through the usual rollback.
+    func pause(
+        on question: ImportQuestion,
+        _ ask: @Sendable (ImportQuestion) async -> ImportAnswer,
+        _ txn: ImportTransaction,
+        then resume: ImportState
+    ) async throws -> ImportAnswer {
+        await txn.transition(to: .waiting(question))
+        let answer = await ask(question)
+        guard answer != .cancel else { throw CancellationError() }
+        await txn.transition(to: resume)
+        return answer
+    }
+
+    /// A game in the library with this engine and the same title once versions and platforms are taken out, or (Ren'Py)
+    /// the same save folder. A personal library is hundreds of rows at most, so they are compared in memory.
+    func sameGame(engine: EngineFamily, title: String, root: URL) throws -> GameRecord? {
+        let name = GameRelease.normalisedTitle(title)
+        let saves = engine == .renpy ? GameRelease.renpyDefine("save_directory", root: root) : nil
+        return try store.games.fetchAll(limit: 10000).first { game in
+            guard game.engine == engine else { return false }
+            if let saves, saves == GameRelease.renpyDefine("save_directory", root: installedRoot(of: game)) {
+                return true
+            }
+            return !name.isEmpty && GameRelease.normalisedTitle(game.title) == name
+        }
+    }
+
+    func installedRoot(of game: GameRecord) -> URL {
+        let original = paths.tier(.original, for: game.id)
+        return game.rootRelPath.isEmpty ? original : original.appending(path: game.rootRelPath, directoryHint: .isDirectory)
+    }
+
+    /// Read the way a new release's version is: its files, then the file it was last imported from, then its folder.
+    func installedVersion(of game: GameRecord) -> String? {
+        let source = (try? store.imports.recent(game: game.id, limit: 1))?.first.map { URL(filePath: $0.sourceName).deletingPathExtension().lastPathComponent }
+        return GameRelease.version(
+            root: installedRoot(of: game),
+            engine: game.engine,
+            names: [source ?? "", game.rootRelPath.split(separator: "/").last.map(String.init) ?? ""]
+        )
     }
 
     // MARK: Materialize
@@ -177,21 +254,13 @@ struct ImportPipeline: Sendable {
             }
             totals.entries += more.entries
         }
-        for program in Self.tauriCandidates(in: stagedRoot) {
-            // Tauri keeps the web frontend inside the program; it lands beside it, next to the assets the game reads.
-            let more: RunningTotals?
-            do {
-                more = try TauriExtractor(limits: limits).extract(program, to: program.deletingLastPathComponent())
-            } catch let v as SafetyViolation {
-                throw ImportFailure.safetyViolation(v)
-            }
-            guard let more else { continue }
+        // Tauri keeps the web frontend inside the program; it lands beside it, next to the assets the game reads.
+        if let more = try ProgramFrontends.unpack(in: stagedRoot, limits: limits) {
             totals.writtenBytes += more.writtenBytes
             if totals.declaredBytes > 0 {
                 totals.declaredBytes += more.writtenBytes
             }
             totals.entries += more.entries
-            break
         }
         return Materialized(root: stagedRoot, totals: totals, sourceBytes: sourceBytes)
     }

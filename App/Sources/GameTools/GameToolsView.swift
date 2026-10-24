@@ -81,7 +81,7 @@ struct GameToolsView: View {
 
     private static let groups: [Set<ToolsSection>] = [
         [.variables, .cheats, .renpyTools],
-        [.persistentData, .saves, .mods, .translations],
+        [.persistentData, .saves, .mods, .translations, .gameFiles],
         [.controls, .runtime, .diagnostics],
     ]
 
@@ -122,7 +122,7 @@ struct GameToolsView: View {
         switch section {
         case .variables:
             if let tools = model.tools {
-                VariablesView(tools: tools, categories: capabilities.variableCategories, cheatsFor: game.id)
+                VariablesView(tools: tools, categories: capabilities.variableCategories, cheatsFor: game.id, storageFor: game)
             }
         case .cheats:
             if let tools = model.tools {
@@ -144,6 +144,7 @@ struct GameToolsView: View {
         case .translations: TranslationsView(game: game, liveTranslation: capabilities.canLiveTranslate)
         case .runtime: RuntimePageView(game: game, snapshot: snapshot)
         case .controls: ControlsToolsView(game: game)
+        case .gameFiles: GameFilesView(game: game)
         }
     }
 }
@@ -168,6 +169,7 @@ extension ToolsSection {
         case .translations: "Translations"
         case .saves: "Saves and backups"
         case .persistentData: "Persistent data"
+        case .gameFiles: "Game files"
         case .controls: "Controls"
         case .runtime: "Runtime"
         case .diagnostics: "Diagnostics"
@@ -183,6 +185,7 @@ extension ToolsSection {
         case .translations: "Translation packs"
         case .saves: "Slots, snapshots, import and export"
         case .persistentData: "Data the game keeps between saves"
+        case .gameFiles: "Browse and share what the game reads"
         case .controls: "Touch and controller layout"
         case .runtime: "Engine and speed"
         case .diagnostics: "What OmniPlay found, and logs"
@@ -198,6 +201,7 @@ extension ToolsSection {
         case .translations: "character.book.closed"
         case .saves: "clock"
         case .persistentData: "internaldrive"
+        case .gameFiles: "folder"
         case .controls: "gamecontroller"
         case .runtime: "cpu"
         case .diagnostics: "stethoscope"

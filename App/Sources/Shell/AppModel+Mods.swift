@@ -204,6 +204,24 @@ extension AppModel {
         }
     }
 
+    // MARK: Game files
+
+    /// The game's layers as its next launch composes them, over its index, for the read-only Game files browser. Mods and
+    /// packs are indexed at launch; one installed since is indexed here, so the browser shows it before the game runs.
+    func gameFileResolver(for id: GameID) async -> OverlayResolver? {
+        guard let descriptor = Self.snapshot(for: id, paths: paths)?.report.descriptor.withID(id) else { return nil }
+        let layers = LayerSetBuilder.forGame(descriptor, paths: paths, enabledOverlays: modSublayers(for: id) + translationSublayers(for: id))
+        let indexURL = paths.game(id).appending(path: "index.sqlite")
+        return await Task.detached { () -> OverlayResolver? in
+            guard FileManager.default.fileExists(atPath: indexURL.path(percentEncoded: false)),
+                  let index = try? PathIndex.open(at: indexURL) else { return nil }
+            for layer in layers where layer.tier == .overrides && layer.name != "overrides/host" && (try? index.count(layer: layer.name)) == 0 {
+                try? index.rebuild(layer: layer.name, root: layer.root)
+            }
+            return OverlayResolver(layers: layers, index: index)
+        }.value
+    }
+
     // MARK: Launch
 
     /// The enabled mods as layers, highest priority winning, for `RuntimeConfiguration`.

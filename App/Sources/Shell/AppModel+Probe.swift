@@ -29,6 +29,10 @@ import SaveKit
                 OPLog.log(.runtime, .info, "STATEPROBE no state bridge for this runtime")
                 return
             }
+            if let spec = DebugLaunch.value(for: "--probe-godot") { // SCRATCH-GODOT
+                await probeGodot(inspector, spec)
+                return
+            }
             // Ren'Py speaks in stores, persistent data and labels; the others in RPG Maker's categories.
             if let store = try? await inspector.inspect(.list(category: .store, query: nil, page: StatePage(size: 10))) {
                 await probeRenPyState(inspector, store: store)
@@ -70,6 +74,38 @@ import SaveKit
                 (.setQuantity(150), .item(kind: .item, id: 2)),
             ])
         }
+
+        // SCRATCH-GODOT begin
+        private func probeGodot(_ inspector: any StateInspecting, _ spec: String) async {
+            func value(_ t: String) -> StateValue { Int(t).map { .int($0) } ?? Double(t).map { .double($0) } ?? (t == "true" ? .bool(true) : t == "false" ? .bool(false) : .string(t)) }
+            var items = spec.split(separator: ";").map(String.init)
+            let query = items.isEmpty ? "" : items.removeFirst()
+            OPLog.log(.runtime, .info, "STATEPROBE caps \(inspector.stateCapabilities)")
+            do {
+                let page = try await inspector.inspect(.list(category: .store, query: query, page: StatePage(size: 60)))
+                OPLog.log(.runtime, .info, "STATEPROBE godot list(\(query)) more=\(page.hasMore) n=\(page.entries.count)")
+                for e in page.entries { OPLog.log(.runtime, .info, "STATEPROBE  \(e.target) \(e.name)=\(e.value) ed=\(e.editable)") }
+            } catch { OPLog.log(.runtime, .info, "STATEPROBE godot list failed: \(error)") }
+            var watch: [StateTarget] = []
+            for item in items {
+                let freeze = item.hasPrefix("freeze:")
+                let body = freeze ? String(item.dropFirst(7)) : item
+                let halves = body.split(separator: "=", maxSplits: 1).map(String.init)
+                let parts = halves[0].split(separator: "|").map(String.init)
+                let target = StateTarget.scriptVariable(root: parts[0], path: parts[1].split(separator: ".").map(String.init))
+                watch.append(target)
+                let result: StateMutationResult = if freeze, let tools { await tools.freeze(target, at: value(halves[1])) } else { await inspector.mutate(StateMutation(target: target, requested: value(halves[1]))) }
+                OPLog.log(.runtime, .info, "STATEPROBE \(freeze ? "freeze" : "set") \(target): \(result.result) old=\(result.oldValue) now=\(result.effectiveValue) \(result.validation.map(\.message))")
+            }
+            for i in 0 ..< 90 {
+                try? await Task.sleep(for: .seconds(2))
+                for t in watch {
+                    let v = (try? await inspector.inspect(.get(t)).entries.first?.value).map { "\($0)" } ?? "gone"
+                    OPLog.log(.runtime, .info, "STATEPROBE t+\(2 * (i + 1))s \(t) = \(v)")
+                }
+            }
+        }
+        // SCRATCH-GODOT end
 
         /// SAVE-009 through the game's own save code: a value edited in play survives save → reset → load.
         private func probeSlots(_ inspector: any StateInspecting) async {

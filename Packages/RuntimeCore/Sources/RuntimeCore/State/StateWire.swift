@@ -132,6 +132,17 @@ public enum StateWire {
         switch r {
         case let .list(category, query, page):
             ["op": "list", "category": category.rawValue, "query": query ?? "", "offset": page.offset, "size": page.size]
+        case let .children(t, page): target(t).map { ["op": "children", "target": $0, "offset": page.offset, "size": page.size] }
+        case let .search(category, query, names, values, page):
+            [
+                "op": "search",
+                "category": category.rawValue,
+                "query": query,
+                "names": names,
+                "values": values,
+                "offset": page.offset,
+                "size": page.size,
+            ]
         case let .get(t): target(t).map { ["op": "get", "target": $0] }
         case .metadata: ["op": "metadata"]
         }
@@ -174,10 +185,9 @@ public enum StateWire {
     }
 
     public static func inspectionResult(_ reply: [String: Any], for request: StateInspectionRequest) -> StateInspectionResult {
-        let page: StatePage = if case let .list(_, _, page) = request {
-            page
-        } else {
-            StatePage()
+        let page: StatePage = switch request {
+        case let .list(_, _, page), let .children(_, page), let .search(_, _, _, _, page): page
+        case .get, .metadata: StatePage()
         }
         let entries = (reply["entries"] as? [[String: Any]] ?? []).compactMap { entry -> StateEntry? in
             guard let json = entry["target"] as? [String: Any], let target = target(from: json) else { return nil }
@@ -195,7 +205,12 @@ public enum StateWire {
                 persistent: entry["persistent"] as? Bool ?? false
             )
         }
-        return StateInspectionResult(entries: entries, page: page, hasMore: reply["hasMore"] as? Bool ?? false)
+        return StateInspectionResult(
+            entries: entries,
+            page: page,
+            hasMore: reply["hasMore"] as? Bool ?? false,
+            total: reply["total"] as? Int
+        )
     }
 
     /// A `set` reply as a result; a value the game adjusted (clamped gold, a capped level) is `partial` with a warning.

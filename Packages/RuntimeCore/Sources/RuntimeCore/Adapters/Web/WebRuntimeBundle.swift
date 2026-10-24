@@ -2,12 +2,12 @@ import Foundation
 
 /// The injected scripts, loaded from the package resources and specialised with the game's profile and saves.
 public enum WebRuntimeBundle {
-    public static let version = 17
+    public static let version = 18
     public static let isolatedScripts = ["omniplay-bootstrap", "omniplay-console", "omniplay-heartbeat"]
     /// Order matters: storage runs first so localStorage is seeded before any game script reads it.
     public static let pageScripts = [
         "omniplay-page-console", "omniplay-storage", "omniplay-nw-shim", "omniplay-audio", "omniplay-compat", "omniplay-input",
-        "omniplay-pause", "omniplay-state", "omniplay-translate",
+        "omniplay-pause", "omniplay-state", "omniplay-translate", "omniplay-web-state",
     ]
 
     public static func source(_ name: String, profile: WebProfile, saves: String = "{}") throws -> String {

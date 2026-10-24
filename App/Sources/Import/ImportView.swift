@@ -146,6 +146,8 @@ private struct ImportRow: View {
                 Spacer(minLength: 0)
                 if case let .ready(id) = item.state {
                     Button("Show") { open(id) }.buttonStyle(.link)
+                } else if case .waiting = item.state {
+                    EmptyView() // the question carries its own Cancel
                 } else if cancelling, !item.state.isTerminal {
                     Text("Cancelling…").font(.footnote).foregroundStyle(Theme.textSecondary)
                 } else if !item.state.isTerminal {
@@ -163,12 +165,8 @@ private struct ImportRow: View {
                  .registering:
                 bar
                 steps
-            case let .failed(.duplicate(existing, title)):
-                Text("You already have \"\(title)\". Replace it, or keep both?").font(.footnote).foregroundStyle(Theme.textSecondary)
-                HStack(spacing: Theme.s6) {
-                    Button("Replace") { resolve { $0.duplicates = .replace(existing) } }.buttonStyle(.link)
-                    Button("Keep both") { resolve { $0.duplicates = .keepBoth } }.buttonStyle(.link)
-                }
+            case let .waiting(question):
+                ImportQuestionView(question: question, fileName: item.name, answer: item.answer)
             case .failed(.passwordRequired), .failed(.passwordIncorrect):
                 Text(item.options.passphrase == nil ? "This archive is password protected." : "That password did not open the archive.")
                     .font(.footnote).foregroundStyle(item.options.passphrase == nil ? Theme.textSecondary : Theme.danger)
@@ -181,15 +179,6 @@ private struct ImportRow: View {
                         .submitLabel(.go)
                         .onSubmit { unlock() }
                     Button("Unlock") { unlock() }.buttonStyle(.link).disabled(passphrase.isEmpty)
-                }
-            case let .failed(.multipleRoots(candidates)):
-                Text("Several game folders are inside. Which one is the game?").font(.footnote).foregroundStyle(Theme.textSecondary)
-                ForEach(candidates.sorted(), id: \.self) { candidate in
-                    Button { resolve { $0.chosenRoot = candidate } } label: {
-                        Label(candidate, systemImage: "folder").font(.system(.footnote, design: .monospaced))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .buttonStyle(.link)
                 }
             case let .failed(failure):
                 Text(Self.copy(for: failure)).font(.footnote).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true)
@@ -275,7 +264,7 @@ private struct ImportRow: View {
         case .queued, .staging, .extracting: 0
         case .inspecting, .normalizing: 1
         case .detecting, .resolvingRuntime, .analyzingMedia, .preparing: 2
-        case .registering: 3
+        case .registering, .waiting: 3
         case .ready: 4
         case .failed, .cancelled: -1
         }

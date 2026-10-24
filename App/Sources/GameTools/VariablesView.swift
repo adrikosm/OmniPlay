@@ -1,11 +1,16 @@
 import GameCore
+import GameDetection
+import GameStore
 import GameTools
 import RuntimeCore
 import SwiftUI
 
-/// The running game's live values, by category: search by name, number or value, edit by type, watch, freeze, reset
-/// and undo. One column by default so long names read in full; two in landscape when the player asks. A tap on a
+/// The running game's live values, by category, a page at a time: search by name, number or value (at any depth where
+/// the engine can look inside its objects), edit by type, watch, freeze, reset and undo. One column by default so long names read in full;
+/// two in landscape when the player asks. A tap on a
 /// name opens the whole value. Every change goes through `MutationEngine`; engine objects are shown and never edited.
+/// Find by change: remember a category's values, play, then list only what changed, went up, went down or equals a
+/// number, and remember again to narrow down to the one value that holds the gold.
 struct VariablesView: View {
     let tools: MutationEngine
     let categories: [StateCategory]
@@ -14,6 +19,8 @@ struct VariablesView: View {
     var title = "Variables"
     /// The live game whose saved values ("Your cheats") show above the list; none for saves and persistent data.
     var cheatsFor: GameID?
+    /// The running game, for the link to its saved web storage; none where that link makes no sense.
+    var storageFor: GameRecord?
     @Environment(AppModel.self) private var model
     @State private var saved: [AppModel.CustomCheat] = []
     @State private var category: StateCategory?
@@ -24,10 +31,13 @@ struct VariablesView: View {
     @State private var everything: (category: StateCategory, entries: [StateEntry])?
     @State private var page = StatePage(size: 60)
     @State private var hasMore = false
+    @State private var total: Int?
     @State private var loading = false
     @State private var problem: String?
     @State private var rowErrors: [StateTarget: String] = [:]
     @State private var opened: StateTarget?
+    @State private var find = FindMode.changed
+    @State private var equals = ""
     @AppStorage("omniplay.variables.columns") private var columns = 1
     @Environment(\.scenePhase) private var scenePhase
 
@@ -53,12 +63,45 @@ struct VariablesView: View {
         }
     }
 
+    /// How a remembered value must have moved to stay in the list.
+    enum FindMode: String, CaseIterable {
+        case changed, up, down, equals
+
+        var title: String {
+            switch self {
+            case .changed: "Changed"
+            case .up: "Went up"
+            case .down: "Went down"
+            case .equals: "Equals…"
+            }
+        }
+
+        func keeps(_ now: StateValue, was: StateValue, equals: Double?) -> Bool {
+            switch self {
+            case .changed: return now != was
+            case .up, .down:
+                guard let a = now.number, let b = was.number else { return false }
+                return self == .up ? a > b : a < b
+            case .equals: return equals != nil && now.number == equals
+            }
+        }
+    }
+
+    /// Up to this many values are remembered from one category.
+    static let rememberLimit = 5000
+
     private var twoColumns: Bool { wide && columns == 2 }
+    private var remembered: [StateTarget: StateValue]? { category.flatMap { tools.remembered[$0] } }
+    /// Find by change is for a running game, not a save on the table.
+    private var canRemember: Bool { tools.capabilities.contains(.live) && !editingSave }
 
     var body: some View {
-        ScrollView {
+        ScrollViewReader { proxy in ScrollView {
             VStack(alignment: .leading, spacing: Theme.s4) {
-                controls.rise(0)
+                controls.rise(0).id("top")
+                if let remembered {
+                    findBar(remembered.count).rise(0)
+                }
                 if !saved.isEmpty {
                     savedCheats.rise(0)
                 }
@@ -83,8 +126,19 @@ struct VariablesView: View {
                     )
                 }
                 .rise(1)
-                if hasMore {
-                    Button("Show more") { Task { await load(more: true) } }.buttonStyle(.link).frame(maxWidth: .infinity).disabled(loading)
+                PageBar(page: page, hasMore: hasMore, total: total, loading: loading) { next in
+                    page = next
+                    proxy.scrollTo("top", anchor: .top)
+                }
+                if let game = storageFor,
+                   SaveStrategy.forEngine(game.engine, generation: game.generation).persistentStores.contains(.webLocalStorage) {
+                    GlassSection {
+                        NavigationLink { PersistentDataView(game: game, running: true, tools: tools) } label: {
+                            ListRow(icon: "internaldrive", title: "Saved data", subtitle: "Open web storage") { Chevron() }
+                        }
+                        .buttonStyle(.row)
+                    }
+                    .rise(2)
                 }
             }
             .padding(.horizontal, Theme.s4)
@@ -92,12 +146,23 @@ struct VariablesView: View {
             .frame(maxWidth: twoColumns ? .infinity : 760)
             .frame(maxWidth: .infinity)
         }
+        .modifier(BackToTopPastEnd(proxy: proxy))
+        }
         .scrollDismissesKeyboard(.interactively)
         .canvas()
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                if canRemember {
+                    Button(remembered == nil ? "Remember values" : "Remember again") { Task { await remember() } }
+                        .font(.subheadline.weight(.semibold))
+                        .tint(Theme.textPrimary)
+                        .disabled(loading || category == nil)
+                        .accessibilityHint(remembered == nil
+                            ? "Keeps every value in this list, so you can find the ones that change."
+                            : "Keeps only the values listed now, to narrow the search.")
+                }
                 if wide {
                     Button {
                         withAnimation(Theme.snap) { columns = twoColumns ? 1 : 2 }
@@ -125,10 +190,10 @@ struct VariablesView: View {
             }
         }
         .sensoryFeedback(.success, trigger: tools.records.count) { old, new in new < old }
-        .task(id: TaskKey(category: category, query: query, scope: scope)) {
+        .task(id: taskKey) {
             // A short pause so typing does not send a request per keystroke; a newer query cancels this one.
-            do { try await Task.sleep(for: .milliseconds(query.isEmpty ? 0 : 250)) } catch { return }
-            await load(more: false)
+            do { try await Task.sleep(for: .milliseconds((query.isEmpty && equals.isEmpty) || page.offset > 0 ? 0 : 250)) } catch { return }
+            await load()
         }
         .task(id: WatchKey(targets: Set(tools.watched.keys), active: scenePhase == .active)) {
             guard scenePhase == .active, !tools.watched.isEmpty else { return }
@@ -171,6 +236,71 @@ struct VariablesView: View {
         let category: StateCategory?
         let query: String
         let scope: SearchScope
+        let page: StatePage
+        /// Find by change: how many are remembered (nil when none), the mode and the number for Equals.
+        var remembered: Int?
+        var find = FindMode.changed
+        var equals = ""
+    }
+
+    private var taskKey: TaskKey {
+        TaskKey(category: category, query: query, scope: scope, page: page, remembered: remembered?.count, find: find, equals: equals)
+    }
+
+    /// Changed · Went up · Went down · Equals…, the number for Equals, and how many of the remembered values match.
+    private func findBar(_ count: Int) -> some View {
+        VStack(alignment: .leading, spacing: Theme.s2) {
+            ScrollView(.horizontal) {
+                GlassSegmentBar(items: FindMode.allCases.map { ($0, $0.title) }, selection: $find).fixedSize()
+            }
+            .scrollIndicators(.hidden)
+            .scrollClipDisabled()
+            .accessibilityLabel("Show values that")
+            if find == .equals {
+                TextField("Number", text: $equals)
+                    .keyboardType(.numbersAndPunctuation)
+                    .font(Theme.value)
+                    .foregroundStyle(Theme.textPrimary)
+                    .padding(.horizontal, Theme.s3)
+                    .frame(maxWidth: 220, minHeight: 44)
+                    .glass(radius: Theme.fieldRadius)
+                    .accessibilityLabel("Equals this number")
+                    .transition(.opacity)
+            }
+            HStack(spacing: Theme.s3) {
+                Text("\((total ?? entries.count).formatted()) of \(count.formatted()) match")
+                    .font(.footnote.monospacedDigit()).foregroundStyle(Theme.textSecondary)
+                    .contentTransition(.numericText())
+                Spacer(minLength: Theme.s2)
+                Button("Forget values") {
+                    if let category {
+                        tools.remembered[category] = nil
+                    }
+                }
+                .buttonStyle(.link)
+                .font(.footnote)
+            }
+        }
+        .animation(Theme.snap, value: find)
+    }
+
+    /// The first time, every value in the category (up to `rememberLimit`); after that, only the ones listed now, so
+    /// each round narrows the last.
+    private func remember() async {
+        guard let category else { return }
+        do {
+            let values = if let remembered {
+                try await stillMatching(category, remembered)
+            } else {
+                try await readAll(category, limit: Self.rememberLimit)
+            }
+            tools.remembered[category] = Dictionary(values.map { ($0.target, $0.value) }) { first, _ in first }
+            problem = nil
+        } catch StateBridgeError.notInGame {
+            problem = Self.notInGame
+        } catch {
+            problem = "The values could not be read: \(error)"
+        }
     }
 
     private struct WatchKey: Equatable {
@@ -183,17 +313,21 @@ struct VariablesView: View {
         let bar = ScrollView(.horizontal) {
             GlassSegmentBar(
                 items: categories.map { ($0, $0.title) },
-                selection: Binding(get: { category ?? categories.first ?? .variables }, set: { category = $0 })
+                selection: Binding(get: { category ?? categories.first ?? .variables }, set: { category = $0; page = page.first })
             )
         }
         .scrollIndicators(.hidden)
         .scrollClipDisabled()
         .fixedSize(horizontal: false, vertical: true)
         let search = HStack(spacing: Theme.s2) {
-            SearchField(text: $query, prompt: scope.prompt)
-            GlassSegmentBar(items: SearchScope.allCases.map { ($0, $0.title) }, selection: $scope)
-                .fixedSize()
-                .accessibilityLabel("Search in")
+            // A new search or category starts on its first page.
+            SearchField(text: Binding(get: { query }, set: { query = $0; page = page.first }), prompt: scope.prompt)
+            GlassSegmentBar(
+                items: SearchScope.allCases.map { ($0, $0.title) },
+                selection: Binding(get: { scope }, set: { scope = $0; page = page.first })
+            )
+            .fixedSize()
+            .accessibilityLabel("Search in")
         }
         if wide {
             VStack(alignment: .leading, spacing: Theme.s3) {
@@ -229,7 +363,7 @@ struct VariablesView: View {
     private func banner(_ text: String) -> some View {
         GlassSection {
             ListRow(icon: "exclamationmark.triangle", title: text) {
-                Button("Try again") { Task { await load(more: false) } }.buttonStyle(.link)
+                Button("Try again") { Task { await load() } }.buttonStyle(.link)
             }
         }
     }
@@ -278,13 +412,13 @@ struct VariablesView: View {
         entries.first { $0.target == target }?.name ?? target.shortDescription
     }
 
-    /// No search: the category a page at a time. A search: the whole category once, filtered here, so names,
-    /// numbers and values are all matched the same way in every engine.
-    private func load(more: Bool) async {
+    /// No search: the category a page at a time. A search: the engine's own search at any depth where it has one
+    /// (`.nested`); otherwise the whole category once, filtered here, so names, numbers and values are matched the same
+    /// way in every engine, and shown a page at a time.
+    private func load() async {
         guard let category else { return }
-        // "Show more" runs outside the view's task, so cancellation alone does not catch a category or query change.
-        let asked = TaskKey(category: category, query: query, scope: scope)
-        var current: Bool { !Task.isCancelled && asked == TaskKey(category: self.category, query: query, scope: scope) }
+        let asked = taskKey
+        var current: Bool { !Task.isCancelled && asked == taskKey }
         loading = true
         defer {
             if current {
@@ -292,15 +426,25 @@ struct VariablesView: View {
             }
         }
         do {
-            if query.isEmpty {
-                let next = more ? page.next : StatePage(size: page.size)
-                let result = try await tools.list(category, query: nil, page: next)
-                // The category or query changed while the game answered; the newer request owns the list.
+            let result: StateInspectionResult
+            if let remembered {
+                let found = try await stillMatching(category, remembered)
                 guard current else { return }
-                entries = more ? entries + result.entries : result.entries
-                page = next
-                hasMore = result.hasMore
+                result = StateInspectionResult(
+                    entries: Array(found.dropFirst(page.offset).prefix(page.size)),
+                    page: page,
+                    hasMore: page.offset + page.size < found.count,
+                    total: found.count
+                )
+                everything = nil
+            } else if query.isEmpty {
+                result = try await tools.list(category, query: nil, page: page)
                 everything = nil // the next search reads the game afresh
+            } else if tools.capabilities.contains(.nested) {
+                let q = query.trimmingCharacters(in: .whitespaces)
+                result = try await tools.inspector.inspect(.search(
+                    category: category, query: q, names: scope != .value, values: scope != .name, page: page
+                ))
             } else {
                 let all: [StateEntry] = if let cached = everything, cached.category == category {
                     cached.entries
@@ -309,9 +453,19 @@ struct VariablesView: View {
                 }
                 guard current else { return }
                 everything = (category, all)
-                entries = all.filter { Self.matches($0, query: query, scope: scope) }
-                hasMore = false
+                let found = all.filter { Self.matches($0, query: query, scope: scope) }
+                result = StateInspectionResult(
+                    entries: Array(found.dropFirst(page.offset).prefix(page.size)),
+                    page: page,
+                    hasMore: page.offset + page.size < found.count,
+                    total: found.count
+                )
             }
+            // The category, query or page changed while the game answered; the newer request owns the list.
+            guard current else { return }
+            entries = result.entries
+            hasMore = result.hasMore
+            total = result.total
             problem = nil
         } catch StateBridgeError.timedOut {
             guard current else { return }
@@ -319,20 +473,34 @@ struct VariablesView: View {
         } catch StateBridgeError.notInGame {
             guard current else { return }
             entries = []
-            problem = "The game has not reached its first scene yet."
+            problem = Self.notInGame
         } catch {
             guard current else { return }
             problem = "This list is not available: \(error)"
         }
     }
 
-    private func readAll(_ category: StateCategory) async throws -> [StateEntry] {
+    /// Every value of the category that moved the way Find asks since it was remembered, read fresh from the game, not
+    /// just the page on screen.
+    private func stillMatching(_ category: StateCategory, _ remembered: [StateTarget: StateValue]) async throws -> [StateEntry] {
+        let all = try await readAll(category, limit: Self.rememberLimit)
+        let number = Double(equals.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ""))
+        return all.filter { entry in
+            remembered[entry.target].map { find.keeps(entry.value, was: $0, equals: number) } == true &&
+                Self.matches(entry, query: query, scope: scope)
+        }
+    }
+
+    /// Shown while the bridge answers `notInGame`: the title screen, or a game still loading.
+    static let notInGame = "Start a new game or load a save first. Changes on the title screen are lost when the game starts."
+
+    private func readAll(_ category: StateCategory, limit: Int = .max) async throws -> [StateEntry] {
         var all: [StateEntry] = []
         var next = StatePage(size: 1000)
         while true {
             let result = try await tools.list(category, query: nil, page: next)
             all += result.entries
-            guard result.hasMore, !Task.isCancelled else { return all }
+            guard result.hasMore, all.count < limit, !Task.isCancelled else { return Array(all.prefix(limit)) }
             next = next.next
         }
     }
@@ -367,6 +535,17 @@ struct VariablesView: View {
         }
         if let i = everything?.entries.firstIndex(where: { $0.target == result.target }) {
             everything?.entries[i].value = result.effectiveValue
+        }
+    }
+}
+
+private extension StateValue {
+    /// A number's value, for Went up, Went down and Equals.
+    var number: Double? {
+        switch self {
+        case let .int(n): Double(n)
+        case let .double(d): d
+        default: nil
         }
     }
 }

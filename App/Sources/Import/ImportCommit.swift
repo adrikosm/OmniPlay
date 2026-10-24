@@ -12,7 +12,9 @@ import Synchronization
 /// The commit half of the import: install into `Games/<id>`, seal, index, persist the report; or replace an existing game.
 extension ImportPipeline {
     struct CommitPlan {
-        let stagedRoot: URL, located: LocatedRoot, title: String, report: DetectionReport, resolution: RuntimeResolution
+        let stagedRoot: URL, located: LocatedRoot
+        var title: String
+        let report: DetectionReport, resolution: RuntimeResolution
         let bytes: Int64, source: ImportSource, kind: ContainerKind, fingerprint: String
         /// Detection's index of the located root (layer `ScanContext.layer`), copied in as `original`.
         let scanIndex: URL
@@ -47,13 +49,18 @@ extension ImportPipeline {
     static func release(_ id: GameID) { _ = busy.withLock { $0.remove(id) } }
 
     /// Keep the original tree and every affected sidecar until the database transaction succeeds. Saves stay.
-    func replace(_ id: GameID, with plan: CommitPlan) async throws -> GameID {
+    func replace(_ id: GameID, with incoming: CommitPlan) async throws -> GameID {
         guard Self.claim(id) else { throw ImportFailure.internalError("The game is being deleted, so it was not replaced.") }
         defer { Self.release(id) }
         // Deleted while this import was staging: nothing to replace, and no folder is recreated for it.
-        guard try store.games.fetch(id: id) != nil else {
+        guard let existing = try store.games.fetch(id: id) else {
             throw ImportFailure.internalError("The game was deleted while this import was running, so there is nothing to replace.")
         }
+        // The new release is the same game to the player: its name stays, and so does the identity its save backups,
+        // rescued saves and save exports are keyed by.
+        var plan = incoming
+        plan.title = existing.title
+        let identity = AppModel.identityHash(for: id, paths: paths)
         let fm = FileManager.default
         let r = ReplacementPaths(id, paths: paths)
         let original = r.original, backup = r.backup, metadata = r.metadata, index = r.index
@@ -76,7 +83,7 @@ extension ImportPipeline {
             throw error
         }
         do {
-            try install(plan, into: id)
+            try install(plan, into: id, identity: identity)
             try register(plan, id: id, replacing: true)
             // Committed: the backup is renamed at once, so a launch after a kill here never restores it over the new row.
             // ponytail: the rename right after the database commit is the remaining window; a journal row closes it.
@@ -204,7 +211,7 @@ extension ImportPipeline {
     /// game.json plus the full detection report.
     /// The manifest's hashes wait (`completeHashingLater`): hashing read every byte of the game a second time before it
     /// could appear in the library, and nothing needs them while it is being played.
-    func install(_ plan: CommitPlan, into id: GameID) throws {
+    func install(_ plan: CommitPlan, into id: GameID, identity: String? = nil) throws {
         let gameRoot = paths.game(id)
         let original = paths.tier(.original, for: id)
         try FileManager.default.moveItem(at: plan.stagedRoot, to: original)
@@ -222,7 +229,7 @@ extension ImportPipeline {
         d.title = plan.title
         d.containerType = plan.kind.rawValue
         d.warnings += plan.located.sidecars.notes.map { .note($0) }
-        d.identityHash = plan.fingerprint
+        d.identityHash = identity ?? plan.fingerprint
         d.importedAt = .now
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

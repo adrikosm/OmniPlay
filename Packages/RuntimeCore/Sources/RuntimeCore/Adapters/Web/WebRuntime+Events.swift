@@ -261,19 +261,26 @@
         }
     }
 
-    /// RPG Maker MV/MZ state through `omniplay-state.js` in the page world, where `$game*` lives. Other web games
-    /// have no typed state and answer `.engine`.
+    /// Typed state in the page world: RPG Maker MV/MZ through `omniplay-state.js` (where `$game*` lives), other HTML
+    /// games through `omniplay-web-state.js` (SugarCube, Harlowe, TyranoScript, or what the page added to `window`).
+    /// KiriKiri and the rest have none and answer `.engine`.
     extension WebRuntime: StateInspecting {
-        public var stateCapabilities: StateCapabilities { hasTypedState ? .rpgMaker : [] }
-
-        var hasTypedState: Bool {
-            configuration.map { [.rpgMakerMV, .rpgMakerMZ].contains($0.descriptor.engine) } ?? false
+        public var stateCapabilities: StateCapabilities {
+            switch configuration?.descriptor.engine {
+            case .rpgMakerMV, .rpgMakerMZ: .rpgMaker
+            case .html5: [.store, .live]
+            default: []
+            }
         }
 
+        /// RPG Maker's own objects, which crash resume snapshots too.
+        var hasTypedState: Bool { stateCapabilities.contains(.variables) }
+
         func call(_ request: [String: Any]) async throws -> [String: Any] {
-            guard hasTypedState, let webView else { throw StateBridgeError.engine("this game has no typed state") }
+            guard !stateCapabilities.isEmpty, let webView else { throw StateBridgeError.engine("this game has no typed state") }
+            let bridge = hasTypedState ? "__omniplayState" : "__omniplayWebState"
             let reply = try await webView.callAsyncJavaScript(
-                "return window.__omniplayState ? window.__omniplayState(request) : {error: 'bridge not loaded'};",
+                "return window.\(bridge) ? window.\(bridge)(request) : {error: 'bridge not loaded'};",
                 arguments: ["request": request],
                 in: nil,
                 contentWorld: .page
@@ -293,7 +300,13 @@
         public func mutate(_ mutation: StateMutation) async -> StateMutationResult {
             guard let body = StateWire.mutationRequest(mutation) else { return .rejected(mutation, "not a web target") }
             do {
-                return try await StateWire.mutationResult(call(body), for: mutation)
+                let reply = try await call(body)
+                var result = StateWire.mutationResult(reply, for: mutation)
+                // Harlowe: the story shows the change on its next passage, and says so.
+                if let note = reply["note"] as? String {
+                    result.validation.append(ValidationIssue(.warning, note))
+                }
+                return result
             } catch StateBridgeError.notInGame {
                 return .rejected(mutation, "The game has not started yet.")
             } catch {
