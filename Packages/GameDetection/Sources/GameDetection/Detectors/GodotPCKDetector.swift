@@ -5,7 +5,7 @@ import GameImport
 /// Godot PCK header and directory: exact version, pack format, flags, GDExtension and C# markers.
 public struct GodotPCKDetector: Detector {
     public let id = DetectorID.godotPCK
-    public let version = 2
+    public let version = 3
     public init() {}
 
     public func probe(_ ctx: ScanContext, facts: StructureFacts) throws -> DetectorReport {
@@ -70,6 +70,10 @@ public struct GodotPCKDetector: Detector {
            let list = try? Self.packEntry(handle: handle, packStart: offset, format: format, path: ".godot/extension_list.cfg", maxBytes: 64 << 10) {
             names = String(decoding: list, as: UTF8.self).split(whereSeparator: \.isNewline).map(String.init).filter { !$0.isEmpty }
         }
+        // The 4.7 engine has spine-godot built in as a module, so Spine's extension is no blocker there.
+        // shortcut: assumes Spine 4.3 data (the module's runtime); an older export still fails to load its skeletons.
+        let spine = major == 4 && names.contains { $0.contains("spine_godot") }
+        names.removeAll { major == 4 && $0.contains("spine_godot") }
         if !names.isEmpty {
             r.partial.blockers.append(.gdextension(names))
             r.add(
@@ -85,7 +89,9 @@ public struct GodotPCKDetector: Detector {
             r.partial.blockers.append(.csharpExport)
         }
         let (candidates, warning) = Self.candidates(major: Int(major), minor: Int(minor), raw: v.raw)
-        r.partial.runtimeCandidates = candidates
+        r.partial.runtimeCandidates = spine
+            ? [RuntimeCandidate(runtime: .godot(bucket: .v47), confidence: 0.9, reason: "Spine animations need the 4.7 engine, which has Spine built in")]
+            : candidates
         if let warning {
             r.partial.warnings.append(warning)
         }

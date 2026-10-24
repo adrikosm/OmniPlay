@@ -77,6 +77,11 @@ Godot Engine 4.7.2 and 3.6.3 — MIT — LICENSES/godot.txt
   bundled third-party components (FreeType, HarfBuzz, libpng, zstd, mbedTLS, and others) are listed in each release's
   COPYRIGHT.txt, reproduced in the same file. https://godotengine.org/  https://github.com/godotengine/godot
 
+Spine Runtimes 4.3 (spine-cpp, spine-godot) — Spine Runtimes License — LICENSES/spine-runtimes.txt
+  Compiled into the Godot 4.7 framework as the spine_godot module by Scripts/native/build-godot.sh from the
+  Native/spine-runtimes submodule, so Godot games that use Spine animations run. The licence permits integration under
+  Section 2 of the Spine Editor License Agreement. https://esotericsoftware.com/  https://github.com/EsotericSoftware/spine-runtimes
+
 FFmpeg 9.0.1 — LGPL-2.1-or-later (configured --disable-gpl --disable-nonfree) — LICENSES/ffmpeg.txt
   Converts a game's media before it runs (MediaTranscode) into what its engine decodes: H.264 through VideoToolbox
   with AAC for WebKit, Theora with Vorbis for mkxp-z and Ren'Py, Vorbis and PCM for audio. Built by
