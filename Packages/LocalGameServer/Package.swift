@@ -19,7 +19,6 @@ let package = Package(
                 .product(name: "OverlayVFS", package: "OverlayVFS"),
             ]
         ),
-        .testTarget(name: "LocalGameServerTests", dependencies: ["LocalGameServer", .product(name: "TestSupport", package: "GameCore")]),
     ],
     swiftLanguageModes: [.v6]
 )

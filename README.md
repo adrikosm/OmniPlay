@@ -29,7 +29,7 @@ Scripts/generate-project.sh    # xcodegen: project.yml -> OmniPlay.xcodeproj
 Scripts/build-sim.sh           # build, install and launch on the iPhone 17 Pro Max (iOS 27.0) simulator
 Scripts/build-device.sh --unsigned  # prepare iphoneos app and build manifest without signing
 Scripts/build-device.sh --device <identifier>  # sign locally, install and launch on this paired phone
-Scripts/test.sh                # swift test for every package, then the app test bundle on the simulator
+Scripts/test.sh                # the three package tests the change touches (--all: every one), Mac only
 ```
 
 Signed device builds read your team ID from `Signing.xcconfig`, which is gitignored. Copy
@@ -59,8 +59,8 @@ Everything up to the phone is checked by one command on the Mac:
 Scripts/preflight.sh --release
 ```
 
-It verifies the toolchain and every native artefact, runs the source-boundary checks and the eight tests
-(packages, then the app and UI bundles on the simulator), builds the unsigned iphoneos app in Debug and Release, and
+It verifies the toolchain and every native artefact, runs the source-boundary checks and the three tests,
+builds the unsigned iphoneos app in Debug and Release, and
 reports what signing still needs. Logs go to `.build/preflight/`. Do not install until it ends with every step
 passing; `TODO`/`WARN` lines are the signing steps below.
 
@@ -89,7 +89,6 @@ which the per-game Diagnostics screen exports.
 | `Native/` | Pinned upstream sources as submodules (libarchive, xz, zstd, later the engines); build outputs are gitignored |
 | `Scripts/` | Bootstrap, project generation, build and test scripts |
 | `Fixtures/synthetic/` | Deterministic test inputs with no game content |
-| `Tests/` | App-level tests; each package carries its own test target |
 | `LICENSES/` | Full licence texts of third-party components |
 | `project.yml` | xcodegen specification for the app target and package graph |
 

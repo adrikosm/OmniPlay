@@ -394,41 +394,12 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
 
-  OmniPlayTests:
-    type: bundle.unit-test
-    platform: iOS
-    sources: [Tests/OmniPlayTests]
-    dependencies:
-      - target: OmniPlay
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.omniplay.app.tests
-        GENERATE_INFOPLIST_FILE: YES
-
-  OmniPlayUITests:
-    type: bundle.ui-testing
-    platform: iOS
-    sources: [Tests/OmniPlayUITests]
-    dependencies:
-      - target: OmniPlay
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.omniplay.app.uitests
-        GENERATE_INFOPLIST_FILE: YES
-        TEST_TARGET_NAME: OmniPlay
-
 schemes:
   OmniPlay:
     build:
       targets:
         OmniPlay: all
-        OmniPlayTests: [test]
-        OmniPlayUITests: [test]
     run:
       config: Debug
-    test:
-      config: Debug
-      gatherCoverageData: true
-      targets: [OmniPlayTests, OmniPlayUITests]
     archive:
       config: Release

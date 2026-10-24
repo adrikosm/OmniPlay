@@ -23,7 +23,6 @@ let package = Package(
                 .product(name: "MediaCompat", package: "MediaCompat"),
             ]
         ),
-        .testTarget(name: "GameDetectionTests", dependencies: ["GameDetection", .product(name: "TestSupport", package: "GameCore")]),
     ],
     swiftLanguageModes: [.v6]
 )

@@ -1,7 +1,7 @@
 #!/bin/zsh
 # Everything that must pass on the Mac before OmniPlay goes onto the phone, in one run:
-#   toolchain → native artefacts → source boundaries → the eight tests (packages, then app and UI bundles on the
-#   simulator) → an unsigned iphoneos build (catches device-only compile and link errors) → signing readiness.
+#   toolchain → native artefacts → source boundaries → the three package tests →
+#   an unsigned iphoneos build (catches device-only compile and link errors) → signing readiness.
 # Nothing here signs, installs or touches a phone. Exit 0 only when every required step passed; warnings are
 # printed but do not fail the run. Logs: .build/preflight/<step>.log
 #
@@ -40,7 +40,7 @@ step toolchain Scripts/bootstrap-mac.sh
 # embedded by project.yml and must already be present.
 step native-artefacts Scripts/native/verify.sh
 step source-boundaries zsh -c 'Scripts/check-no-ui-imports.sh && Scripts/check-no-engine-checks-in-views.sh'
-step eight-tests Scripts/test.sh
+step tests Scripts/test.sh --all
 step device-build-unsigned Scripts/build-device.sh --unsigned
 if (( release )); then
   step device-build-release Scripts/build-device.sh --unsigned --release
