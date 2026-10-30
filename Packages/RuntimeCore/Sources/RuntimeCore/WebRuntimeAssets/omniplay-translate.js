@@ -8,10 +8,12 @@
   'use strict';
   if (window.__omniplayTranslation) return;
   var profile = __OMNIPLAY_PROFILE__;
+  // The synchronous request below holds up every page's parse, so it is made only when the host serves a dictionary.
+  if (!profile.translation && !profile.liveTranslation) return;
   var dictionary = null;
   var live = {}, asked = {};
   var stats = window.__omniplayTranslation = { entries: 0, hits: 0, misses: 0 };
-  try {
+  if (profile.translation) try {
     var xhr = new XMLHttpRequest();
     xhr.open('GET', '/omniplay-translation.json', false);
     xhr.send();

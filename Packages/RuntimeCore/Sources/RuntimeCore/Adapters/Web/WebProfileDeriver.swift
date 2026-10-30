@@ -33,6 +33,8 @@ public struct WebProfile: Sendable, Hashable {
     public var autosaveOnExit = false
     /// Lines the dictionary misses go to the host for live translation (TRANS-006, `liveTranslation=<language>`).
     public var liveTranslation = false
+    /// An MTool dictionary is served as `/omniplay-translation.json`; without one the page never asks for it.
+    public var translation = false
     /// RPG Maker MV/MZ: the scene loop can run faster (the pause menu's speed row).
     public var rpgMaker = false
     /// A KiriKiri game: served with the KrKr2 Web engine (`KiriKiriWeb`).
@@ -132,7 +134,7 @@ public struct WebProfile: Sendable, Hashable {
         "audioFileExtOgg":\(audioFileExtOgg),\
         "imageCacheCapMB":\(imageCacheCapMB.map(String.init) ?? "null"),"devicePixelRatio":\(devicePixelRatio.map(String.init) ?? "null"),\
         "ignoreTouchMoveCancel":\(ignoreTouchMoveCancel),"muted":\(muted),"fill":\(fill),\
-        "liveTranslation":\(liveTranslation),"paused":\(paused)}
+        "liveTranslation":\(liveTranslation),"translation":\(translation),"paused":\(paused)}
         """
     }
 }

@@ -1,6 +1,9 @@
 #if canImport(GameController)
     import Foundation
     import GameController
+    #if canImport(UIKit)
+        import UIKit
+    #endif
 
     /// Physical controllers and hardware keyboards through `GameController`, translated with an `InputMapping`
     /// and pushed onto an `InputBus`. Raw controller events go out too, for adapters with native pad support.
@@ -30,12 +33,22 @@
                     MainActor.assumeIsolated { self?.attachAll() }
                 },
                 center.addObserver(forName: .GCControllerDidDisconnect, object: nil, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.refreshCount() }
+                    MainActor.assumeIsolated { self?.releaseHeld(); self?.refreshCount() }
                 },
                 center.addObserver(forName: .GCKeyboardDidConnect, object: nil, queue: .main) { [weak self] _ in
                     MainActor.assumeIsolated { self?.attachKeyboard() }
                 },
+                center.addObserver(forName: .GCKeyboardDidDisconnect, object: nil, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.releaseHeld() }
+                },
             ]
+            #if canImport(UIKit)
+                // No release reaches the app while it is inactive, so a button let go meanwhile stayed held in the game.
+                let resign = UIApplication.willResignActiveNotification
+                observers.append(center.addObserver(forName: resign, object: nil, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.releaseHeld() }
+                })
+            #endif
             attachAll()
             attachKeyboard()
             GCController.startWirelessControllerDiscovery {}
@@ -48,7 +61,17 @@
             GCController.stopWirelessControllerDiscovery()
             GCController.controllers().forEach { $0.extendedGamepad?.valueChangedHandler = nil }
             GCKeyboard.coalesced?.keyboardInput?.keyChangedHandler = nil
+            releaseHeld()
+        }
+
+        /// Lets go of every button, key and stick direction the game still sees held.
+        private func releaseHeld() {
+            for button in pressed.sorted(by: { $0.rawValue < $1.rawValue }) {
+                press(button, false)
+            }
             bus.send(stick.releaseAll())
+            bus.send(heldKeys.sorted { $0.rawValue < $1.rawValue }.map(GameInputEvent.keyUp))
+            heldKeys.removeAll()
         }
 
         /// Only full gamepads count; a remote or a micro pad cannot drive a game on its own.
@@ -71,8 +94,17 @@
         private func attachKeyboard() {
             GCKeyboard.coalesced?.keyboardInput?.keyChangedHandler = { [weak self] _, _, code, pressed in
                 guard let key = Self.key(for: code) else { return }
-                MainActor.assumeIsolated { self?.bus.send(pressed ? .keyDown(key) : .keyUp(key)) }
+                MainActor.assumeIsolated { self?.key(key, pressed) }
             }
+        }
+
+        private func key(_ key: GameKey, _ pressed: Bool) {
+            if pressed {
+                heldKeys.insert(key)
+            } else {
+                heldKeys.remove(key)
+            }
+            bus.send(pressed ? .keyDown(key) : .keyUp(key))
         }
 
         private func handle(pad: GCExtendedGamepad, element: GCControllerElement) {
@@ -107,6 +139,7 @@
         }
 
         private var pressed: Set<ControllerButton> = []
+        private var heldKeys: Set<GameKey> = []
 
         private func press(_ button: ControllerButton, _ down: Bool) {
             guard pressed.contains(button) != down else { return }

@@ -21,6 +21,9 @@
                 center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
                     MainActor.assumeIsolated { self?.hostDidBecomeActive() }
                 },
+                center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.suspended = true }
+                },
             ]
         }
 
@@ -38,10 +41,18 @@
 
         func hostDidBecomeActive() {
             backgrounded = false
+            let wasSuspended = suspended
+            suspended = false
             lifecycleTask?.cancel()
             lifecycleTask = Task { @MainActor [weak self] in
                 guard let self, !stopping else { return }
-                if let server {
+                // Control Center, a banner or a call only resign active and keep the sockets; rebinding then cut the
+                // page's requests in flight. A suspended app, or a listener that went down, is rebound.
+                var lost = wasSuspended
+                if !lost, let server {
+                    lost = await !server.isListening
+                }
+                if lost, let server {
                     do {
                         let restarted = try await server.rebind()
                         guard !Task.isCancelled, !stopping, !backgrounded else { return }

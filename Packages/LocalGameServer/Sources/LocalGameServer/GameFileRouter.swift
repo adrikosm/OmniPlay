@@ -155,6 +155,8 @@ public enum MIMEMap {
         "webp": "image/webp",
         "gif": "image/gif", "ico": "image/x-icon", "ogg": "audio/ogg", "oga": "audio/ogg", "opus": "audio/ogg", "mp3": "audio/mpeg",
         "m4a": "audio/mp4",
+        // Formats WebKit plays that games ship; octet-stream gives a media element no type to pick a decoder by.
+        "flac": "audio/flac", "aac": "audio/aac", "bmp": "image/bmp", "avif": "image/avif",
         "wav": "audio/wav", "webm": "video/webm", "mp4": "video/mp4", "m4v": "video/mp4", "mov": "video/quicktime", "ogv": "video/ogg",
         "ttf": "font/ttf", "otf": "font/otf", "woff": "font/woff", "woff2": "font/woff2", "pck": "application/octet-stream",
         "data": "application/octet-stream",

@@ -1,6 +1,7 @@
 import Diagnostics
 import Foundation
 import Network
+import Synchronization
 
 /// Bounded loopback HTTP/1.1 server: GET/HEAD, POST for the routes a router registers, keep-alive, at most
 /// `maxConnections` concurrent connections (extra get a 503), 30 s idle timeout, streamed file bodies. Binds
@@ -149,8 +150,6 @@ public actor HTTPServer {
     private func forget(_ id: ObjectIdentifier) { connections[id] = nil }
 }
 
-import Synchronization
-
 /// One client connection: parse → route → write, repeated while keep-alive holds.
 final class HTTPConnection: Sendable {
     private let nw: NWConnection
@@ -268,14 +267,15 @@ final class HTTPConnection: Sendable {
             lines += "\(k): \(v)\r\n"
         }
         lines += "\r\n"
-        try await send(Data(lines.utf8))
-        guard !head else { return }
+        // The head goes out with the body's first bytes: one send per small file instead of two (a map loads hundreds).
+        var pending = Data(lines.utf8)
+        guard !head else { return try await send(pending) }
         switch response.body {
-        case .empty: break
-        case let .data(d): try await send(d)
+        case .empty: try await send(pending)
+        case let .data(d): pending.append(d); try await send(pending)
         case let .file(url, range, total):
             let window = range ?? 0 ... max(0, total - 1)
-            guard total > 0 else { return }
+            guard total > 0 else { return try await send(pending) }
             let handle = try FileHandle(forReadingFrom: url)
             defer { try? handle.close() }
             try handle.seek(toOffset: UInt64(window.lowerBound))
@@ -288,7 +288,9 @@ final class HTTPConnection: Sendable {
                 guard let chunk = try autoreleasepool(invoking: { try handle.read(upToCount: want) }), !chunk.isEmpty else {
                     throw CocoaError(.fileReadCorruptFile, userInfo: [NSURLErrorKey: url])
                 }
-                try await send(chunk) // back-pressure: the next read waits for this send to complete
+                pending.append(chunk)
+                try await send(pending) // back-pressure: the next read waits for this send to complete
+                pending = Data()
                 remaining -= Int64(chunk.count)
             }
         }

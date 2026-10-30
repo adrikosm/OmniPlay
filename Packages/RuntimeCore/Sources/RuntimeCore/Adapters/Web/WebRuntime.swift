@@ -30,6 +30,8 @@
         var loadingTask: Task<Void, Never>?
         var userPaused = false
         var backgrounded = false
+        /// The app went to the background since it was last active, so iOS may have taken its sockets.
+        var suspended = false
         var stopping = false
         var consoleSink: FileLogSink?
         var terminations = 0
@@ -123,6 +125,7 @@
             // The active MTool dictionary, from its pack's layer, for omniplay-translate.js.
             if let dictionary = configuration.profile.overrides["translationDictionary"] {
                 router.aliases["omniplay-translation.json"] = dictionary
+                profile.translation = true
             }
             // Files served so far, told twice a second while the count moves (a big game's start).
             let served = ServedFiles()

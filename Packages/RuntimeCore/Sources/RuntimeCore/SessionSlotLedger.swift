@@ -14,8 +14,6 @@ public actor SessionSlotLedger {
     public enum SlotSpentReason: Sendable, Equatable {
         /// The adapter reported `.slotSpent` or `.restartRequired` on teardown.
         case spentByTeardown
-        /// A one-shot slot already hosted a different game; only that game may relaunch.
-        case boundToOtherGame(UUID)
     }
 
     public enum LedgerError: Error, Equatable {
@@ -24,7 +22,6 @@ public actor SessionSlotLedger {
 
     private enum SlotState: Equatable {
         case fresh
-        case boundTo(UUID)
         case spent
     }
 
@@ -42,8 +39,6 @@ public actor SessionSlotLedger {
             return .ready
         case .spent:
             return .restartRequired(.spentByTeardown)
-        case let .boundTo(bound):
-            return bound == game ? .ready : .restartRequired(.boundToOtherGame(bound))
         }
     }
 
