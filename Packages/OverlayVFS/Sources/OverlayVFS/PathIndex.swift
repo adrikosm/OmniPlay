@@ -26,13 +26,6 @@ public struct IndexedEntry: Sendable, Hashable, Codable, FetchableRecord {
     public let size: Int64
 }
 
-public struct Collision: Sendable, Hashable, Codable, FetchableRecord {
-    public let layer: String
-    public let key: String
-    public let keptReal: String
-    public let droppedReal: String
-}
-
 /// Per-game case-insensitive index at `Games/<id>/index.sqlite`, separate from the library database so
 /// it can be deleted and rebuilt independently. Layers are named (`original`, `generated`, `overrides/mods/x`).
 public final class PathIndex: Sendable {
@@ -137,13 +130,6 @@ public final class PathIndex: Sendable {
         sql: "SELECT COUNT(*) FROM entries WHERE layer = ?",
         arguments: [layer]
     ) ?? 0 } }
-    public func collisions(layer: String) throws -> [Collision] {
-        try queue.read { try Collision.fetchAll(
-            $0,
-            sql: "SELECT layer, key, kept_real AS keptReal, dropped_real AS droppedReal FROM collisions WHERE layer = ?",
-            arguments: [layer]
-        ) }
-    }
 
     public func upsert(layer: String, relativePath: String, isDirectory: Bool, size: Int64) throws {
         try queue.write { db in

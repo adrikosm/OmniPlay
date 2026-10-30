@@ -88,13 +88,10 @@ public enum ImportFailure: Error, Sendable, Hashable {
     case passwordRequired
     case passwordIncorrect
     case missingVolume(String)
-    case noGameRoot
     /// Several plausible game folders; the user picks one (relative paths inside the staged tree).
     case multipleRoots([String])
     /// The same source was imported before; the user chooses replace / keep both / cancel.
     case duplicate(existing: GameID, title: String)
-    case detectionRefused(reason: String)
-    case cancelled
     case internalError(String)
 }
 

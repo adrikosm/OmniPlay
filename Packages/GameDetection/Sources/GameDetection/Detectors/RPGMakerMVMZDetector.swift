@@ -23,10 +23,10 @@ public struct RPGMakerMVMZDetector: Detector {
         r.partial.generation = generation
         r.add(id, .present(path: corePath), 0.98, .fileName, "\(corePath) is the \(family == .rpgMakerMV ? "MV" : "MZ") core script")
         if let head = ctx.header(corePath, bytes: 64 << 10), let text = String(data: head, encoding: .utf8) ?? String(
-            data: head,
-            encoding: .isoLatin1
-        ),
-            let m = text.firstMatch(of: /RPGMAKER_VERSION\s*=\s*"([^"]+)"/) {
+               data: head,
+               encoding: .isoLatin1
+           ),
+           let m = text.firstMatch(of: /RPGMAKER_VERSION\s*=\s*"([^"]+)"/) {
             let v = String(m.1)
             r.partial.version = EngineVersion(parsing: v)
             r.add(id, .version(path: corePath, value: v), 0.95, .fileContent, "Core script version \(v)")
@@ -90,7 +90,7 @@ public struct RPGMakerMVMZDetector: Detector {
 /// `child_process` with a module whose every call fails politely.
 public struct MVMZPluginScanner: Detector {
     public let id = DetectorID.mvmzPlugins
-    public let version = 2
+    public let version = 3
     static let apis = [
         "require('fs'",
         "require(\"fs\"",
@@ -112,7 +112,7 @@ public struct MVMZPluginScanner: Detector {
         guard ctx.exists(prefix + "js/rpg_core.js") || ctx.exists(prefix + "js/rmmz_core.js") else { return r }
         var names: [String] = []
         if let list = ctx.text(prefix + "js/plugins.js", max: 4 << 20), let open = list.firstIndex(of: "["),
-           let close = list.lastIndex(of: "]"),
+           let close = list.lastIndex(of: "]"), open < close, // a `]` only before the `[` would trap the range
            let data = String(list[open ... close]).data(using: .utf8),
            let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
             names = arr.filter { ($0["status"] as? Bool) ?? true }.compactMap { $0["name"] as? String }

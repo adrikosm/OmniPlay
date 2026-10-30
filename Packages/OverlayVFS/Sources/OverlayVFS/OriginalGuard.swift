@@ -1,4 +1,3 @@
-import CryptoKit
 import Diagnostics
 import Foundation
 import GameCore
@@ -15,15 +14,6 @@ public enum OriginalGuard {
         public let bytes: Int64
         public let hashed: Bool
     }
-
-    public struct VerifyResult: Sendable, Hashable {
-        public let checked: Int
-        public let mismatched: [String]
-        public let skippedUnhashed: Int
-        public var ok: Bool { mismatched.isEmpty }
-    }
-
-    public static func isSealed(manifest: URL) -> Bool { FileManager.default.fileExists(atPath: manifest.path(percentEncoded: false)) }
 
     /// `hashing == nil` picks immediate below `deferredThreshold`, deferred above. Runs on the caller's task; cancellable.
     @discardableResult
@@ -108,40 +98,6 @@ public enum OriginalGuard {
             try? FileManager.default.removeItem(at: temp)
             throw error
         }
-    }
-
-    /// Re-hashes a bounded random sample of manifest entries (reservoir sampling over the streamed manifest).
-    public static func verify(originalRoot: URL, manifest: URL, sample: Int = 64) async throws -> VerifyResult {
-        var reservoir: [(String, String)] = []
-        var seen = 0
-        var unhashed = 0
-        var rng = SystemRandomNumberGenerator()
-        for try await line in manifest.lines {
-            let parts = line.split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false)
-            guard parts.count == 3 else { continue }
-            if parts[1] == "-" {
-                unhashed += 1; continue
-            }
-            seen += 1
-            let item = (String(parts[1]), String(parts[2]))
-            if reservoir.count < sample {
-                reservoir.append(item)
-            } else {
-                let j = Int.random(in: 0 ..< seen, using: &rng)
-                if j < sample {
-                    reservoir[j] = item
-                }
-            }
-        }
-        var mismatched: [String] = []
-        for (hash, rel) in reservoir {
-            try Task.checkCancellation()
-            let url = originalRoot.appending(path: rel)
-            if (try? StreamingHasher.sha256(of: url).hex) != hash {
-                mismatched.append(rel)
-            }
-        }
-        return VerifyResult(checked: reservoir.count, mismatched: mismatched, skippedUnhashed: unhashed)
     }
 
     /// Restores write permission (needed before deleting a game).

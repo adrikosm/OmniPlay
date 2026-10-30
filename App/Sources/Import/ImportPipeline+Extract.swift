@@ -61,14 +61,20 @@ extension ImportPipeline {
         } catch let v as SafetyViolation {
             throw ImportFailure.safetyViolation(v)
         } catch let e as ExtractionError {
-            switch e {
-            case let .open(m): throw ImportFailure.unreadableSource(m)
             // libarchive reports a wrong password per entry ("Incorrect passphrase"); the player gets to try again.
-            case let .entry(_, m) where pre.encrypted && m.localizedCaseInsensitiveContains("passphrase"):
+            if case let .entry(_, m) = e, pre.encrypted, m.localizedCaseInsensitiveContains("passphrase") {
                 throw ImportFailure.passwordIncorrect
-            case let .entry(path, m), let .unsupportedCompression(path, m): throw ImportFailure.extractionFailed(entry: path, underlying: m)
-            case let .write(path, errno): throw ImportFailure.extractionFailed(entry: path, underlying: String(cString: strerror(errno)))
             }
+            throw Self.failure(e)
+        }
+    }
+
+    /// An extractor's error as the row shows it: the entry and a plain reason, not the enum's debug form.
+    static func failure(_ e: ExtractionError) -> ImportFailure {
+        switch e {
+        case let .open(m): .unreadableSource(m)
+        case let .entry(path, m), let .unsupportedCompression(path, m): .extractionFailed(entry: path, underlying: m)
+        case let .write(path, errno): .extractionFailed(entry: path, underlying: String(cString: strerror(errno)))
         }
     }
 
@@ -85,7 +91,7 @@ extension ImportPipeline {
         } catch let error as SafetyViolation {
             throw ImportFailure.safetyViolation(error)
         } catch let error as ExtractionError {
-            throw ImportFailure.extractionFailed(entry: url.lastPathComponent, underlying: String(describing: error))
+            throw Self.failure(error)
         }
     }
 
@@ -103,7 +109,7 @@ extension ImportPipeline {
         } catch let error as SafetyViolation {
             throw ImportFailure.safetyViolation(error)
         } catch let error as ExtractionError {
-            throw ImportFailure.extractionFailed(entry: url.lastPathComponent, underlying: String(describing: error))
+            throw Self.failure(error)
         }
     }
 

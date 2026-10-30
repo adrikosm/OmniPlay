@@ -145,6 +145,8 @@ public struct LibArchiveExtractor: Sendable {
                 let before = totals.writtenBytes
                 totals.writtenBytes += try writeEntry(a, to: target, declared: header.declaredSize, path: rel) { written in
                     running.writtenBytes = before + written
+                    // Per block, so one multi-gigabyte entry does not hold the bar still (the caller throttles).
+                    progress?(running.writtenBytes, rel)
                     return validator.checkWritten(running, sourceBytes: sourceBytes)
                 }
                 let mtime = archive_entry_mtime(entry)

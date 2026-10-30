@@ -261,8 +261,9 @@ private struct ImportRow: View {
 
     static func step(for state: ImportState) -> Int {
         switch state {
-        case .queued, .staging, .extracting: 0
-        case .inspecting, .normalizing: 1
+        // Inspecting (the duplicate check) runs before the copy: counting it as step 2 sent the bar backwards.
+        case .queued, .inspecting, .staging, .extracting: 0
+        case .normalizing: 1
         case .detecting, .resolvingRuntime, .analyzingMedia, .preparing: 2
         case .registering, .waiting: 3
         case .ready: 4
@@ -288,16 +289,13 @@ private struct ImportRow: View {
         case let .safetyViolation(v): "Rejected for safety: \(v.detail)\(v.entryPath.map { " at \($0)" } ?? "")."
         case let .storageInsufficient(required, available):
             "Not enough space: needs \(required.formatted(.byteCount(style: .file))), "
-                + "\(available.formatted(.byteCount(style: .file))) available."
+                + "\(available.formatted(.byteCount(style: .file))) available. Free up space on this iPhone, then import again."
         case let .extractionFailed(entry, underlying): "Extraction failed at \(entry): \(underlying)"
         case .passwordRequired: "This archive is password protected."
         case .passwordIncorrect: "That password did not open the archive."
         case let .missingVolume(name): "Missing archive volume: \(name). Keep all volumes together and choose the first one."
-        case .noGameRoot: "No game was found inside."
         case let .multipleRoots(c): "Several game folders found (\(c.joined(separator: ", "))). Import the one you want on its own."
         case let .duplicate(_, title): "Already in your library as \"\(title)\"."
-        case let .detectionRefused(reason): "This game cannot run on iPhone: \(reason)"
-        case .cancelled: "Cancelled."
         case let .internalError(s): "Something went wrong: \(s)"
         }
     }

@@ -5,7 +5,7 @@ import GameImport
 /// Godot PCK header and directory: exact version, pack format, flags, GDExtension and C# markers.
 public struct GodotPCKDetector: Detector {
     public let id = DetectorID.godotPCK
-    public let version = 3
+    public let version = 4
     public init() {}
 
     public func probe(_ ctx: ScanContext, facts: StructureFacts) throws -> DetectorReport {
@@ -64,12 +64,7 @@ public struct GodotPCKDetector: Detector {
                 "The package directory is encrypted"
             )
         }
-        // Loose files, or (the usual export) the pack's own list: a Windows DLL beside the pack never loads on iOS.
-        var names = (ctx.glob("*.gdextension", limit: 16) + ctx.glob("*/*.gdextension", limit: 16)).map(\.realRel)
-        if names.isEmpty, flags & 1 == 0,
-           let list = try? Self.packEntry(handle: handle, packStart: offset, format: format, path: ".godot/extension_list.cfg", maxBytes: 64 << 10) {
-            names = String(decoding: list, as: UTF8.self).split(whereSeparator: \.isNewline).map(String.init).filter { !$0.isEmpty }
-        }
+        var names = Self.extensionNames(ctx, handle: handle, packStart: offset, format: format, encrypted: flags & 1 != 0)
         // The 4.7 engine has spine-godot built in as a module, so Spine's extension is no blocker there.
         // shortcut: assumes Spine 4.3 data (the module's runtime); an older export still fails to load its skeletons.
         let spine = major == 4 && names.contains { $0.contains("spine_godot") }
@@ -90,7 +85,11 @@ public struct GodotPCKDetector: Detector {
         }
         let (candidates, warning) = Self.candidates(major: Int(major), minor: Int(minor), raw: v.raw)
         r.partial.runtimeCandidates = spine
-            ? [RuntimeCandidate(runtime: .godot(bucket: .v47), confidence: 0.9, reason: "Spine animations need the 4.7 engine, which has Spine built in")]
+            ? [RuntimeCandidate(
+                runtime: .godot(bucket: .v47),
+                confidence: 0.9,
+                reason: "Spine animations need the 4.7 engine, which has Spine built in"
+            )]
             : candidates
         if let warning {
             r.partial.warnings.append(warning)
@@ -102,6 +101,20 @@ public struct GodotPCKDetector: Detector {
             r.partial.title = title
         }
         return r
+    }
+
+    /// Loose files, or (the usual export) the pack's own list: a Windows DLL beside the pack never loads on iOS.
+    static func extensionNames(_ ctx: ScanContext, handle: FileHandle, packStart: Int64, format: UInt32, encrypted: Bool) -> [String] {
+        let loose = (ctx.glob("*.gdextension", limit: 16) + ctx.glob("*/*.gdextension", limit: 16)).map(\.realRel)
+        guard loose.isEmpty, !encrypted, let list = try? packEntry(
+            handle: handle,
+            packStart: packStart,
+            format: format,
+            path: ".godot/extension_list.cfg",
+            maxBytes: 64 << 10
+        ) else { return loose }
+        // swiftlint:disable:next optional_data_string_conversion
+        return String(decoding: list, as: UTF8.self).split(whereSeparator: \.isNewline).map(String.init).filter { !$0.isEmpty }
     }
 
     /// Godot 3 packs (format 1) run on the 3.6 engine: 3.x kept its pack and resource formats across minors. 4.0–4.4
@@ -173,7 +186,8 @@ public struct GodotPCKDetector: Detector {
         guard let cache = packEntry(url: url, packStart: packStart, path: ".godot/uid_cache.bin", maxBytes: 4 << 20)
         else { return nil }
         func u32(_ o: Int) -> Int? {
-            o >= 0 && o + 4 <= cache.count ? Int(cache.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: o, as: UInt32.self) }.littleEndian) : nil
+            o >= 0 && o + 4 <= cache
+                .count ? Int(cache.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: o, as: UInt32.self) }.littleEndian) : nil
         }
         guard let count = u32(0), count <= 200_000 else { return nil }
         var o = 4
@@ -232,7 +246,11 @@ public struct GodotPCKDetector: Detector {
         switch format {
         case 1: cursor = packStart + 20 + 64
         case 2: fileBase = u64(head, 24); cursor = packStart + 32 + 64
-        default: fileBase = u64(head, 24); cursor = packStart + u64(head, 32)
+        default:
+            // The directory offset is the file's claim: a sum past Int64.max would trap.
+            let (at, overflow) = packStart.addingReportingOverflow(u64(head, 32))
+            guard !overflow else { return nil }
+            fileBase = u64(head, 24); cursor = at
         }
         guard let countData = try read(cursor, 4) else { return nil }
         let count = u32(countData, 0)

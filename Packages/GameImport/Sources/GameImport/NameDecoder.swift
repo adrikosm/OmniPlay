@@ -6,11 +6,6 @@ import Foundation
 public enum NameDecoder {
     public static let candidates = ["CP932", "CP1252", "CP949"]
 
-    /// Nil when names are already fine, or the name of the charset to pass as `hdrcharset`.
-    public static func charset(for url: URL, extractor: LibArchiveExtractor) throws -> String? {
-        try preflight(url, extractor: extractor).charset
-    }
-
     /// The charset and the header pass made with it, so the caller does not list a compressed tar once more.
     /// `passphrase` opens a 7z whose file names are encrypted too.
     public static func preflight(
