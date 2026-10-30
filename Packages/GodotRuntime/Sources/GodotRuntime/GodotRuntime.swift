@@ -207,8 +207,9 @@
         }
 
         public func handleMemoryPressure(_ level: MemoryPressureLevel) {
+            // Logged only: UIKit's memory warning already reaches Godot (observeLifecycle), and this stream also
+            // reports the return to .normal, which is no warning.
             OPLog.log(.memory, .default, "godot session under \(level.rawValue) memory pressure", session: configuration?.sessionID)
-            library?.appEvent(4)
         }
 
         public func stop(reason: RuntimeStopReason) async -> TeardownVerdict {

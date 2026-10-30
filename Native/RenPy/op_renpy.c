@@ -156,13 +156,19 @@ OP_EXPORT void op_renpy_idle(double seconds) {
     while (CFRunLoopRunInMode(CFSTR("UITrackingRunLoopMode"), 0, true) == kCFRunLoopRunHandledSource) {}
 }
 
+// SDL numbers windows from a counter that only goes up, so each game switch's window is newer than the last one found.
+static uint32_t last_window_id = 1;
+
 OP_EXPORT void *op_renpy_window(void) {
-    // Ren'Py opens one window; its id is 1 unless something opened and closed another first.
-    for (uint32_t id = 1; id <= 16; id++) {
+    // Newest first, from the last window found: during a switch the new window wins over the old one.
+    for (uint32_t id = last_window_id + 64; id >= last_window_id; id--) {
         SDL_Window *window = SDL_GetWindowFromID(id);
         if (!window) continue;
         SDL_SysWMinfo info = {.version = {2, 0, 20}};
-        if (SDL_GetWindowWMInfo(window, &info)) return info.info.uikit.window;
+        if (SDL_GetWindowWMInfo(window, &info)) {
+            last_window_id = id;
+            return info.info.uikit.window;
+        }
     }
     return NULL;
 }

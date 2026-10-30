@@ -1,7 +1,7 @@
 {
   "arch": "arm64",
   "artefact": "Native/prebuilt/renpy/8.3.7",
-  "built_at": "2026-10-12T07:24:25+00:00",
+  "built_at": "2026-10-30T08:05:04+00:00",
   "component": "renpy837",
   "flags": {
     "iphoneos_min": "27.0",
@@ -10,8 +10,8 @@
   "outputs": {
     "RenPy837.xcframework/Info.plist": "9b3946c8ccbc7a71d91a724d6709e747c710054c207e2a60c0be71c29368188a",
     "RenPy837.xcframework/ios-arm64-simulator/RenPy837.framework/Info.plist": "93cda42f1464cd7e2cca0242aa17410125a25ddf0b95d0224eb9757095bd7d27",
-    "RenPy837.xcframework/ios-arm64-simulator/RenPy837.framework/RenPy837": "8bb60db8993d66c5f3a7ad8bb88bdb6f2d1af6892c904423a82a7284594b47b5",
-    "RenPy837.xcframework/ios-arm64-simulator/RenPy837.framework/_CodeSignature/CodeResources": "794a2cd9ac4bc0e9ef3366d9dcabe7ce2bb4b21841bb4e4feb91bb50a68b1b20",
+    "RenPy837.xcframework/ios-arm64-simulator/RenPy837.framework/RenPy837": "6a9a31a73b1cdfecf1363292cce65b5f672ab1c740582907d5a27502ac2f9608",
+    "RenPy837.xcframework/ios-arm64-simulator/RenPy837.framework/_CodeSignature/CodeResources": "48e16573db378737d2bdb0add6f42d90e28d2d601fb745b871870ecdb0fe7323",
     "RenPy837.xcframework/ios-arm64-simulator/RenPy837.framework/base/launcher.py": "5a2d8e648e3f4cbdcd32cbd2bb0ba48d10de32fe14042e201a8bb7088cefad79",
     "RenPy837.xcframework/ios-arm64-simulator/RenPy837.framework/base/lib/python3.9/__future__.pyc": "58e9d4577a45e253caf95fee0d446581b0caf0a3d3b08f4ab09868c56e53d264",
     "RenPy837.xcframework/ios-arm64-simulator/RenPy837.framework/base/lib/python3.9/_bootlocale.pyc": "633c8d3e3be06febfaa04682947fa9df0762780406d396b69931020420c4915b",
@@ -900,7 +900,7 @@
     "RenPy837.xcframework/ios-arm64-simulator/RenPy837.framework/base/main.py": "037313d3bec46984ead3510a8661bb183c1337d6a975d8b8af2bea579e570be8",
     "RenPy837.xcframework/ios-arm64-simulator/RenPy837.framework/base/omniplay_host.py": "abf2e93777bd23a28df019a081c66ab333c7a2fe74cb09cec95e1f41e45c343e",
     "RenPy837.xcframework/ios-arm64-simulator/RenPy837.framework/base/omniplay_host.rpy": "3cdf15a49ed7cceed3026b75c9e7f813a774b2d6d417562ec152200a2d2d71cc",
-    "RenPy837.xcframework/ios-arm64-simulator/RenPy837.framework/base/omniplay_state.py": "b445733445a55bb873aa3c530b64138ef5c73452e6d7edeb1603c8c546b10d36",
+    "RenPy837.xcframework/ios-arm64-simulator/RenPy837.framework/base/omniplay_state.py": "ccda2700726aadd0ac882def1578ca360677072371866108ae26e0c7c1c57eed",
     "RenPy837.xcframework/ios-arm64-simulator/RenPy837.framework/base/renpy/__init__.pyc": "154d7ff2c6cf71af9ac3ae153ec443d1c969757806ac3b14eec287e183461364",
     "RenPy837.xcframework/ios-arm64-simulator/RenPy837.framework/base/renpy/add_from.pyc": "27830b7b37c9a8ed09492e3cdb82d7ca3468470183755617e1e4a436afc417f2",
     "RenPy837.xcframework/ios-arm64-simulator/RenPy837.framework/base/renpy/arguments.pyc": "be2ff4d53c708e8ce40a0966621670ac0d5212ecda2e83610a2203dd9a2fc502",
@@ -1431,8 +1431,8 @@
     "RenPy837.xcframework/ios-arm64-simulator/RenPy837.framework/base/renpy/webloader.pyc": "7fd29b9a14c4ca4b731d830d3f404bc09f388bdcffcfd8a1051566796b273563",
     "RenPy837.xcframework/ios-arm64-simulator/RenPy837.framework/base/sdk-fonts/SourceHanSansLite.ttf": "b2aaf73b7acc23d746b110f1caeaecc93d4292824979af44e96000200591b2a7",
     "RenPy837.xcframework/ios-arm64/RenPy837.framework/Info.plist": "1a3acede701c29950b2f48ea6316d66237baf91ad04b4e5d9d02cf78a9314875",
-    "RenPy837.xcframework/ios-arm64/RenPy837.framework/RenPy837": "f3bdd7e8259ac59eb69b06978bb10333dc5ac0d9df9017b6a9add69d3df589b4",
-    "RenPy837.xcframework/ios-arm64/RenPy837.framework/_CodeSignature/CodeResources": "ad982e4a913f442e5852e604792e75c12fc48819b353892731b49f2c15538619",
+    "RenPy837.xcframework/ios-arm64/RenPy837.framework/RenPy837": "bc2f49ec835b7b6add8af069c9e8bd35f55c59a27dc71664c034939dacb5b94d",
+    "RenPy837.xcframework/ios-arm64/RenPy837.framework/_CodeSignature/CodeResources": "29a211933acdbb4f5a9ecfad13d840de3e91ee52f2709b42c4074075bc2a3283",
     "RenPy837.xcframework/ios-arm64/RenPy837.framework/base/launcher.py": "5a2d8e648e3f4cbdcd32cbd2bb0ba48d10de32fe14042e201a8bb7088cefad79",
     "RenPy837.xcframework/ios-arm64/RenPy837.framework/base/lib/python3.9/__future__.pyc": "58e9d4577a45e253caf95fee0d446581b0caf0a3d3b08f4ab09868c56e53d264",
     "RenPy837.xcframework/ios-arm64/RenPy837.framework/base/lib/python3.9/_bootlocale.pyc": "633c8d3e3be06febfaa04682947fa9df0762780406d396b69931020420c4915b",
@@ -2321,7 +2321,7 @@
     "RenPy837.xcframework/ios-arm64/RenPy837.framework/base/main.py": "037313d3bec46984ead3510a8661bb183c1337d6a975d8b8af2bea579e570be8",
     "RenPy837.xcframework/ios-arm64/RenPy837.framework/base/omniplay_host.py": "abf2e93777bd23a28df019a081c66ab333c7a2fe74cb09cec95e1f41e45c343e",
     "RenPy837.xcframework/ios-arm64/RenPy837.framework/base/omniplay_host.rpy": "3cdf15a49ed7cceed3026b75c9e7f813a774b2d6d417562ec152200a2d2d71cc",
-    "RenPy837.xcframework/ios-arm64/RenPy837.framework/base/omniplay_state.py": "b445733445a55bb873aa3c530b64138ef5c73452e6d7edeb1603c8c546b10d36",
+    "RenPy837.xcframework/ios-arm64/RenPy837.framework/base/omniplay_state.py": "ccda2700726aadd0ac882def1578ca360677072371866108ae26e0c7c1c57eed",
     "RenPy837.xcframework/ios-arm64/RenPy837.framework/base/renpy/__init__.pyc": "154d7ff2c6cf71af9ac3ae153ec443d1c969757806ac3b14eec287e183461364",
     "RenPy837.xcframework/ios-arm64/RenPy837.framework/base/renpy/add_from.pyc": "27830b7b37c9a8ed09492e3cdb82d7ca3468470183755617e1e4a436afc417f2",
     "RenPy837.xcframework/ios-arm64/RenPy837.framework/base/renpy/arguments.pyc": "be2ff4d53c708e8ce40a0966621670ac0d5212ecda2e83610a2203dd9a2fc502",
@@ -2853,10 +2853,10 @@
     "RenPy837.xcframework/ios-arm64/RenPy837.framework/base/sdk-fonts/SourceHanSansLite.ttf": "b2aaf73b7acc23d746b110f1caeaecc93d4292824979af44e96000200591b2a7"
   },
   "sdks": {
-    "iphoneos": "27.0",
-    "iphonesimulator": "27.0",
-    "macosx": "27.0"
+    "iphoneos": "27.2",
+    "iphonesimulator": "27.2",
+    "macosx": "27.2"
   },
   "sources": {},
-  "toolchain": "Xcode 27.0 Build version 27A266a"
+  "toolchain": "Xcode 27.2 Build version 27B52"
 }

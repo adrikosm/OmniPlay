@@ -1,16 +1,16 @@
 {
   "arch": "arm64",
   "artefact": "Native/prebuilt/scummvm",
-  "built_at": "2026-09-30T20:52:14+00:00",
+  "built_at": "2026-10-30T08:08:50+00:00",
   "component": "scummvm",
   "flags": {
     "iphoneos_min": "27.0",
     "macosx_min": "15.0"
   },
   "outputs": {
-    "ScummVM.xcframework/Info.plist": "92655e7755004083003091266a73b3e83a8c2fbe6eeef8689b751e6ec63f65ae",
+    "ScummVM.xcframework/Info.plist": "2ace9c335e00e37a8a4dbe592926980b6b77be8131138068b0a1713df2c7ecef",
     "ScummVM.xcframework/ios-arm64-simulator/ScummVM.framework/Info.plist": "7a30c0f19222f63c2e4c78a530a39d820190603eeef6586bf4533bfe2f618128",
-    "ScummVM.xcframework/ios-arm64-simulator/ScummVM.framework/ScummVM": "96d3ed5b74dbd7d4285c99a35309f6105a6bb497ed0344a2d6bae3306e3ad00e",
+    "ScummVM.xcframework/ios-arm64-simulator/ScummVM.framework/ScummVM": "80118e9ebd4ed0d7e46c939ce936438aa88f9fe3e424896b5db5e1b81d3c18ff",
     "ScummVM.xcframework/ios-arm64-simulator/ScummVM.framework/_CodeSignature/CodeResources": "e0de4edbc943a874dee4b8c2d6edbbf1d07ae7174444196a38fc1a764b7608eb",
     "ScummVM.xcframework/ios-arm64-simulator/ScummVM.framework/data/Roland_SC-55.sf2": "fca3e514b635a21789d4224e84865d2954a2a914d46b64aa8219ddb565c44869",
     "ScummVM.xcframework/ios-arm64-simulator/ScummVM.framework/data/achievements.dat": "6f5394edee3a2ed9165d1ac0611a5e02aabe40e7ceca9e51926d01b23f157493",
@@ -35,7 +35,7 @@
     "ScummVM.xcframework/ios-arm64-simulator/ScummVM.framework/data/translations.dat": "88e4a57aa5d58b213f6a066518eb8a1cb1046132770987cc7dd8b06ce80e0156",
     "ScummVM.xcframework/ios-arm64-simulator/ScummVM.framework/data/wintermute.zip": "7559d45435dee4b49c339a892b73078a3123b33632567b02282847bed0e70060",
     "ScummVM.xcframework/ios-arm64/ScummVM.framework/Info.plist": "f408938db818c837c352c6bed577f32208924c35d72dbb04bb3e450242d4be81",
-    "ScummVM.xcframework/ios-arm64/ScummVM.framework/ScummVM": "834d675383279ee58c57e9d606c1e9833c79504a83e28f215847f9de38b8afe3",
+    "ScummVM.xcframework/ios-arm64/ScummVM.framework/ScummVM": "3306308f5428101a67f993a21fad48aeef795937b662b6cabbaff79976849695",
     "ScummVM.xcframework/ios-arm64/ScummVM.framework/_CodeSignature/CodeResources": "5da4b1de43daddc9e20aa6f254e86d0effdabaca749b8ecbae5ca73d0bfeda0d",
     "ScummVM.xcframework/ios-arm64/ScummVM.framework/data/Roland_SC-55.sf2": "fca3e514b635a21789d4224e84865d2954a2a914d46b64aa8219ddb565c44869",
     "ScummVM.xcframework/ios-arm64/ScummVM.framework/data/achievements.dat": "6f5394edee3a2ed9165d1ac0611a5e02aabe40e7ceca9e51926d01b23f157493",
@@ -61,12 +61,12 @@
     "ScummVM.xcframework/ios-arm64/ScummVM.framework/data/wintermute.zip": "7559d45435dee4b49c339a892b73078a3123b33632567b02282847bed0e70060"
   },
   "sdks": {
-    "iphoneos": "27.0",
-    "iphonesimulator": "27.0",
-    "macosx": "27.0"
+    "iphoneos": "27.2",
+    "iphonesimulator": "27.2",
+    "macosx": "27.2"
   },
   "sources": {
     "Native/scummvm/src": "fed42f2068dcafc6aafa1c28c77e4c88def74b66"
   },
-  "toolchain": "Xcode 27.0 Build version 27A266a"
+  "toolchain": "Xcode 27.2 Build version 27B52"
 }

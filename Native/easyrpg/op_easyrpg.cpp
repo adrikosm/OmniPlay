@@ -144,14 +144,20 @@ OP_EXPORT int op_easyrpg_snapshot(const char *path) {
     return stream && Output::TakeScreenshot(stream) ? 1 : 0;
 }
 
+// SDL numbers windows from a counter that only goes up, so a later game's window is newer than the last one found.
+static Uint32 last_window_id = 1;
+
 OP_EXPORT void *op_easyrpg_window(void) {
-    // The Player opens one window; its id is 1 unless something opened and closed another first.
-    for (Uint32 id = 1; id <= 16; id++) {
+    // Newest first, from the last window found.
+    for (Uint32 id = last_window_id + 64; id >= last_window_id; id--) {
         SDL_Window *window = SDL_GetWindowFromID(id);
         if (!window) continue;
         SDL_SysWMinfo info;
         SDL_VERSION(&info.version);
-        if (SDL_GetWindowWMInfo(window, &info)) return info.info.uikit.window;  // void * outside Objective-C
+        if (SDL_GetWindowWMInfo(window, &info)) {
+            last_window_id = id;
+            return info.info.uikit.window;  // void * outside Objective-C
+        }
     }
     return nullptr;
 }

@@ -46,6 +46,8 @@ void godot_ios_plugins_deinitialize() {}
 static OmniPlayOS *os = nullptr;
 static ViewController *controller = nil;
 static std::atomic<int> status{OP_GODOT44_STATUS_IDLE};
+// Home while paused from the menu sent the game APPLICATION_PAUSED; its RESUMED is owed on the menu's resume.
+static bool resume_owed = false;
 
 
 OP_EXPORT const char *op_godot44_version(void) { return VERSION_FULL_CONFIG; }
@@ -102,7 +104,11 @@ OP_EXPORT void op_godot44_request(int command) {
 	case OP_GODOT44_COMMAND_RUN:
 		if (status == OP_GODOT44_STATUS_PAUSED) {
 			[controller.godotView startRendering];
-			os->on_focus_in();
+			if (resume_owed)
+				os->on_exit_background(); // focus in, then APPLICATION_RESUMED
+			else
+				os->on_focus_in();
+			resume_owed = false;
 			status = OP_GODOT44_STATUS_RUNNING;
 		}
 		break;
@@ -146,7 +152,10 @@ OP_EXPORT void op_godot44_app_event(int event) {
 		return;
 	switch (event) {
 	case 0: os->on_focus_out(); break;
-	case 1: os->on_enter_background(); break;
+	case 1:
+		os->on_enter_background();
+		resume_owed = status == OP_GODOT44_STATUS_PAUSED;
+		break;
 	// Paused from the menu: leave the engine asleep; on_exit_background would restart rendering and audio.
 	case 2: if (status == OP_GODOT44_STATUS_RUNNING) os->on_exit_background(); break;
 	case 3: if (status == OP_GODOT44_STATUS_RUNNING) os->on_focus_in(); break;

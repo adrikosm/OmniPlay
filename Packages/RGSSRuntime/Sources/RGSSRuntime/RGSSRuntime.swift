@@ -198,8 +198,9 @@
             // The engine only stops at a Graphics blocking point. Two seconds is the roadmap's cap; after it the
             // host shows the menu anyway, because a player who cannot reach Exit is worse off than one who
             // pauses a frame late.
-            for _ in 0 ..< 40 where !mkxp_isPaused() {
-                try? await Task.sleep(for: .milliseconds(50))
+            let deadline = ContinuousClock.now + .seconds(2)
+            while !mkxp_isPaused(), ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(20))
             }
             // `stop` may have run while this waited; it already took the frozen frame down.
             guard !stopping else { return }

@@ -1,17 +1,17 @@
 {
   "arch": "arm64",
   "artefact": "Native/prebuilt/renpy/8.5.3",
-  "built_at": "2026-10-12T07:24:19+00:00",
+  "built_at": "2026-10-30T08:04:56+00:00",
   "component": "renpy853",
   "flags": {
     "iphoneos_min": "27.0",
     "macosx_min": "15.0"
   },
   "outputs": {
-    "RenPy853.xcframework/Info.plist": "5e8a610996401ebe6f01688e6b8c0b852aa59e4fdb0e24d87f81d102c038c290",
+    "RenPy853.xcframework/Info.plist": "9a0376192ad420da4c25c4c8e25aa88b206cfd447a66d488204dd4df408fe0ce",
     "RenPy853.xcframework/ios-arm64-simulator/RenPy853.framework/Info.plist": "d5e52243b37585a975964f8fd7b80ff385793ca9021138a187cb2f54cca1e858",
-    "RenPy853.xcframework/ios-arm64-simulator/RenPy853.framework/RenPy853": "7b930b902ddc3a3399ae6dd6df23261590a7a3fb8cc31d6092ec61a2fac52cdf",
-    "RenPy853.xcframework/ios-arm64-simulator/RenPy853.framework/_CodeSignature/CodeResources": "a0a1737d7bc228f5e7d8a5eb9043a51a4ead0adb7726cb8f3dea1ab6bbaebaf5",
+    "RenPy853.xcframework/ios-arm64-simulator/RenPy853.framework/RenPy853": "04eb1fdca82af635c9a1dffcda35730c3586b3b28f10a134f997537d195f511f",
+    "RenPy853.xcframework/ios-arm64-simulator/RenPy853.framework/_CodeSignature/CodeResources": "cd6f914526e6fcc27b2fa19efcf89090bf039829880097954f36830d8edec930",
     "RenPy853.xcframework/ios-arm64-simulator/RenPy853.framework/base/launcher.py": "4f8f07333f03a5e2e2e8494cfccd487bbb0d3acc7e020282e014de7da8a0955d",
     "RenPy853.xcframework/ios-arm64-simulator/RenPy853.framework/base/lib/python3.12/__future__.pyc": "610248542e7280782001efd83594a0dc311d7b1a046a1dec74c4673dc81238d2",
     "RenPy853.xcframework/ios-arm64-simulator/RenPy853.framework/base/lib/python3.12/_collections_abc.pyc": "3cb763c6e316f86042d8a20b562a3b1afa693e274abca9afcbd2a3de99bf6bf1",
@@ -857,7 +857,7 @@
     "RenPy853.xcframework/ios-arm64-simulator/RenPy853.framework/base/main.py": "037313d3bec46984ead3510a8661bb183c1337d6a975d8b8af2bea579e570be8",
     "RenPy853.xcframework/ios-arm64-simulator/RenPy853.framework/base/omniplay_host.py": "abf2e93777bd23a28df019a081c66ab333c7a2fe74cb09cec95e1f41e45c343e",
     "RenPy853.xcframework/ios-arm64-simulator/RenPy853.framework/base/omniplay_host.rpy": "3cdf15a49ed7cceed3026b75c9e7f813a774b2d6d417562ec152200a2d2d71cc",
-    "RenPy853.xcframework/ios-arm64-simulator/RenPy853.framework/base/omniplay_state.py": "b445733445a55bb873aa3c530b64138ef5c73452e6d7edeb1603c8c546b10d36",
+    "RenPy853.xcframework/ios-arm64-simulator/RenPy853.framework/base/omniplay_state.py": "ccda2700726aadd0ac882def1578ca360677072371866108ae26e0c7c1c57eed",
     "RenPy853.xcframework/ios-arm64-simulator/RenPy853.framework/base/renpy/__init__.pyc": "c4dc978654d9a877179086e9610d4f828cad7863fdf42e075176e0a364c4dd26",
     "RenPy853.xcframework/ios-arm64-simulator/RenPy853.framework/base/renpy/add_from.pyc": "55aeef3aece84ceca2e40509c5c9f5978be4dee09e2da84b636752017ed727d4",
     "RenPy853.xcframework/ios-arm64-simulator/RenPy853.framework/base/renpy/arguments.pyc": "28b00819ba94531bd1bf5ebbc3924670e07641917377fc8068882e132e489026",
@@ -1396,8 +1396,8 @@
     "RenPy853.xcframework/ios-arm64-simulator/RenPy853.framework/base/sdk-fonts/SourceHanSansLite.ttf": "b2aaf73b7acc23d746b110f1caeaecc93d4292824979af44e96000200591b2a7",
     "RenPy853.xcframework/ios-arm64-simulator/RenPy853.framework/base/sdk-fonts/Vazirmatn-RD-UI-Light.ttf": "9e1a63cde0ce8cad58d2287e5da46a913da0a7b6a5d5cbd75c998fca84dd667a",
     "RenPy853.xcframework/ios-arm64/RenPy853.framework/Info.plist": "6116db9b52718679658d0628d0b9a75d0a055209d6931a3c58d96e3f5fdd91bf",
-    "RenPy853.xcframework/ios-arm64/RenPy853.framework/RenPy853": "8599d5137d25c98268dd95e50ec1f7849f3a3ec08685319f14602096be76a921",
-    "RenPy853.xcframework/ios-arm64/RenPy853.framework/_CodeSignature/CodeResources": "38146d5f0c55349da2321111d478edf8a405a2b137508605b6ee6c818412f202",
+    "RenPy853.xcframework/ios-arm64/RenPy853.framework/RenPy853": "b0c7e426456777c45bfcd8ebedfe058e8c508b7694230f7c9b0c33c28d6d941d",
+    "RenPy853.xcframework/ios-arm64/RenPy853.framework/_CodeSignature/CodeResources": "386dc5e194bf1a29a8100bd1d192d172cbf5c2421c5fb22912e3dd3487fbe7ce",
     "RenPy853.xcframework/ios-arm64/RenPy853.framework/base/launcher.py": "4f8f07333f03a5e2e2e8494cfccd487bbb0d3acc7e020282e014de7da8a0955d",
     "RenPy853.xcframework/ios-arm64/RenPy853.framework/base/lib/python3.12/__future__.pyc": "610248542e7280782001efd83594a0dc311d7b1a046a1dec74c4673dc81238d2",
     "RenPy853.xcframework/ios-arm64/RenPy853.framework/base/lib/python3.12/_collections_abc.pyc": "3cb763c6e316f86042d8a20b562a3b1afa693e274abca9afcbd2a3de99bf6bf1",
@@ -2243,7 +2243,7 @@
     "RenPy853.xcframework/ios-arm64/RenPy853.framework/base/main.py": "037313d3bec46984ead3510a8661bb183c1337d6a975d8b8af2bea579e570be8",
     "RenPy853.xcframework/ios-arm64/RenPy853.framework/base/omniplay_host.py": "abf2e93777bd23a28df019a081c66ab333c7a2fe74cb09cec95e1f41e45c343e",
     "RenPy853.xcframework/ios-arm64/RenPy853.framework/base/omniplay_host.rpy": "3cdf15a49ed7cceed3026b75c9e7f813a774b2d6d417562ec152200a2d2d71cc",
-    "RenPy853.xcframework/ios-arm64/RenPy853.framework/base/omniplay_state.py": "b445733445a55bb873aa3c530b64138ef5c73452e6d7edeb1603c8c546b10d36",
+    "RenPy853.xcframework/ios-arm64/RenPy853.framework/base/omniplay_state.py": "ccda2700726aadd0ac882def1578ca360677072371866108ae26e0c7c1c57eed",
     "RenPy853.xcframework/ios-arm64/RenPy853.framework/base/renpy/__init__.pyc": "c4dc978654d9a877179086e9610d4f828cad7863fdf42e075176e0a364c4dd26",
     "RenPy853.xcframework/ios-arm64/RenPy853.framework/base/renpy/add_from.pyc": "55aeef3aece84ceca2e40509c5c9f5978be4dee09e2da84b636752017ed727d4",
     "RenPy853.xcframework/ios-arm64/RenPy853.framework/base/renpy/arguments.pyc": "28b00819ba94531bd1bf5ebbc3924670e07641917377fc8068882e132e489026",
@@ -2783,10 +2783,10 @@
     "RenPy853.xcframework/ios-arm64/RenPy853.framework/base/sdk-fonts/Vazirmatn-RD-UI-Light.ttf": "9e1a63cde0ce8cad58d2287e5da46a913da0a7b6a5d5cbd75c998fca84dd667a"
   },
   "sdks": {
-    "iphoneos": "27.0",
-    "iphonesimulator": "27.0",
-    "macosx": "27.0"
+    "iphoneos": "27.2",
+    "iphonesimulator": "27.2",
+    "macosx": "27.2"
   },
   "sources": {},
-  "toolchain": "Xcode 27.0 Build version 27A266a"
+  "toolchain": "Xcode 27.2 Build version 27B52"
 }

@@ -54,6 +54,9 @@ static std::atomic<int> s_status{OP_SCUMMVM_STATUS_NOT_STARTED};
 static std::atomic<int> s_command{OP_SCUMMVM_COMMAND_RUN};
 static std::atomic<unsigned long> s_frames{0};
 static std::atomic<bool> s_leave{false};
+// The backend is in its suspend loop, put there by the pause menu or by the app going inactive: every resume answers
+// one suspend, so a leave while inactive (Control Center, a call banner) wakes it instead of leaving it asleep.
+static std::atomic<bool> s_suspended{false};
 
 enum class Job { none, detect, play };
 static std::mutex s_mutex;
@@ -207,6 +210,7 @@ bool omniplay_next_game() {
 		s_status = OP_SCUMMVM_STATUS_STARTING;
 		s_command = OP_SCUMMVM_COMMAND_RUN;
 		s_leave = false;
+		s_suspended = false;
 		s_lastCode = 0;
 		s_lastMessage.clear();
 		lock.unlock();
@@ -342,19 +346,19 @@ OP_EXPORT int op_scummvm_last_result(char *out, int size) {
 }
 
 OP_EXPORT void op_scummvm_request(int command) {
-	int previous = s_command.exchange(command);
+	s_command = command;
 	switch (command) {
 	case OP_SCUMMVM_COMMAND_PAUSE:
 		// The backend's own suspend: the engine pauses, audio stops, and the thread waits for the resume.
-		if (previous != OP_SCUMMVM_COMMAND_PAUSE)
+		if (!s_suspended.exchange(true))
 			[s_view applicationSuspend];
 		break;
 	case OP_SCUMMVM_COMMAND_RUN:
-		if (previous == OP_SCUMMVM_COMMAND_PAUSE)
+		if (s_suspended.exchange(false))
 			[s_view applicationResume];
 		break;
 	case OP_SCUMMVM_COMMAND_LEAVE:
-		if (previous == OP_SCUMMVM_COMMAND_PAUSE)
+		if (s_suspended.exchange(false))
 			[s_view applicationResume];
 		s_leave = true;
 		break;
@@ -377,12 +381,13 @@ OP_EXPORT void *op_scummvm_window(void) { return (void *)s_window; }
 OP_EXPORT void op_scummvm_app_event(int event) {
 	switch (event) {
 	case 0:
-		if (s_command != OP_SCUMMVM_COMMAND_PAUSE)
+		if (!s_suspended.exchange(true))
 			[s_view applicationSuspend];
 		break;
 	case 1: [s_view saveApplicationState]; break;
 	case 3:
-		if (s_command != OP_SCUMMVM_COMMAND_PAUSE)
+		// Paused from the menu stays asleep until the menu's resume.
+		if (s_command != OP_SCUMMVM_COMMAND_PAUSE && s_suspended.exchange(false))
 			[s_view applicationResume];
 		break;
 	default: break;

@@ -162,6 +162,9 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.games
         LSSupportsGameMode: true
+        # ProMotion: without it iOS caps every display link at 60 Hz. Godot asks for 120 as its own iPhone builds do;
+        # the other engines pace their games themselves.
+        CADisableMinimumFrameDurationOnPhone: true
         GCSupportsControllerUserInteraction: true
         ITSAppUsesNonExemptEncryption: false
         NSFaceIDUsageDescription: Unlocks the hidden shelf of your library.
