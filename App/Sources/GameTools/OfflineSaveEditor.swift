@@ -1,4 +1,5 @@
 import Diagnostics
+import GameCore
 import GameStore
 import GameTools
 import RuntimeCore
@@ -17,6 +18,7 @@ struct OfflineSaveEditor: View {
     @State private var inspector: OfflineSaveInspector?
     @State private var problem: String?
     @State private var saving = false
+    @State private var confirmDiscard = false
     @Environment(\.dismiss) private var dismiss
 
     static let categories: [StateCategory] = [.variables, .switches, .items, .weapons, .armors, .system]
@@ -36,24 +38,38 @@ struct OfflineSaveEditor: View {
             .navigationTitle("Editing \(slot.displayName)")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }.buttonStyle(.link).fixedSize()
+                    Button("Cancel") {
+                        if hasEdits {
+                            confirmDiscard = true
+                        } else {
+                            dismiss()
+                        }
+                    }.buttonStyle(.link).fixedSize()
                 }
                 .sharedBackgroundVisibility(.hidden)
                 ToolbarItem(placement: .confirmationAction) {
                     Button(saving ? "Saving…" : "Save") { Task { await save() } }
                         .buttonStyle(PillButtonStyle(kind: .primary, height: 36))
                         .fixedSize()
-                        .disabled(tools?.records.isEmpty ?? true || saving)
+                        .disabled(!hasEdits || saving)
                 }
                 .sharedBackgroundVisibility(.hidden)
             }
         }
         .preferredColorScheme(.dark)
+        .interactiveDismissDisabled(hasEdits)
+        .confirmationDialog("Discard your changes?", isPresented: $confirmDiscard, titleVisibility: .visible) {
+            Button("Discard changes", role: .destructive) { dismiss() }
+        } message: {
+            Text("The save stays as it was.")
+        }
         .task { await open() }
     }
 
+    private var hasEdits: Bool { !(tools?.records.isEmpty ?? true) }
+
     private func open() async {
-        let (url, root) = (slot.url, model.paths.tier(.original, for: game.id))
+        let (url, root) = (slot.url, Self.gameRoot(game, paths: model.paths))
         do {
             let (document, names) = try await Task.detached {
                 try (RPGMakerSaveDocument(contentsOf: url), RPGMakerNames.load(gameRoot: root))
@@ -84,6 +100,12 @@ struct OfflineSaveEditor: View {
             problem = "Nothing was changed: \(error.localizedDescription)"
             tools = nil
         }
+    }
+
+    /// The game's data sits under its root inside Original/, not always at Original/ itself.
+    static func gameRoot(_ game: GameRecord, paths: AppPaths) -> URL {
+        let original = paths.tier(.original, for: game.id)
+        return game.rootRelPath.isEmpty ? original : original.appending(path: game.rootRelPath, directoryHint: .isDirectory)
     }
 
     /// Snapshot, write the re-encoded save to a staged copy, check that the copy decodes and passes the validator,
@@ -122,7 +144,7 @@ struct OfflineSaveEditor: View {
             }
             let inspector = OfflineSaveInspector(
                 document: document,
-                names: RPGMakerNames.load(gameRoot: paths.tier(.original, for: game.id))
+                names: RPGMakerNames.load(gameRoot: OfflineSaveEditor.gameRoot(game, paths: paths))
             )
             let tools = MutationEngine(inspector: inspector)
             for pair in spec.split(separator: ",") {

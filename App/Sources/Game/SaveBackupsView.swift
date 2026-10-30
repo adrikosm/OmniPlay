@@ -70,7 +70,11 @@ struct SaveBackupsView: View {
                 }
             } trailing: {
                 VStack(alignment: .leading, spacing: Theme.s6) {
-                    GlassSection("Snapshots", footer: "Taken before every launch and every restore. Restoring never deletes a snapshot.") {
+                    GlassSection(
+                        "Snapshots",
+                        footer: "Taken before every launch, change and restore. The newest few of each kind are kept, "
+                            + "and manual ones and any that hold a deleted save always."
+                    ) {
                         if snapshots.isEmpty {
                             ListRow(title: "No snapshots yet", dimmed: true)
                         }
@@ -158,7 +162,11 @@ struct SaveBackupsView: View {
                 }
             }
         }
-        .centeredSheet(isPresented: Binding(get: { mirrorChanges > 0 }, set: { if !$0 { mirrorChanges = 0 } })) { close in
+        .centeredSheet(isPresented: Binding(get: { mirrorChanges > 0 }, set: {
+            if !$0 {
+                mirrorChanges = 0
+            }
+        })) { close in
             SavesChangedSheet(game: game, changes: mirrorChanges, close: close) {
                 close()
                 Task { await reload() }
@@ -217,7 +225,8 @@ struct SaveBackupsView: View {
 
     /// Where the Files app shows this game's saves, and a way there.
     var filesRow: some View {
-        let path = "On My iPhone › OmniPlay › Titles › Saves › " + model.saveMirror.folder(for: game.id, title: game.title).lastPathComponent
+        let path = "On My iPhone › OmniPlay › Titles › Saves › " + model.saveMirror.folder(for: game.id, title: game.title)
+            .lastPathComponent
         return GlassSection {
             HStack(spacing: Theme.s3) {
                 VStack(alignment: .leading, spacing: 2) {

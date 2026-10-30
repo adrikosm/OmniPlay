@@ -76,6 +76,8 @@ struct SaveKitTests {
         }
         #expect(try Data(contentsOf: target) == Data("live first".utf8))
         #expect(try Data(contentsOf: store.url(for: "file2")) == Data("incoming second".utf8))
+        try await Self.deletedSlotsOutlivePrune(paths)
+
         #expect(SlotPattern("Save%02d.rvdata2")?.name(index: 3) == "Save03.rvdata2")
         for format in ["%d%s", "../%d", "%999999999d", "%@", "%d/%d"] {
             #expect(SlotPattern(format) == nil)
@@ -116,7 +118,10 @@ struct SaveKitTests {
         let before = try Data(contentsOf: live)
         try Data("dropped".utf8).write(to: folder.appending(path: "slots/file1.rpgsave"))
         try Data("outside".utf8).write(to: root.appending(path: "outside.rpgsave"))
-        try fm.createSymbolicLink(atPath: folder.appending(path: "slots/link.rpgsave").path, withDestinationPath: "../../../../outside.rpgsave")
+        try fm.createSymbolicLink(
+            atPath: folder.appending(path: "slots/link.rpgsave").path,
+            withDestinationPath: "../../../../outside.rpgsave"
+        )
         try fm.createSymbolicLink(at: folder.appending(path: "up"), withDestinationURL: root)
         #expect(mirror.pendingChanges(for: id, title: "A/B: ..C") == ["slots/file1.rpgsave"])
         let staging = root.appending(path: "mirror-staging")
@@ -180,6 +185,26 @@ struct SaveKitTests {
         }
         #expect(try fm.contentsOfDirectory(atPath: location.backups.path).count == before)
         #expect(try Data(contentsOf: saved) == Data("kept".utf8))
+    }
+
+    private static func deletedSlotsOutlivePrune(_ paths: AppPaths) async throws {
+        // Slots deleted one after another: each delete's snapshot holds the last copy of one slot, so pruning keeps
+        // them past `keep`, and removes only an old one whose every file is still somewhere.
+        let deleting = SaveLocation.forGame(GameID(), paths: paths)
+        try deleting.ensure()
+        let slot = { (name: String) in deleting.slots.appending(path: "\(name).rpgsave") }
+        try AtomicFileWriter.write(Data("e".utf8), to: slot("e"))
+        _ = try await SaveVault.snapshot(location: deleting, identityHash: "h", reason: .beforeEdit)
+        for name in ["a", "b", "c", "d"] {
+            try AtomicFileWriter.write(Data(name.utf8), to: slot(name))
+        }
+        for name in ["a", "b", "c", "d"] {
+            _ = try await SaveVault.snapshot(location: deleting, identityHash: "h", reason: .beforeEdit)
+            try FileManager.default.removeItem(at: slot(name))
+        }
+        #expect(SaveVault.prune(location: deleting, keep: 2) == 1)
+        #expect(SaveVault.snapshots(location: deleting).count == 4)
+        #expect(SaveVault.snapshots(location: deleting).contains { $0.manifest.files.contains("slots/a.rpgsave") })
     }
 
     private static func storedJSONZip(_ json: Data) -> Data {

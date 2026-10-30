@@ -25,6 +25,8 @@ extension SaveBackupsView {
         previews = previewList
         snapshots = snapList
         stores = storeList
+        // A ZIP made before this reload may no longer match the saves; Export makes a fresh one.
+        exportURL = nil
     }
 
     var transfer: SaveTransfer { SaveTransfer(paths: model.paths, game: game) }

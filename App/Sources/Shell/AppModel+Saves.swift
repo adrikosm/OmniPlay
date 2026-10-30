@@ -10,20 +10,16 @@ extension AppModel {
     func indexSaves(for descriptor: GameDescriptor) {
         guard let store else { return }
         let location = SaveLocation.forGame(descriptor.id, paths: paths)
-        let files = (try? FileManager.default.contentsOfDirectory(
-            at: location.slots,
-            includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey]
-        )) ?? []
-        let records = files.filter { !$0.lastPathComponent.hasPrefix(".") }.map { url in
-            let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
-            let stem = url.deletingPathExtension().lastPathComponent
+        // Slot files only: Ren'Py's `persistent` and `sync/`, and MV/MZ's save list and config, are not saves.
+        let records = SaveSlotFile.list(in: location.slots).map { slot in
+            let stem = slot.url.deletingPathExtension().lastPathComponent
             return SaveMetaRecord(
                 gameId: descriptor.id,
                 slotKey: SaveKey.decodeWebStorage(stem) ?? stem,
-                relPath: "Saves/slots/\(url.lastPathComponent)",
+                relPath: "Saves/slots/\(slot.id)",
                 family: descriptor.saveFamily.rawValue,
-                bytes: Int64(values?.fileSize ?? 0),
-                modifiedAt: values?.contentModificationDate ?? .now,
+                bytes: slot.bytes,
+                modifiedAt: slot.modified ?? .now,
                 provenanceHash: descriptor.identityHash
             )
         }

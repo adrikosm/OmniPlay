@@ -3,6 +3,7 @@ import Foundation
 import GameCore
 import LocalGameServer
 import OverlayVFS
+import SaveKit
 
 /// KiriKiri 2/Z games in the web runtime, through KrKr2 Web (Kirikiroid2's krkr2 core as WebAssembly, with its
 /// replacements for the plugins commercial games load). The engine's page and WebAssembly come from the app bundle
@@ -99,8 +100,9 @@ public enum KiriKiriWeb {
                       PathPolicy.validateLogical(String(raw.dropFirst())) != nil else { return .text(400, "bad save path") }
                 let target = saves.appending(path: String(raw.dropFirst()))
                 do {
-                    try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    try request.body.write(to: target, options: .atomic)
+                    // The same limit and synced write as every other game's saves: a crash mid-save keeps the old file.
+                    guard request.body.count <= SaveFileStore.maxBytes else { throw SaveFileStore.Failure.tooLarge(request.body.count) }
+                    try AtomicFileWriter.write(request.body, to: target)
                     OPLog.log(.save, .info, "kirikiri save \(raw) (\(request.body.count) bytes)", session: session)
                     return .text(200, "ok")
                 } catch {

@@ -151,8 +151,8 @@ struct InGameSavesView: View {
         defer { busy = false }
         do {
             let identity = AppModel.identityHash(for: game.id, paths: model.paths)
-            _ = try await SaveVault.snapshot(location: location, identityHash: identity, reason: .beforeEdit)
-            backup = SaveVault.snapshots(location: location).first?.directory
+            let snapshot = try await SaveVault.snapshot(location: location, identityHash: identity, reason: .beforeEdit)
+            backup = SaveVault.snapshots(location: location).first { $0.manifest.id == snapshot.id }?.directory
             try await slots.loadSlot(file: file.url.lastPathComponent)
             // The engine loads between frames once the reply is out; give it a moment before reading values.
             try? await Task.sleep(for: .seconds(1))
@@ -170,6 +170,10 @@ struct InGameSavesView: View {
         let before = file.url.modificationDate
         do {
             try await slots.saveSlot(file: file.url.lastPathComponent)
+            // The engine may write a moment after replying, as Save now allows for; a too-early check put the backup back.
+            for _ in 0 ..< 10 where file.url.modificationDate == before {
+                try? await Task.sleep(for: .milliseconds(300))
+            }
             // Checked the way the player would: load the slot again and read back the last change.
             guard file.url.modificationDate != before else { throw SaveEditFailure.notWritten }
             if tools.records.count > editsAtLoad, let last = tools.records.last {

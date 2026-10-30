@@ -67,8 +67,9 @@ public enum SaveKey {
     public static func validate(_ key: String) -> String? {
         guard (1 ... 128).contains(key.utf8.count),
               key.utf8
-              .allSatisfy({ (UInt8(ascii: "a") ... UInt8(ascii: "z")).contains($0) || (UInt8(ascii: "A") ... UInt8(ascii: "Z")).contains($0)
-                      || (UInt8(ascii: "0") ... UInt8(ascii: "9")).contains($0) || "_.:-".utf8.contains($0) })
+                  .allSatisfy({
+                      (UInt8(ascii: "a") ... UInt8(ascii: "z")).contains($0) || (UInt8(ascii: "A") ... UInt8(ascii: "Z")).contains($0)
+                          || (UInt8(ascii: "0") ... UInt8(ascii: "9")).contains($0) || "_.:-".utf8.contains($0) })
         else { return nil }
         return key.replacingOccurrences(of: ":", with: "_")
     }
@@ -230,16 +231,37 @@ public enum SaveVault {
         }.sorted { $0.manifest.timestamp > $1.manifest.timestamp }
     }
 
-    /// Keeps the newest `keep` snapshots of each automatic origin, so launches never push out the snapshot a delete or
-    /// edit promised; manual ones and pre-mod/pre-cheat backups stay.
+    /// Keeps the newest `keep` snapshots of each automatic origin; manual ones and pre-mod/pre-cheat backups stay. An
+    /// older automatic one stays too while it holds the last copy of a file gone from the live saves (slots deleted one
+    /// after another), so the Restore a delete promised can still bring it back.
     @discardableResult
     public static func prune(location: SaveLocation, keep: Int) -> Int {
-        let all = snapshots(location: location)
+        let automatic: Set<SaveProvenance.Origin> = [.beforeLaunch, .beforeEdit, .crash]
+        var seen: [SaveProvenance.Origin: Int] = [:]
+        var candidates: [(directory: URL, manifest: SaveSnapshot)] = []
+        // Paths that outlive the prune: the live saves and every snapshot that stays.
+        var covered: Set<String> = []
+        for (dir, name) in [(location.slots, "slots"), (location.persistent, "persistent")] {
+            for file in (try? LazyDirectoryWalker.files(under: dir)) ?? [] {
+                covered.insert("\(name)/\(file.relativePath)")
+            }
+        }
+        for snapshot in snapshots(location: location) {
+            let origin = snapshot.manifest.provenance.origin
+            seen[origin, default: 0] += 1
+            if automatic.contains(origin), seen[origin, default: 0] > keep {
+                candidates.append(snapshot)
+            } else {
+                covered.formUnion(snapshot.manifest.files)
+            }
+        }
         var removed = 0
-        for origin: SaveProvenance.Origin in [.beforeLaunch, .beforeEdit, .crash] {
-            let old = all.filter { $0.manifest.provenance.origin == origin }.dropFirst(keep)
-            for snapshot in old where (try? FileManager.default.removeItem(at: snapshot.directory)) != nil {
+        // Newest first: one kept for a deleted file covers the same file in older ones.
+        for snapshot in candidates {
+            if snapshot.manifest.files.allSatisfy(covered.contains), (try? FileManager.default.removeItem(at: snapshot.directory)) != nil {
                 removed += 1
+            } else {
+                covered.formUnion(snapshot.manifest.files)
             }
         }
         return removed
