@@ -19,8 +19,6 @@ struct PlayerScreen: View {
     let snapshot: DetectionSnapshot
     @State var host: RuntimeHostViewController
     @State var failure: String?
-    @State var notice: String?
-    @State private var thermalState = ProcessInfo.processInfo.thermalState
     @State var leaving = false
     @State var menuShown = false
     @State var editingControls = false
@@ -35,14 +33,10 @@ struct PlayerScreen: View {
     /// A boot failure is being handled; the engine's repeated reports of it are dropped.
     @State var failing = false
     @State var pausedFrame: UIImage?
-    /// The engine is still starting; shown only if that takes longer than a second.
-    @State var starting = false
-    /// A web game's files loaded so far and the last error its page reported, until the launch settles: the first
-    /// picture, then two seconds with no file asked for. A 4 GB game shows it is still loading, not a black screen.
-    @State var loaded: (files: Int, bytes: Int64)?
-    @State var pageError: String?
+    /// The starting note and the passing notices at the bottom, hosted in the runtime host's overlay.
+    @State var notes = PlayerNotes()
+    @State var notesHost: UIHostingController<PlayerNotesView>?
     @State var introReached = false
-    @State var launchSettled = false
     @State var settleTask: Task<Void, Never>?
     @AppStorage("omniplay.controls.opacity") var controlsOpacity = 0.8
 
@@ -96,43 +90,17 @@ struct PlayerScreen: View {
                     .transition(.opacity)
                 }
             }
-            // The start, at the bottom: the game's own picture keeps the middle of the screen.
-            .overlay(alignment: .bottom) {
-                if starting || (!launchSettled && loaded != nil) {
-                    VStack(alignment: .leading, spacing: Theme.s1) {
-                        HStack(spacing: Theme.s3) {
-                            ProgressView().tint(Theme.textPrimary)
-                            Text(loaded == nil ? "Starting \(game.title)…" : "Loading game files…")
-                                .font(.footnote).foregroundStyle(Theme.textPrimary).lineLimit(1)
-                        }
-                        if let loaded {
-                            Text("\(loaded.files) files · \(loaded.bytes.formatted(.byteCount(style: .file)))")
-                                .font(.caption.monospacedDigit()).foregroundStyle(Theme.textSecondary)
-                        }
-                        if let pageError {
-                            Text(pageError).font(.caption).foregroundStyle(Theme.textSecondary).lineLimit(2)
-                        }
-                    }
-                    .padding(.horizontal, Theme.s4).padding(.vertical, 12)
-                    .frame(maxWidth: 360, alignment: .leading)
-                    .glass(radius: Theme.listRadius, heavy: true)
-                    .accessibilityElement(children: .combine)
-                    .transition(.opacity)
-                    .padding(.bottom, Theme.s8)
-                }
-            }
-            .overlay(alignment: .bottom) {
-                if let notice = notice ?? thermalNotice {
-                    Text(notice).font(.footnote).foregroundStyle(Theme.textPrimary).padding(.horizontal, Theme.s4).padding(.vertical, 10)
-                        .glass(Capsule(), heavy: true)
-                        .padding(.bottom, Theme.s8)
-                        .transition(.opacity)
-                }
-            }
             .task { await start() }
             .onReceive(NotificationCenter.default.publisher(for: ProcessInfo.thermalStateDidChangeNotification)
                 .receive(on: RunLoop.main)) { _ in
-                    thermalState = ProcessInfo.processInfo.thermalState
+                    notes.thermal = ProcessInfo.processInfo.thermalState
+            }
+            // The media overlay says what is happening meanwhile; the wait for the engine is counted from its end.
+            .onChange(of: model.preparingMedia == nil) { _, done in
+                notes.preparingMedia = !done
+                if done {
+                    notes.since = .now
+                }
             }
             .onChange(of: scenePhase) { _, phase in
                 overlay.sceneActive = phase == .active
@@ -234,11 +202,176 @@ struct PlayerScreen: View {
                 Text(failure ?? "")
             }
     }
+}
 
-    private var thermalNotice: String? {
-        switch thermalState {
+extension PlayerScreen {
+    /// A watched native engine drew for the first time: the starting note goes.
+    func firstPicture() {
+        OPLog.log(.ui, .info, "launch timing: first frame after \(Self.ms(since: startedAt)) ms")
+        notes.settled = true
+    }
+
+    /// The notes ride in the overlay like the controls, above them and below the host's pause button; only the leave
+    /// button takes touches.
+    func installNotes() {
+        let surface = ControlsPassthroughView()
+        let controller = UIHostingController(rootView: PlayerNotesView(notes: notes, title: game.title) { [weak surface] region in
+            surface?.regions = region.map { [$0] } ?? []
+        })
+        hostInOverlay(controller, surface: surface, at: 1)
+        notesHost = controller
+    }
+
+    /// Puts a hosted SwiftUI layer into the runtime host's overlay, at `index` among its subviews, filling it.
+    func hostInOverlay(_ controller: UIViewController, surface: ControlsPassthroughView, at index: Int) {
+        surface.backgroundColor = .clear
+        surface.translatesAutoresizingMaskIntoConstraints = false
+        controller.view.backgroundColor = .clear
+        controller.view.translatesAutoresizingMaskIntoConstraints = false
+        host.addChild(controller)
+        host.overlayView.insertSubview(surface, at: index)
+        surface.addSubview(controller.view)
+        NSLayoutConstraint.activate([
+            surface.topAnchor.constraint(equalTo: host.overlayView.topAnchor),
+            surface.bottomAnchor.constraint(equalTo: host.overlayView.bottomAnchor),
+            surface.leadingAnchor.constraint(equalTo: host.overlayView.leadingAnchor),
+            surface.trailingAnchor.constraint(equalTo: host.overlayView.trailingAnchor),
+            controller.view.topAnchor.constraint(equalTo: surface.topAnchor),
+            controller.view.bottomAnchor.constraint(equalTo: surface.bottomAnchor),
+            controller.view.leadingAnchor.constraint(equalTo: surface.leadingAnchor),
+            controller.view.trailingAnchor.constraint(equalTo: surface.trailingAnchor),
+        ])
+        controller.didMove(toParent: host)
+    }
+}
+
+/// What the bottom of the game says: the starting note until the game's first picture, then any passing notice.
+@Observable @MainActor
+final class PlayerNotes {
+    /// The launch has taken over a second; the note is up until `settled`.
+    var shown = false
+    /// The first picture is on screen (and a web game has gone quiet), or the launch failed.
+    var settled = false
+    /// A web game's files loaded so far and the last error its page reported. A 4 GB game shows it is still loading.
+    var loaded: (files: Int, bytes: Int64)?
+    var pageError: String?
+    /// What the engine does before its first picture, said once the screen has stayed black a while.
+    var stage: String?
+    /// When the wait for the engine began.
+    var since = Date.now
+    var preparingMedia = false
+    var notice: String?
+    var thermal = ProcessInfo.processInfo.thermalState
+    var onLeave: @MainActor () -> Void = {}
+
+    var starting: Bool { (shown || loaded != nil) && !settled && !preparingMedia }
+
+    /// A new launch on `runtime`: the note comes back after a second, counting from now.
+    func restart(runtime: RuntimeIdentifier?, firstStart: Bool) {
+        (shown, settled, loaded, pageError, since) = (false, false, nil, nil, .now)
+        stage = Self.stage(of: runtime, firstStart: firstStart)
+    }
+
+    /// What each engine does before its first picture, as its adapter does it; nil where there is nothing to add.
+    static func stage(of runtime: RuntimeIdentifier?, firstStart: Bool) -> String? {
+        switch runtime {
+        case .renpy:
+            firstStart ? "Ren'Py is loading the game's scripts. The first start also builds its caches, so it takes longer."
+                : "Ren'Py is loading the game's scripts."
+        case .godot(bucket: .v44), .godot(bucket: .v47):
+            firstStart ? "Godot is loading the game. The first start also compiles its shaders, so it takes longer."
+                : "Godot is loading the game."
+        case .godot: "Godot is loading the game."
+        case .rgss: "Starting the RPG Maker engine, then the game's scripts."
+        case .easyrpg: "EasyRPG is reading the game's data."
+        case .scummvm: "ScummVM is identifying the game and starting its engine."
+        case .web: "The game's page is loading."
+        default: nil
+        }
+    }
+
+    var bottomNotice: String? {
+        if let notice {
+            return notice
+        }
+        return switch thermal {
         case .serious, .critical: "Your iPhone is warm. Save your progress and pause to let it cool."
         default: nil
+        }
+    }
+}
+
+/// The starting note and the notice capsule, stacked at the bottom: the game's own picture keeps the middle. Hosted in
+/// the runtime host's overlay because a native engine's window draws above this screen.
+struct PlayerNotesView: View {
+    let notes: PlayerNotes
+    let title: String
+    /// The leave button's frame, so only it takes touches from the game.
+    let onHitRegion: (CGRect?) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Black this long and the note says what the engine is doing.
+    static let explainAfter = 5.0
+
+    var body: some View {
+        VStack(spacing: Theme.s2) {
+            if notes.starting {
+                TimelineView(.periodic(from: notes.since, by: 1)) { context in
+                    startingNote(waited: context.date.timeIntervalSince(notes.since))
+                }
+                .transition(.opacity)
+            }
+            if let notice = notes.bottomNotice {
+                Text(notice).font(.footnote).foregroundStyle(Theme.textPrimary).padding(.horizontal, Theme.s4).padding(.vertical, 10)
+                    .glass(Capsule(), heavy: true)
+                    .transition(.opacity)
+            }
+        }
+        .padding(.bottom, Theme.s8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .animation(reduceMotion ? nil : Theme.quick, value: notes.starting)
+        .animation(reduceMotion ? nil : Theme.quick, value: notes.bottomNotice)
+    }
+
+    private func startingNote(waited: Double) -> some View {
+        // As long as the native watchdog gives an engine for its first frame: past it the game may be stuck.
+        let long = waited >= NativeWatchdog.firstFrameLimit
+        let time = Duration.seconds(Int(waited)).formatted(.units(allowed: [.minutes, .seconds], width: .abbreviated))
+        return VStack(alignment: .leading, spacing: Theme.s1) {
+            HStack(spacing: Theme.s3) {
+                ProgressView().tint(Theme.textPrimary)
+                Text(notes.loaded == nil ? "Starting \(title)…" : "Loading game files…")
+                    .font(.footnote).foregroundStyle(Theme.textPrimary).lineLimit(1)
+            }
+            if let loaded = notes.loaded {
+                Text("\(loaded.files) files · \(loaded.bytes.formatted(.byteCount(style: .file)))")
+                    .font(.caption.monospacedDigit()).foregroundStyle(Theme.textSecondary)
+            }
+            if long {
+                Text("Still working after \(time). Leave the game if the screen stays black.")
+                    .font(.caption).foregroundStyle(Theme.textSecondary).lineLimit(2)
+            } else if waited >= Self.explainAfter {
+                Text([notes.stage, "Waiting \(time)."].compactMap(\.self).joined(separator: " "))
+                    .font(.caption).foregroundStyle(Theme.textSecondary).lineLimit(3)
+            }
+            if let pageError = notes.pageError {
+                Text(pageError).font(.caption).foregroundStyle(Theme.textSecondary).lineLimit(2)
+            }
+            if long {
+                Button("Leave game") { notes.onLeave() }
+                    .buttonStyle(PillButtonStyle(kind: .secondary, height: 32))
+                    .frame(minHeight: 44)
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { onHitRegion($0) }
+                    .onDisappear { onHitRegion(nil) }
+            }
+        }
+        .padding(.horizontal, Theme.s4).padding(.vertical, 12)
+        .frame(maxWidth: 360, alignment: .leading)
+        .glass(radius: Theme.listRadius, heavy: true)
+        .accessibilityElement(children: .combine)
+        .accessibilityActions {
+            if long {
+                Button("Leave game") { notes.onLeave() }
+            }
         }
     }
 }

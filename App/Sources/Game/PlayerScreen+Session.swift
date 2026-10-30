@@ -77,6 +77,11 @@ extension PlayerScreen {
         if controls == nil {
             installControls()
         }
+        if notesHost == nil {
+            installNotes()
+        }
+        notes.onLeave = { Task { await leave() } }
+        NativeWatchdog.onFirstFrame = { firstPicture() }
         host.onPauseRequested = { Task { await pause() } }
         host.onPauseFrame = { overlay.pauseFrame = $0 }
         host.onEvent = { event in handle(event) }
@@ -113,17 +118,20 @@ extension PlayerScreen {
             // UX-PERF-001: Play to the engine's first picture (the web runtime: RPG Maker's scene loop running).
             OPLog.log(.ui, .info, "launch timing: \(grade) after \(Self.ms(since: startedAt)) ms")
             introReached = true
+            // RGSS, EasyRPG and ScummVM open their window before the game draws: the watchdog says when it does.
+            guard !NativeWatchdog.awaitingFirstFrame else { return }
+            guard notes.loaded != nil else { notes.settled = true; return }
             settleSoon()
             // A game that streams its files as it plays never goes quiet; the note is for the start only.
             Task {
                 try? await Task.sleep(for: .seconds(8))
-                withAnimation(reduceMotion ? nil : Theme.quick) { launchSettled = true }
+                notes.settled = true
             }
-        case let .loading(files, bytes) where !launchSettled:
-            loaded = (files, bytes)
+        case let .loading(files, bytes) where !notes.settled:
+            notes.loaded = (files, bytes)
             settleSoon()
-        case let .log(.javascript, line) where !launchSettled && line.hasPrefix("[error] "):
-            pageError = "The game reported: " + line.dropFirst(8)
+        case let .log(.javascript, line) where !notes.settled && line.hasPrefix("[error] "):
+            notes.pageError = "The game reported: " + line.dropFirst(8)
         default:
             break
         }
@@ -135,7 +143,7 @@ extension PlayerScreen {
         settleTask = Task {
             try? await Task.sleep(for: .seconds(2))
             guard !Task.isCancelled, introReached else { return }
-            withAnimation(reduceMotion ? nil : Theme.quick) { launchSettled = true }
+            notes.settled = true
         }
     }
 
@@ -177,18 +185,25 @@ extension PlayerScreen {
         self.capture = capture
     }
 
-    /// Starts the runtime, with the "Starting…" note when that takes over a second.
+    /// Starts the runtime, with the "Starting…" note when that takes over a second; it stays until the first picture.
     func launch() async {
+        introReached = false
+        notes.restart(runtime: model.pendingFallback[game.id] ?? snapshot.resolution.selectedRuntime, firstStart: game.lastPlayedAt == nil)
         let startingNote = Task {
             try await Task.sleep(for: .seconds(1))
-            withAnimation(reduceMotion ? nil : Theme.quick) { starting = true }
+            notes.shown = true
         }
+        // A launch that fails or is left takes the note down; one that starts keeps it until the first picture.
+        var started = false
         defer {
-            startingNote.cancel()
-            starting = false
+            if !started {
+                startingNote.cancel()
+                notes.settled = true
+            }
         }
         do {
             _ = try await model.play(game, snapshot: snapshot, host: host)
+            started = true
             // Paused while preparing or starting: the coordinator could not pause then, so it is paused now, before
             // a native engine's window covers the menu.
             if overlay.paused {
@@ -250,16 +265,16 @@ extension PlayerScreen {
                 await model.stopPlaying(reason: .crash(detail: message))
                 guard !leaving else { return }
                 if let runtime = await model.fallbackCandidate(for: game, snapshot: snapshot, failure: category, elapsed: elapsed) {
-                    withAnimation(reduceMotion ? nil : Theme.quick) {
-                        notice = "Trying a compatible runtime (\(DetectionExplainer.name(runtime)))…"
-                    }
+                    // Flashed, not set: a retry that plays must not keep the line over the game.
+                    flash("Trying a compatible runtime (\(DetectionExplainer.name(runtime)))…", seconds: 8)
                     failing = false
                     await start()
                     return
                 }
             }
             model.fallbackFailed(for: game.id)
-            notice = nil
+            notes.notice = nil
+            notes.settled = true
             // A hung engine's own window stays key above the app's and would hide the alert.
             if host.engineWindow?.isHidden == false {
                 host.showFrozenFrame(nil)
@@ -275,8 +290,6 @@ extension PlayerScreen {
     /// is what you are actually looking at.
     func installControls() {
         let surface = ControlsPassthroughView()
-        surface.backgroundColor = .clear
-        surface.translatesAutoresizingMaskIntoConstraints = false
         let controller = UIHostingController(rootView: OverlayControls(
             overlay: overlay,
             onHitRegions: { [weak surface] regions in surface?.regions = regions },
@@ -284,22 +297,7 @@ extension PlayerScreen {
             onFastForward: { multiplier in Task { await model.coordinator?.setFastForward(multiplier) } },
             send: { model.send($0) }
         ))
-        controller.view.backgroundColor = .clear
-        controller.view.translatesAutoresizingMaskIntoConstraints = false
-        host.addChild(controller)
-        host.overlayView.insertSubview(surface, at: 0)
-        surface.addSubview(controller.view)
-        NSLayoutConstraint.activate([
-            surface.topAnchor.constraint(equalTo: host.overlayView.topAnchor),
-            surface.bottomAnchor.constraint(equalTo: host.overlayView.bottomAnchor),
-            surface.leadingAnchor.constraint(equalTo: host.overlayView.leadingAnchor),
-            surface.trailingAnchor.constraint(equalTo: host.overlayView.trailingAnchor),
-            controller.view.topAnchor.constraint(equalTo: surface.topAnchor),
-            controller.view.bottomAnchor.constraint(equalTo: surface.bottomAnchor),
-            controller.view.leadingAnchor.constraint(equalTo: surface.leadingAnchor),
-            controller.view.trailingAnchor.constraint(equalTo: surface.trailingAnchor),
-        ])
-        controller.didMove(toParent: host)
+        hostInOverlay(controller, surface: surface, at: 0)
         controls = controller
         controlsSurface = surface
     }
@@ -340,10 +338,12 @@ extension PlayerScreen {
 
     /// Shows a line over the game for a while, then clears it.
     func flash(_ line: String, seconds: Int) {
-        withAnimation(reduceMotion ? nil : Theme.quick) { notice = line }
+        notes.notice = line
         Task {
             try? await Task.sleep(for: .seconds(seconds))
-            withAnimation(reduceMotion ? nil : Theme.quick) { notice = nil }
+            if notes.notice == line {
+                notes.notice = nil
+            }
         }
     }
 
@@ -368,6 +368,8 @@ extension PlayerScreen {
         closeMenu()
         capture?.stop()
         CrashGuard.onThreadCrash = nil
+        NativeWatchdog.onFirstFrame = nil
+        notes.settled = true
         removeControls()
         await model.stopPlaying()
         if let warning = model.saveWarning {

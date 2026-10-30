@@ -34,6 +34,12 @@ public final class NativeWatchdog {
     /// Running this long without a first frame is a hang too, not a slow load; a cold RGSS boot measured about 11 s.
     public static let firstFrameLimit: Double = 30
 
+    /// From a watchdog's start until its engine first draws. These engines open their window before the game draws,
+    /// so the player screen keeps its starting note up until then rather than leave the player on black.
+    public private(set) static var awaitingFirstFrame = false
+    /// Told once, when the watched engine first draws.
+    public static var onFirstFrame: (@MainActor () -> Void)?
+
     private let read: @MainActor () -> Reading
     private let onStall: @MainActor (Double) -> Void
     private var task: Task<Void, Never>?
@@ -52,6 +58,7 @@ public final class NativeWatchdog {
 
     public func start() {
         task?.cancel()
+        Self.awaitingFirstFrame = !hasDrawn
         task = Task { [weak self] in
             while !Task.isCancelled {
                 do { try await Task.sleep(for: NativeWatchdog.interval) } catch { return }
@@ -65,6 +72,7 @@ public final class NativeWatchdog {
         task?.cancel()
         task = nil
         stalledSince = nil
+        Self.awaitingFirstFrame = false
     }
 
     /// The shared stall report: the stall event, a log line, and past `hangLimit` the player-facing failure.
@@ -90,6 +98,10 @@ public final class NativeWatchdog {
         // or under Control Center draws nothing on purpose.
         guard !reading.paused, Self.appActive else { stalledSince = nil; return }
         if reading.framesPerSecond >= Self.stallFPS {
+            if !hasDrawn {
+                Self.awaitingFirstFrame = false
+                Self.onFirstFrame?()
+            }
             hasDrawn = true
         } else if !hasDrawn {
             waitedForFirstFrame += Self.interval / .seconds(1)
