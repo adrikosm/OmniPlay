@@ -17,6 +17,10 @@ if [[ -z "$udid" ]]; then
   udid="$(xcrun simctl create "$name" "$dt" "$rt")"; echo "created simulator $name ($ios): $udid"
 fi
 xcrun simctl boot "$udid" 2>/dev/null || true
+# PosterBoard (lock screen wallpapers) is not needed here, and a damaged poster store makes it crash-loop with a macOS
+# "PosterBoard quit unexpectedly" dialog every few seconds. Off until the simulator next boots.
+xcrun simctl spawn "$udid" launchctl disable system/com.apple.PosterBoard 2>/dev/null || true
+xcrun simctl spawn "$udid" launchctl bootout system/com.apple.PosterBoard 2>/dev/null || true
 xcodebuild -project OmniPlay.xcodeproj -scheme OmniPlay -destination "id=$udid" -derivedDataPath .build/DerivedData CODE_SIGNING_ALLOWED=NO build -quiet
 app="$(find .build/DerivedData/Build/Products/Debug-iphonesimulator -maxdepth 1 -name OmniPlay.app)"
 xcrun simctl install "$udid" "$app"
