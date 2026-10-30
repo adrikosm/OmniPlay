@@ -11,6 +11,7 @@ struct CheatsView: View {
     let tools: MutationEngine
     let game: GameRecord
     @Environment(\.accessibilityReduceMotion) var reduceMotion
+    @Environment(AppModel.self) var model
     @State var setup: CheatHeader?
     @State var roster: [RosterMember] = []
     @State var stats: [ActorStat] = []
@@ -27,8 +28,9 @@ struct CheatsView: View {
     @State var undoProblem: String?
     @State var undoing = false
     @State var pendingWarning: (cheat: CheatDefinition, parameters: [String: Int])?
-    /// Steps faster than the game's own walking speed (0 to 3), as the game reports it.
+    /// Steps faster than the game's own walking speed (0 to 3), as the game reports it, and that own speed.
     @State var speed = 0
+    @State var baseSpeed: Int?
 
     @Wide var wide
 
@@ -180,7 +182,7 @@ struct CheatsView: View {
             VStack(alignment: .leading, spacing: Theme.s2) {
                 line(header)
                 GlassSegmentBar(
-                    items: Self.speeds,
+                    items: AppModel.walkingSpeeds(base: baseSpeed),
                     selection: Binding(get: { speed }, set: { new in Task { await setSpeed(new) } }),
                     fill: true
                 )
@@ -192,8 +194,6 @@ struct CheatsView: View {
             line(header)
         }
     }
-
-    static let speeds = [(0, "Normal"), (1, "2×"), (2, "4×"), (3, "8×")]
 
     func line(_ header: CheatHeader) -> some View {
         let message = header.catalogID.flatMap { messages[$0] }
@@ -226,6 +226,9 @@ struct CheatsView: View {
         if case .actor(.godMode) = header, !roster.isEmpty {
             let on = roster.count { known[.actorProperty(actorID: $0.id, .godMode)] == .bool(true) }
             return "\(on) of \(roster.count) on · " + header.summary
+        }
+        if case .speed = header, let baseSpeed {
+            return "The game walks at \(baseSpeed). Each step doubles it, and this game keeps your choice."
         }
         return header.summary
     }

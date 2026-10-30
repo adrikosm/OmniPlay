@@ -45,12 +45,15 @@ extension CheatsView {
         guard tools.capabilities.contains(.patches),
               case let .int(steps)? = try? await tools.read(StateWire.patch("moveSpeed")) else { return }
         speed = steps
+        if case let .int(base)? = try? await tools.read(StateWire.patch("baseMoveSpeed")) {
+            baseSpeed = base
+        }
     }
 
     func setSpeed(_ steps: Int) async {
         let old = speed
         speed = steps
-        let result = await tools.apply(.setValue(.int(steps)), to: StateWire.patch("moveSpeed"))
+        guard let result = await model.setWalkingSpeed(steps, for: game.id) else { return }
         if result.result == .rejected {
             speed = old
             undoProblem = result.validation.first?.message ?? "The game did not accept the new speed."

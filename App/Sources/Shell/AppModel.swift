@@ -283,6 +283,7 @@ final class AppModel {
             tools = MutationEngine(inspector: inspector) {
                 _ = try await SaveVault.snapshot(location: saves, identityHash: identity, reason: .beforeEdit)
             }
+            restoreWalkingSpeed(for: record.id)
         }
         #if DEBUG
             debugFaultIfRequested()

@@ -6,8 +6,9 @@
 // Target:  {kind: "variable"|"switch"|"gold"|"item"|"weapon"|"armor"|"partyMember"|"actor"|"system"|"position"
 //           |"selfSwitch"|"patch", id, prop, param, map, event, key, flag, name}
 // Patches are named, typed changes to the game's behaviour for the cheat catalog (never code from the host):
-// noEncounters, noclip, godMode, saveAnywhere, menuAnywhere (on/off), moveSpeed (0 to 3 steps faster) and debugMenu
-// (setting it opens the game's own debug scene). Enemies are the troop of the battle in progress, by place.
+// noEncounters, noclip, godMode, saveAnywhere, menuAnywhere (on/off), moveSpeed (0 to 3 steps faster; baseMoveSpeed,
+// read-only, is the game's own) and debugMenu (setting it opens the game's own debug scene). Enemies are the troop of
+// the battle in progress, by place.
 (function () {
   'use strict';
   if (window.__omniplayState) return;
@@ -100,6 +101,7 @@
       case 'saveAnywhere': return patches.saveAnywhere;
       case 'menuAnywhere': return patches.menuAnywhere;
       case 'moveSpeed': return patches.moveSpeed;
+      case 'baseMoveSpeed': return $gamePlayer.moveSpeed(); // the game's own, for labels in RPG Maker's numbers
       case 'debugMenu':
         return typeof Scene_Debug !== 'undefined' &&
           (SceneManager._nextScene instanceof Scene_Debug || SceneManager._scene instanceof Scene_Debug);

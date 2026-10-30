@@ -359,6 +359,8 @@ module OmniPlay
       when "saveAnywhere" then save_anywhere?
       when "menuAnywhere" then menu_anywhere?
       when "moveSpeed" then move_speed
+      # The game's own speed: XP's boost is only added inside update_move.
+      when "baseMoveSpeed" then $game_player.instance_variable_get(:@move_speed).to_i
       when "debugMenu"
         next_scene = defined?(SceneManager) ? SceneManager.scene : $scene
         defined?(Scene_Debug) && next_scene.is_a?(Scene_Debug) ? true : false

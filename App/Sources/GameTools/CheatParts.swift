@@ -137,7 +137,7 @@ enum CheatHeader: Identifiable, Hashable {
         case .actor(.exp): "Crossing a threshold levels the character up."
         case .gold: "The party's money."
         case let .catalog(cheat): cheat.summary
-        case .speed: "How fast the player walks. Each step doubles it."
+        case .speed: "How fast the player walks. Each step doubles it, and this game keeps your choice."
         case .teleport: "Jump to another spot or map, and save spots to come back to."
         case .enemies: "In a battle: change an enemy's health, defeat it at once, or bring it back."
         case .variables: "Every value the game keeps, searchable by name or by value."

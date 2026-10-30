@@ -1,6 +1,7 @@
 import Diagnostics
 import Foundation
 import GameCore
+import GameTools
 import InputKit
 import RuntimeCore
 import SwiftUI
@@ -56,6 +57,8 @@ struct PauseMenu: View {
     @Environment(AppModel.self) private var model
     /// The row a controller's D-pad is on; nil until a controller is used, so touch never shows a ring.
     @State private var focus: Item?
+    /// RPG Maker's walking speed once a game is started or loaded: the steps picked and the game's own speed.
+    @State private var walk: (steps: Int, base: Int?)?
 
     /// What a controller can reach: up and down move through these, A presses, B or Options resumes.
     enum Item: Hashable { case resume, screenshot, cover, tools, controls, engineMenu, logs, leave }
@@ -243,8 +246,44 @@ struct PauseMenu: View {
                 .padding(.top, 22)
                 .rise(4)
             }
+            if let walk {
+                VStack(alignment: .leading, spacing: Theme.s2) {
+                    Text("Walking speed").font(.footnote.weight(.semibold)).foregroundStyle(Theme.textSecondary)
+                    GlassSegmentBar(
+                        items: AppModel.walkingSpeeds(base: walk.base),
+                        selection: Binding(get: { walk.steps }, set: { new in Task { await setWalk(new) } })
+                    )
+                    .fixedSize()
+                    .accessibilityLabel("Walking speed")
+                }
+                .padding(.top, Theme.s4)
+                .rise(5)
+            }
         }
         .frame(maxHeight: .infinity, alignment: .center)
+        .task { await readWalk() }
+    }
+
+    private func readWalk() async {
+        guard let tools = model.tools, tools.capabilities.contains(.patches),
+              case let .int(steps)? = try? await tools.read(StateWire.patch("moveSpeed")) else { return }
+        var base: Int?
+        if case let .int(value)? = try? await tools.read(StateWire.patch("baseMoveSpeed")) {
+            base = value
+        }
+        walk = (steps, base)
+    }
+
+    /// Kept for this game's next sessions too (`AppModel.setWalkingSpeed`); back to the old choice if the game refuses.
+    private func setWalk(_ steps: Int) async {
+        let old = walk?.steps
+        walk?.steps = steps
+        guard let result = await model.setWalkingSpeed(steps, for: gameID) else { return }
+        if result.result == .rejected {
+            walk?.steps = old ?? 0
+        } else if case let .int(now) = result.effectiveValue {
+            walk?.steps = now
+        }
     }
 
     // MARK: Right
