@@ -278,7 +278,8 @@ extension GameDetailView {
     func choose(_ runtime: RuntimeIdentifier?) async {
         if let resolution = await model.chooseRuntime(runtime, for: game.id) {
             // The picker looked at the files again first: the report may be new too.
-            snapshot = AppModel.snapshot(for: game.id, paths: model.paths) ?? snapshot
+            let (id, paths) = (game.id, model.paths)
+            snapshot = await Task.detached { AppModel.snapshot(for: id, paths: paths) }.value ?? snapshot
             snapshot?.resolution = resolution
         }
     }

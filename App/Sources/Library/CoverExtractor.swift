@@ -88,6 +88,9 @@ enum CoverExtractor {
         var found: [Candidate] = [], seen: Set<String> = [], pixels: Set<SHA256Digest> = []
         var coverCategory: Int?
         for source in sources(engine: engine, files: files) where seen.insert(source.path.lowercased()).inserted {
+            if Task.isCancelled {
+                break
+            }
             if stopAtCover, let coverCategory, source.category > coverCategory {
                 break
             }

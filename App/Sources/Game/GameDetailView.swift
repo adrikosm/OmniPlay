@@ -71,7 +71,9 @@ struct GameDetailView: View {
                     VStack(spacing: 0) {
                         hero.frame(maxWidth: .infinity, alignment: .topLeading)
                         Spacer(minLength: Theme.s4)
-                        hint { withAnimation(Theme.settle) { proxy.scrollTo("technical", anchor: .top) } }
+                        hint {
+                            withAnimation(Theme.motion(Theme.settle, reduce: reduceMotion)) { proxy.scrollTo("technical", anchor: .top) }
+                        }
                     }
                     .frame(minHeight: max(viewport, 0))
                     technical.id("technical").padding(.top, Theme.s8)

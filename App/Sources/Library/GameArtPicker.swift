@@ -103,7 +103,7 @@ struct GameArtPicker: View {
     private func load() async {
         let (id, engine, root, paths) = (game.id, game.engine, game.rootRelPath, model.paths)
         let stream = AsyncStream<Tile> { continuation in
-            Task.detached {
+            let work = Task.detached {
                 _ = CoverExtractor.candidates(game: id, engine: engine, rootRelativePath: root, paths: paths) { candidate in
                     let image = candidate.isIcon ? CoverExtractor.compose(icon: candidate.image) : candidate.image
                     if let image {
@@ -112,6 +112,8 @@ struct GameArtPicker: View {
                 }
                 continuation.finish()
             }
+            // Closing the sheet stops the search instead of decoding the rest of the game's pictures for nobody.
+            continuation.onTermination = { _ in work.cancel() }
         }
         for await tile in stream {
             tiles.append(tile)

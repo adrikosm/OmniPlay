@@ -66,7 +66,7 @@ extension LibraryContent {
             Section {
                 Button("New collection", systemImage: "plus.rectangle.on.rectangle") { name(adding: nil) }
                 if case let .collection(id) = viewModel.filter, let current = viewModel.collections.first(where: { $0.id == id }) {
-                    Button("Delete \"\(current.name)\"", systemImage: "trash", role: .destructive) { viewModel.deleteCollection(id) }
+                    Button("Delete \"\(current.name)\"…", systemImage: "trash", role: .destructive) { pendingCollectionDelete = current }
                 }
             }
         } label: {
@@ -209,16 +209,7 @@ extension LibraryContent {
         Button(game.hidden ? "Show in library" : "Hide", systemImage: game.hidden ? "eye" : "eye.slash") {
             viewModel.setHidden(game, !game.hidden)
         }
-        let memberships = viewModel.memberships(of: game)
-        Menu("Collections", systemImage: "rectangle.stack") {
-            ForEach(viewModel.collections) { collection in
-                let member = memberships.contains(collection.id)
-                Button(collection.name, systemImage: member ? "checkmark" : "rectangle") {
-                    viewModel.setMember(game, of: collection.id, !member)
-                }
-            }
-            Button("New collection", systemImage: "plus") { name(adding: game) }
-        }
+        CollectionsMenu(viewModel: viewModel, game: game) { name(adding: game) }
         Divider()
         Button("Delete game", systemImage: "trash", role: .destructive) { pendingDelete = game }
     }
@@ -327,6 +318,27 @@ extension LibraryContent {
                     shelfError = failure.localizedDescription
                 }
             }
+        }
+    }
+}
+
+/// A cover menu's Collections, as its own view: the memberships are read from the database when the menu opens, not
+/// on every redraw of every tile while the shelf scrolls.
+struct CollectionsMenu: View {
+    let viewModel: LibraryViewModel
+    let game: GameRecord
+    let new: () -> Void
+
+    var body: some View {
+        let memberships = viewModel.memberships(of: game)
+        Menu("Collections", systemImage: "rectangle.stack") {
+            ForEach(viewModel.collections) { collection in
+                let member = memberships.contains(collection.id)
+                Button(collection.name, systemImage: member ? "checkmark" : "rectangle") {
+                    viewModel.setMember(game, of: collection.id, !member)
+                }
+            }
+            Button("New collection", systemImage: "plus", action: new)
         }
     }
 }

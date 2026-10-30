@@ -88,13 +88,14 @@ struct LibrarySearchView: View {
     let query: String
     @Environment(AppModel.self) private var model
     @State private var path: [GameRecord] = []
+    @State private var viewModel: LibraryViewModel?
     @Namespace private var zoom
 
     var body: some View {
         NavigationStack(path: $path) {
             Group {
-                if let store = model.store {
-                    SearchResults(viewModel: LibraryViewModel(store: store, paths: model.paths), query: query, zoom: zoom)
+                if let viewModel {
+                    SearchResults(viewModel: viewModel, query: query, zoom: zoom)
                 } else {
                     Color.clear.canvas()
                 }
@@ -104,11 +105,13 @@ struct LibrarySearchView: View {
                 GameDetailView(game: $0).navigationTransition(.zoom(sourceID: $0.id, in: zoom))
             }
         }
+        // Built in `body`, every keystroke made a view model and started its database observations.
+        .onChange(of: model.store.map(ObjectIdentifier.init), initial: true) { viewModel = .forStore(model, reusing: viewModel) }
     }
 }
 
 struct SearchResults: View {
-    @State var viewModel: LibraryViewModel
+    let viewModel: LibraryViewModel
     let query: String
     let zoom: Namespace.ID
 

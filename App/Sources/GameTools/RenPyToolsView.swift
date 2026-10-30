@@ -8,6 +8,7 @@ import SwiftUI
 /// changed.
 struct RenPyToolsView: View {
     @Environment(AppModel.self) var model
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
     let game: GameRecord
     let capabilities: GameToolsCapabilities
     let tools: MutationEngine?
@@ -189,10 +190,10 @@ struct RenPyToolsView: View {
             .defaultScrollAnchor(.bottom)
             .glass(radius: Theme.listRadius)
             .onChange(of: transcript.last?.id) { _, id in
-                withAnimation(Theme.snap) { proxy.scrollTo(id, anchor: .bottom) }
+                withAnimation(Theme.motion(Theme.snap, reduce: reduceMotion)) { proxy.scrollTo(id, anchor: .bottom) }
             }
         }
-        .animation(Theme.rise, value: transcript.count)
+        .animation(Theme.motion(Theme.rise, reduce: reduceMotion), value: transcript.count)
         .sensoryFeedback(trigger: transcript.count) { _, _ in transcript.last.map { $0.ok ? .success : .error } }
     }
 

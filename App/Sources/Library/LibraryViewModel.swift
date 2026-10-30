@@ -22,7 +22,7 @@ final class LibraryViewModel {
     var counts: [LibraryFilter: Int] = [:]
     /// The player's collections, for the filter bar and the cover menu (UI-007).
     var collections: [CollectionSummary] = []
-    private let store: GameStore
+    let store: GameStore
     private let paths: AppPaths
     private var observation: Task<Void, Never>?
     private var countObservation: Task<Void, Never>?
@@ -64,7 +64,14 @@ final class LibraryViewModel {
     func memberships(of game: GameRecord) -> Set<String> { (try? store.collections.memberships(of: game.id)) ?? [] }
 
     func setMember(_ game: GameRecord, of collection: String, _ on: Bool) {
-        try? store.collections.set(game.id, in: collection, member: on)
+        attempt("The collection could not be changed") { try store.collections.set(game.id, in: collection, member: on) }
+    }
+
+    /// Runs a library write; a failure lands in the shelf's error line instead of vanishing.
+    private func attempt(_ what: String, _ write: () throws -> Void) {
+        do { try write() } catch {
+            self.error = "\(what): \(error.localizedDescription)"
+        }
     }
 
     /// A new collection, with `game` in it when one is given. Names are unique regardless of case.
@@ -88,7 +95,7 @@ final class LibraryViewModel {
     }
 
     func deleteCollection(_ id: String) {
-        try? store.collections.delete(id: id)
+        attempt("The collection could not be deleted") { try store.collections.delete(id: id) }
         if filter == .collection(id) {
             filter = .all
         }
@@ -131,13 +138,13 @@ final class LibraryViewModel {
     func setFavorite(_ game: GameRecord, _ on: Bool) {
         var updated = game
         updated.favorite = on
-        try? store.games.update(updated)
+        attempt("The game could not be changed") { try store.games.update(updated) }
     }
 
     func setHidden(_ game: GameRecord, _ on: Bool) {
         var updated = game
         updated.hidden = on
-        try? store.games.update(updated)
+        attempt("The game could not be changed") { try store.games.update(updated) }
     }
 
     /// Removes the library entry and the game tree; with `keepSaves` the saves are rescued first.

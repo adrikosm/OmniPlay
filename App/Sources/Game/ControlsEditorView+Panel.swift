@@ -201,7 +201,7 @@ extension ControlsEditorView {
 
     func undo() {
         guard let last = history.popLast() else { return }
-        withAnimation(Theme.settle) { set = last }
+        withAnimation(Theme.motion(Theme.settle, reduce: reduceMotion)) { set = last }
         if let selected, current(true).anchor(target(selected)) == nil, current(false).anchor(target(selected)) == nil {
             self.selected = nil
         }

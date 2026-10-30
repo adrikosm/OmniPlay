@@ -38,14 +38,19 @@ struct CoverImage: View {
             let thumbnail = await Task.detached { Self.thumbnail(url, maxPixels: max) }.value
             guard !Task.isCancelled else { return }
             if let thumbnail {
-                Self.cache.setObject(thumbnail, forKey: key)
+                Self.cache.setObject(thumbnail, forKey: key, cost: thumbnail.bytesPerRow * thumbnail.height)
             }
             image = thumbnail
         }
     }
 
     /// Decoded tiles, so returning to the library or scrolling back does not decode (and flash) them again.
-    private static let cache = NSCache<NSString, CGImage>()
+    /// Capped so a large library's covers do not sit in memory beside a running game.
+    private static let cache: NSCache<NSString, CGImage> = {
+        let cache = NSCache<NSString, CGImage>()
+        cache.totalCostLimit = 48 << 20
+        return cache
+    }()
 
     nonisolated static func thumbnail(_ url: URL, maxPixels: Int) -> CGImage? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }

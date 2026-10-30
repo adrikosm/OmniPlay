@@ -7,14 +7,16 @@ struct LibraryView: View {
     @State var path: [GameRecord] = []
     /// Set by Continue: the game page it opens starts playing straight away.
     @State var autoplay: GameID?
+    /// Made once per store: built in `body`, every push and pop started (and dropped) its database observations.
+    @State var viewModel: LibraryViewModel?
     @Namespace var zoom
 
     var body: some View {
         NavigationStack(path: $path) {
             Group {
-                if let store = model.store {
+                if let viewModel {
                     LibraryContent(
-                        viewModel: LibraryViewModel(store: store, paths: model.paths),
+                        viewModel: viewModel,
                         path: $path,
                         autoplay: $autoplay,
                         zoom: zoom
@@ -34,6 +36,15 @@ struct LibraryView: View {
                 }
             }
         }
+        .onChange(of: model.store.map(ObjectIdentifier.init), initial: true) { viewModel = .forStore(model, reusing: viewModel) }
+    }
+}
+
+extension LibraryViewModel {
+    /// The current view model while the store is the same one, a new one when the store was reopened.
+    static func forStore(_ model: AppModel, reusing current: LibraryViewModel?) -> LibraryViewModel? {
+        guard let store = model.store else { return nil }
+        return current?.store === store ? current : LibraryViewModel(store: store, paths: model.paths)
     }
 }
 
@@ -44,7 +55,7 @@ struct LibraryContent: View {
     @Environment(AppModel.self) var model
     @Environment(\.accessibilityReduceMotion) var reduceMotion
     @Environment(\.scenePhase) var scenePhase
-    @State var viewModel: LibraryViewModel
+    @Bindable var viewModel: LibraryViewModel
     @Binding var path: [GameRecord]
     @Binding var autoplay: GameID?
     let zoom: Namespace.ID
@@ -53,6 +64,7 @@ struct LibraryContent: View {
     @State var forward = true
     @State var shelfWidth: CGFloat = 500
     @State var pendingDelete: GameRecord?
+    @State var pendingCollectionDelete: CollectionSummary?
     /// Naming a new collection; `adding` is the game it starts with, if it came from a cover's menu.
     @State var naming = false
     @State var adding: GameRecord?
@@ -152,6 +164,16 @@ struct LibraryContent: View {
                 }
             } message: { _ in
                 Text(GameDeletion.explanation)
+            }
+            .confirmationDialog(
+                "Delete \"\(pendingCollectionDelete?.name ?? "this collection")\"?",
+                isPresented: $pendingCollectionDelete.isPresent(),
+                titleVisibility: .visible,
+                presenting: pendingCollectionDelete
+            ) { collection in
+                Button("Delete collection", role: .destructive) { viewModel.deleteCollection(collection.id) }
+            } message: { _ in
+                Text("The games in it stay in your library.")
             }
             .alert("New collection", isPresented: $naming) {
                 TextField("Name", text: $newName)
